@@ -71,6 +71,17 @@ public class BashFailClosedTests
     [InlineData("git -C . rm .monarch/ledger/x")]
     public void Git_mutations_of_protected_paths_are_denied(string cmd) => Denied(cmd);
 
+    // git clean ohne Pfadangabe räumt die ganze Root, also auch noch nicht committete Ledger-Dateien (untracked, nicht ignoriert).
+    [Theory]
+    [InlineData("git clean -fd")]
+    [InlineData("git clean -f")]
+    [InlineData("git clean --force -d")]
+    [InlineData("git clean -fd -e '*.log'")]
+    [InlineData("git clean -fd --exclude=bin")]
+    [InlineData("git clean -fd .")]
+    [InlineData("git clean -fd -- .monarch")]
+    public void Git_clean_of_the_whole_tree_is_denied(string cmd) => Denied(cmd);
+
     // ---- 4. Quote-Splitting
     [Theory]
     [InlineData("rm .mon\"\"arch/ledger/x")]
@@ -239,7 +250,9 @@ public class BashFailClosedTests
     [InlineData("git checkout -b monarch/G-0100-y")]
     [InlineData("git stash")]
     [InlineData("git clean -n")]
-    [InlineData("git clean -fd")]
+    [InlineData("git clean -nd")]
+    [InlineData("git clean -fd src/")]
+    [InlineData("git clean -fd -- src tests")]
     [InlineData("dotnet test")]
     [InlineData("dotnet build -c Release")]
     [InlineData("rm -rf src/bin")]

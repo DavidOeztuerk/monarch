@@ -148,6 +148,9 @@ public static partial class ToolCallPolicy
             if (sub == "clean" && flags.Any(f => !f.StartsWith("--", StringComparison.Ordinal) && f.AsSpan(1).IndexOfAny('x', 'X') >= 0))
                 return PolicyDecision.Deny(PolicyRules.ProtectPaths,
                     "'git clean -x/-X' löscht ignorierte Dateien, darunter das Anker-Verzeichnis .monarch/local (protect_paths: .monarch/local/**).");
+            if (sub == "clean" && IsForcedClean(flags) && !HasPathspec(seg.Tokens, gi + 1))
+                return PolicyDecision.Deny(PolicyRules.ProtectPaths,
+                    "'git clean' ohne Pfadangabe räumt die ganze Root, darunter noch nicht committete Ledger-Dateien (protect_paths: .monarch/ledger/**); Pfad angeben, z. B. 'git clean -fd src/'.");
             if (sub == "stash" && flags.Any(f => f == "--all" || (!f.StartsWith("--", StringComparison.Ordinal) && f.AsSpan(1).Contains('a'))))
                 return PolicyDecision.Deny(PolicyRules.ProtectPaths,
                     "'git stash -a' erfasst ignorierte Dateien, darunter das Anker-Verzeichnis .monarch/local (protect_paths: .monarch/local/**).");
@@ -180,6 +183,26 @@ public static partial class ToolCallPolicy
         }
 
         return null;
+    }
+
+    // git clean löscht nur mit -f/--force und ohne -n/--dry-run.
+    private static bool IsForcedClean(string[] flags) =>
+        flags.Any(f => f == "--force" || (!f.StartsWith("--", StringComparison.Ordinal) && f.AsSpan(1).Contains('f')))
+        && !flags.Any(f => f == "--dry-run" || (!f.StartsWith("--", StringComparison.Ordinal) && f.AsSpan(1).Contains('n')));
+
+    // Pfadangaben nach dem Unterkommando; Werte von -e/--exclude zählen nicht.
+    private static bool HasPathspec(string[] tokens, int start)
+    {
+        for (var i = start; i < tokens.Length; i++)
+        {
+            var t = tokens[i];
+            if (t == "--") return i + 1 < tokens.Length;
+            if (t is "-e" or "--exclude" || (t.Length > 1 && t[0] == '-' && t[1] != '-' && t[^1] == 'e')) { i++; continue; }
+            if (t.StartsWith('-')) continue;
+            return true;
+        }
+
+        return false;
     }
 
     private static string? Find(List<Zone> zones, Canon paths, string token, bool destructive)
