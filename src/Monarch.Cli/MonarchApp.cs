@@ -154,6 +154,11 @@ internal static class MonarchApp
         var ledgerVerify = new Command("verify", "Verify the hash chain of all ledger files.");
         ledgerVerify.SetAction(_ => ManaCommands.LedgerVerify(env));
         ledgerCmd.Subcommands.Add(ledgerVerify);
+        var resetHash = new Argument<string>("event-hash") { Description = "Hash of the LedgerAnchorReset event, as printed by 'ledger verify'." };
+        var ledgerAck = new Command("ack-reset", "Acknowledge a ledger anchor reset (owner action).");
+        ledgerAck.Arguments.Add(resetHash);
+        ledgerAck.SetAction(r => ManaCommands.LedgerAckReset(env, r.GetValue(resetHash)!));
+        ledgerCmd.Subcommands.Add(ledgerAck);
         root.Subcommands.Add(ledgerCmd);
 
         var mcp = new Command("mcp", "Run the MCP server on stdio.");
