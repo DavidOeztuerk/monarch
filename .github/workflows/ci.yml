@@ -47,9 +47,14 @@ jobs:
           - { os: macos-latest, rid: osx-arm64 }
           - { os: ubuntu-latest, rid: linux-x64 }
     env:
-      # p99 gate in milliseconds for bench/hook-latency.sh. Same 20 ms on every runner; do not raise it without
-      # recording measured numbers from this job's log next to the new value (see bench/hook-latency.sh).
+      # Gate for bench/hook-latency.sh: 20 ms on every runner; do not raise it without recording measured numbers from
+      # this job's log next to the new value. CI gates on p95, not p99 (Q-0121): shared runners preempt sporadically.
+      # Measured on the same commit: run 40597438299 failed macOS (out-of-scope p99 41.8/52.8 ms) and Linux
+      # (126/159 ms) with p50 7.4/11.6 ms; the disk-vs-RAM experiment showed macOS spikes on a RAM disk too
+      # (denied-bash p99 20.7 ms, p50 7.5 ms), so it is scheduling noise, not ledger I/O; locally the same binary held
+      # p99 <= 11 ms. p99 <= 20 ms stays the MVP criterion and is measured on the target machine (GATE_PCT=99).
       LIMIT_MS: "20"
+      GATE_PCT: "95"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,6 +78,8 @@ jobs:
       - name: Install hyperfine and jq (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y hyperfine jq
+      - name: Latency gate self-test
+        run: bench/test-gate.sh
       - name: Hook latency (direct)
         run: bench/hook-latency.sh "$GITHUB_WORKSPACE/publish/monarch"
       - name: Hook latency (through plugin/scripts/monarch)

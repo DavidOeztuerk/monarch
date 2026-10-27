@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Measures end-to-end latency of `monarch hook pre-tool-use` (AOT binary) with hyperfine.
 # Usage: bench/hook-latency.sh [path-to-monarch-binary]   (default: publishes Release for this host first)
-# Env:   LIMIT_MS  p99 limit in ms (default 20); exit 1 if any scenario exceeds it.
+# Env:   LIMIT_MS  latency limit in ms (default 20) for the gate percentile; exit 1 if any scenario exceeds it.
+#        GATE_PCT  gate percentile: 99 (default, the MVP criterion on the target machine) or 95 (CI on shared runners,
+#                  see .github/workflows/ci.yml for the measured reason). p50/p95/p99 are always printed.
+#        BENCH_TMPDIR  parent directory for the scratch project (default $TMPDIR or /tmp).
 #        WRAPPER=1 measure through plugin/scripts/monarch (temp HOME with .monarch/bin/<version>/monarch + SHA256SUMS)
 #                  instead of calling the binary directly.
 #        RUNS     hyperfine runs per scenario (default 300).
@@ -11,6 +14,8 @@ export LC_ALL=C
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 limit_ms="${LIMIT_MS:-20}"
+gate_pct="${GATE_PCT:-99}"
+case "$gate_pct" in 95|99) ;; *) echo "GATE_PCT must be 95 or 99" >&2; exit 2 ;; esac
 bin="${1:-${MONARCH_BIN:-}}"
 if [[ -z "$bin" ]]; then
   case "$(uname -s)-$(uname -m)" in
@@ -26,7 +31,7 @@ runs="${RUNS:-300}"
 command -v hyperfine >/dev/null || { echo "hyperfine not found" >&2; exit 2; }
 command -v jq >/dev/null || { echo "jq not found" >&2; exit 2; }
 
-work="$(mktemp -d)"
+work="$(mktemp -d "${BENCH_TMPDIR:-${TMPDIR:-/tmp}}/hl.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 export MONARCH_HOME="$work/home"
 mkdir -p "$MONARCH_HOME"
@@ -65,24 +70,26 @@ input Bash '{"command":"cd /usr/local && git -C /usr/local status && ls /usr/bin
 input Edit '{"file_path":"'"$proj"'/src/deep/er/a.cs"}' "$proj" abs-target
 
 status=0
-printf '%-16s %10s %10s\n' scenario p50_ms p99_ms
-measure() { # name, dir -> prints "p50 p99"
+printf '%-16s %10s %10s %10s   (gate: p%s <= %s ms)\n' scenario p50_ms p95_ms p99_ms "$gate_pct" "$limit_ms"
+measure() { # name, dir -> prints "p50 p95 p99"
   local name="$1" dir="$2"
   (cd "$dir" && hyperfine -N --warmup 30 --runs "$runs" --input "$work/$name.json" \
     --export-json "$work/$name.result.json" "$target hook pre-tool-use" >/dev/null 2>&1)
-  jq -r '(.results[0] | (.times // [.measurements[].time_wall_clock.value])) | sort | [(.[length/2|floor]*1000), (.[((length*0.99)|ceil)-1]*1000)] | @tsv' "$work/$name.result.json"
+  jq -r '(.results[0] | (.times // [.measurements[].time_wall_clock.value])) | sort | [(.[length/2|floor]*1000), (.[((length*0.95)|ceil)-1]*1000), (.[((length*0.99)|ceil)-1]*1000)] | @tsv' "$work/$name.result.json"
 }
-# A scenario passes if p99 <= LIMIT_MS in one of up to ATTEMPTS (default 2) independent measurements: a single
-# scheduler hiccup on a shared machine must not fail the gate, a real regression fails every attempt.
+# A scenario passes if the gate percentile (p99, or p95 with GATE_PCT=95) is <= LIMIT_MS in one of up to ATTEMPTS
+# (default 2) independent measurements: a single scheduler hiccup on a shared machine must not fail the gate, a real
+# regression fails every attempt.
 run() { # name, cwd
-  local name="$1" dir="$2" attempt p50 p99 history=""
+  local name="$1" dir="$2" attempt p50 p95 p99 gate history=""
   for ((attempt = 1; attempt <= ${ATTEMPTS:-2}; attempt++)); do
-    read -r p50 p99 < <(measure "$name" "$dir")
-    history+=$(printf ' [%d: p50 %.2f p99 %.2f]' "$attempt" "$p50" "$p99")
-    if ! awk -v p="$p99" -v l="$limit_ms" 'BEGIN{exit !(p>l)}'; then break; fi
+    read -r p50 p95 p99 < <(measure "$name" "$dir")
+    history+=$(printf ' [%d: p50 %.2f p95 %.2f p99 %.2f]' "$attempt" "$p50" "$p95" "$p99")
+    if [[ $gate_pct == 95 ]]; then gate=$p95; else gate=$p99; fi
+    if ! awk -v p="$gate" -v l="$limit_ms" 'BEGIN{exit !(p>l)}'; then break; fi
   done
-  printf '%-16s %10.2f %10.2f   attempts:%s\n' "$name" "$p50" "$p99" "$history"
-  if awk -v p="$p99" -v l="$limit_ms" 'BEGIN{exit !(p>l)}'; then status=1; fi
+  printf '%-16s %10.2f %10.2f %10.2f   attempts:%s\n' "$name" "$p50" "$p95" "$p99" "$history"
+  if awk -v p="$gate" -v l="$limit_ms" 'BEGIN{exit !(p>l)}'; then status=1; fi
 }
 run in-scope "$proj"
 run out-of-scope "$proj"
@@ -90,5 +97,5 @@ run denied-bash "$proj"
 run non-awakened "$work/plain"
 run bash-targets "$proj"
 run abs-target "$proj"
-[[ $status -eq 0 ]] && echo "OK: all p99 <= ${limit_ms} ms" || echo "FAIL: p99 > ${limit_ms} ms" >&2
+[[ $status -eq 0 ]] && echo "OK: all p${gate_pct} <= ${limit_ms} ms" || echo "FAIL: p${gate_pct} > ${limit_ms} ms" >&2
 exit $status
