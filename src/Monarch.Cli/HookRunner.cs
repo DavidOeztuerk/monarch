@@ -39,9 +39,26 @@ internal static class HookRunner
 
         var cwd = !string.IsNullOrEmpty(input?.Cwd) && Path.IsPathRooted(input.Cwd) ? input.Cwd : env.Cwd;
         var primary = ProjectPaths.Locate(cwd, env.Home) ?? ProjectPaths.Locate(env.Cwd, env.Home);
-        var targets = evt == "pre-tool-use" && parseError is null && input is { ToolName: { Length: > 0 } }
-            ? TargetProjects(input, cwd, primary, env)
-            : [];
+        List<ProjectPaths> targets = [];
+        if (evt == "pre-tool-use" && parseError is null && input is { ToolName: { Length: > 0 } })
+        {
+            try
+            {
+                targets = TargetProjects(input, cwd, primary, env);
+            }
+            catch (Exception ex)
+            {
+                // Which projects the call reaches is unknown: never a silent allow.
+                if (primary is not null)
+                {
+                    Log(primary, env, evt, ex);
+                }
+
+                Emit(env, new HookSpecificOutput { HookEventName = "PreToolUse", PermissionDecision = "ask", PermissionDecisionReason = ErrorReason });
+                return 0;
+            }
+        }
+
         var paths = primary ?? (targets.Count > 0 ? targets[0] : null);
         if (paths is null)
         {
@@ -66,7 +83,7 @@ internal static class HookRunner
         }
         catch (Exception ex)
         {
-            OnError(evt, ex, paths, env);
+            OnError(evt, ex, paths, env, input);
         }
 
         return 0;
@@ -152,12 +169,12 @@ internal static class HookRunner
         var evaluated = new List<(ProjectPaths Paths, ActiveFile? Active, PolicyDecision Decision, bool Full)>();
         if (primary is not null)
         {
-            evaluated.Add(Evaluate(primary, call, env, full: true));
+            evaluated.Add(Evaluate(primary, call, env, full: true, input));
         }
 
         foreach (var t in targets)
         {
-            evaluated.Add(Evaluate(t, call, env, full: false));
+            evaluated.Add(Evaluate(t, call, env, full: false, input));
         }
 
         var decision = ToolCallPolicy.Combine(evaluated.Select(e => e.Decision));
@@ -198,12 +215,47 @@ internal static class HookRunner
         }
     }
 
-    private static (ProjectPaths, ActiveFile?, PolicyDecision, bool) Evaluate(ProjectPaths paths, ToolCall call, CliEnv env, bool full)
+    // A broken config falls back to the built-in defaults (protection and bans stay on); a broken active.json is evaluated
+    // as "no quest". Both log and add an ask, so the failure is never a silent allow.
+    private static (ProjectPaths, ActiveFile?, PolicyDecision, bool) Evaluate(ProjectPaths paths, ToolCall call, CliEnv env, bool full, HookInput input)
     {
-        var config = SystemConfigReader.Load(paths.Root);
-        var active = ActiveStore.Read(paths);
-        var ctx = new PolicyContext(paths.Root, active is null ? null : ActiveStore.ToPolicy(active), false, config.ToPolicyOptions());
-        return (paths, active, full ? ToolCallPolicy.Evaluate(call, ctx) : ToolCallPolicy.EvaluateProtection(call, ctx), full);
+        var failed = false;
+        SystemConfig config;
+        try
+        {
+            config = SystemConfigReader.Load(paths.Root);
+        }
+        catch (Exception ex)
+        {
+            Log(paths, env, "config", ex);
+            config = SystemConfig.Default;
+            failed = true;
+        }
+
+        ActiveFile? active = null;
+        ActiveQuest? quest = null;
+        var activeFailed = false;
+        try
+        {
+            active = ActiveStore.Read(paths);
+            quest = active is null ? null : ActiveStore.ToPolicy(active);
+        }
+        catch (Exception ex)
+        {
+            Log(paths, env, "active", ex);
+            active = null;
+            activeFailed = true;
+        }
+
+        var ctx = new PolicyContext(paths.Root, quest, false, config.ToPolicyOptions());
+        var decision = full ? ToolCallPolicy.Evaluate(call, ctx) : ToolCallPolicy.EvaluateProtection(call, ctx);
+        // A config error only asks from rank A upwards; below that the defaults decide on their own.
+        if (activeFailed || (failed && quest is { Rank: >= Rank.A }))
+        {
+            decision = ToolCallPolicy.Combine([decision, PolicyDecision.Ask("hook_error", ErrorReason)]);
+        }
+
+        return (paths, active, decision, full);
     }
 
     private static void SessionStart(HookInput input, ProjectPaths paths, CliEnv env)
@@ -258,7 +310,7 @@ internal static class HookRunner
         }
     }
 
-    private static void OnError(string evt, Exception ex, ProjectPaths paths, CliEnv env)
+    private static void OnError(string evt, Exception ex, ProjectPaths paths, CliEnv env, HookInput? input)
     {
         Log(paths, env, evt, ex);
         if (evt != "pre-tool-use")
@@ -266,17 +318,14 @@ internal static class HookRunner
             return;
         }
 
-        try
+        // Any failure on the PreToolUse path asks, whatever the rank (ADR-0003).
+        Emit(env, new HookSpecificOutput { HookEventName = "PreToolUse", PermissionDecision = "ask", PermissionDecisionReason = ErrorReason });
+        Append(paths, env, () =>
         {
-            if (ActiveStore.Read(paths) is { } a && ActiveStore.RankOf(a) >= Rank.A)
-            {
-                Emit(env, new HookSpecificOutput { HookEventName = "PreToolUse", PermissionDecision = "ask", PermissionDecisionReason = ErrorReason });
-            }
-        }
-        catch (Exception inner)
-        {
-            Log(paths, env, evt, inner);
-        }
+            var ledger = new ProjectLedger(paths, env.Clock);
+            ledger.Append(ledger.SessionId(input?.SessionId), input is null ? "hook" : Actor(input), "PolicyDecided", ("rule", "hook_error"), ("kind", "ask"),
+                ("tool", input?.ToolName), ("reason", ErrorReason));
+        });
     }
 
     private static void Log(ProjectPaths paths, CliEnv env, string evt, Exception ex)
@@ -295,6 +344,14 @@ internal static class HookRunner
     private static void Emit(CliEnv env, HookSpecificOutput body)
     {
         env.Out.WriteLine(JsonSerializer.Serialize(new HookOutput { HookSpecific = body }, CliJson.Default.HookOutput));
+        // Flush now: a slow ledger append (git, 10 s) must not cost the decision when the hook times out (5 s).
+        try
+        {
+            env.Out.Flush();
+        }
+        catch (IOException)
+        {
+        }
     }
 }
 

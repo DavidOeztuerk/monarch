@@ -27,6 +27,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
@@ -50,6 +52,8 @@ jobs:
       LIMIT_MS: "20"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
@@ -78,13 +82,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Shell syntax
         run: |
           set -eu
           sh -n plugin/scripts/monarch
-          for f in bench/*.sh e2e/*.sh scripts/*.sh; do
+          for f in bench/*.sh e2e/*.sh scripts/*.sh plugin/tests/*.sh; do
             [ -f "$f" ] && bash -n "$f"
           done
+      - name: Wrapper tests
+        run: |
+          set -eu
+          sh plugin/tests/wrapper-test.sh
+          dash plugin/tests/wrapper-test.sh
       - name: JSON validity
         run: |
           set -eu

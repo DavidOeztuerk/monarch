@@ -4,9 +4,33 @@
 MONARCH_VERSION=0.1.0
 mode=${1:-}
 
+# Is the cwd (or a parent) an awakened project? Pure shell loop, no fork.
+awakened() {
+  d=${PWD:-}
+  case $d in /*) ;; *) return 1 ;; esac
+  while :; do
+    [ -f "$d/.monarch/system.yaml" ] && return 0
+    [ -z "$d" ] || [ "$d" = / ] && return 1
+    d=${d%/*}
+    [ -n "$d" ] || d=/
+  done
+}
+
+ask() {
+  cat >/dev/null
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"'"$1"'"}}'
+  exit 0
+}
+
+# PreToolUse in an awakened project is fail-closed (ask); everything else that
+# cannot run stays fail-open for hooks (they allow nothing) and the statusline.
 fail() {
   case $mode in
     hook|statusline)
+      if [ "$mode" = hook ] && [ "${2:-}" = pre-tool-use ] && awakened; then
+        echo "monarch: $1 (fail-closed: asking)" >&2
+        ask "Monarch-Wrapper: $1; Freigabe nötig."
+      fi
       echo "monarch: $1 (fail-open: $mode skipped)" >&2
       exit 0 ;;
     *)
@@ -18,43 +42,49 @@ fail() {
 
 if [ -n "${MONARCH_BIN:-}" ]; then
   # explicit developer override: no checksum verification
-  [ -x "$MONARCH_BIN" ] || fail "MONARCH_BIN=$MONARCH_BIN is not executable"
+  [ -x "$MONARCH_BIN" ] || fail "MONARCH_BIN=$MONARCH_BIN is not executable" "${2:-}"
   exec "$MONARCH_BIN" "$@"
 fi
 
 dir=${HOME:-}/.monarch/bin/$MONARCH_VERSION
 bin=$dir/monarch
-[ -x "$bin" ] || fail "binary $bin not found"
+[ -x "$bin" ] || fail "binary $bin not found" "${2:-}"
 
 stamp=$dir/.verified
+link=$dir/.verified-inode
 sums=$dir/SHA256SUMS
-# size+mtime of the binary (GNU stat first: BSD stat -c fails cleanly)
 
-# Fast path without a fork: the stamp is newer than the binary, so the binary
-# has not been replaced since it was verified (test -nt is a shell builtin).
-if [ -f "$stamp" ] && ! [ "$bin" -nt "$stamp" ]; then
+# Fast path without a fork (test builtins only): a verified binary has (1) the
+# same inode as the hard link taken at verification (replacement by a new file
+# fails -ef) and (2) exactly the mtime of the stamp, which the slow path copies
+# from the binary (touch -r). A changed binary or a touched stamp breaks the
+# equality and falls back to the SHA-256 check.
+if [ -f "$stamp" ] && [ "$bin" -ef "$link" ] && ! [ "$bin" -nt "$stamp" ] && ! [ "$stamp" -nt "$bin" ]; then
   exec "$bin" "$@"
 fi
 
-[ -f "$sums" ] || fail "$sums missing, cannot verify binary"
+[ -f "$sums" ] || fail "$sums missing, cannot verify binary" "${2:-}"
 want=$(while read -r h f; do
   f=${f#\*}
   if [ "$f" = monarch ]; then echo "$h"; break; fi
 done < "$sums")
-[ -n "$want" ] || fail "no monarch entry in $sums"
+[ -n "$want" ] || fail "no monarch entry in $sums" "${2:-}"
+# Pin the inode before hashing: what is hashed is what the stamp vouches for.
+rm -f "$stamp" "$link" 2>/dev/null || :
+ln "$bin" "$link" 2>/dev/null || link=$bin
 if command -v sha256sum >/dev/null 2>&1; then
-  got=$(sha256sum "$bin" | { read -r h _; echo "$h"; })
+  got=$(sha256sum "$link" | { read -r h _; echo "$h"; })
 elif command -v shasum >/dev/null 2>&1; then
-  got=$(shasum -a 256 "$bin" | { read -r h _; echo "$h"; })
+  got=$(shasum -a 256 "$link" | { read -r h _; echo "$h"; })
 else
-  fail "no sha256sum/shasum available"
+  fail "no sha256sum/shasum available" "${2:-}"
 fi
 if [ "$got" != "$want" ] && [ "$mode" = hook ] && [ "${2:-}" = pre-tool-use ]; then
   # A replaced binary must not silently disable the policy (ADR-0003): ask.
-  cat >/dev/null
-  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"Monarch-Binary weicht von SHA256SUMS ab; Freigabe nötig."}}'
-  exit 0
+  ask "Monarch-Binary weicht von SHA256SUMS ab; Freigabe nötig."
 fi
-[ "$got" = "$want" ] || fail "SHA-256 mismatch for $bin (expected $want, got $got); refusing to execute"
-: > "$stamp" 2>/dev/null || :
+[ "$got" = "$want" ] || fail "SHA-256 mismatch for $bin (expected $want, got $got); refusing to execute" "${2:-}"
+if [ "$link" != "$bin" ]; then
+  : > "$stamp" 2>/dev/null && touch -r "$bin" "$stamp" 2>/dev/null || rm -f "$stamp" 2>/dev/null || :
+fi
 exec "$bin" "$@"
