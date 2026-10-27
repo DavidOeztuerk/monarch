@@ -37,6 +37,13 @@ internal sealed class PullDto
     public string? MergeCommitSha { get; set; }
 
     public string? HtmlUrl { get; set; }
+
+    public PullHeadDto? Head { get; set; }
+}
+
+internal sealed class PullHeadDto
+{
+    public string? Sha { get; set; }
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]

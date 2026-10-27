@@ -162,6 +162,7 @@ internal sealed class ProjectLedger
                     case int i: w.WriteNumber(key, i); break;
                     case long l: w.WriteNumber(key, l); break;
                     case double d: w.WriteNumber(key, d); break;
+                    case JsonElement je: w.WritePropertyName(key); je.WriteTo(w); break;
                     default: w.WriteString(key, Convert.ToString(value, CultureInfo.InvariantCulture)); break;
                 }
             }

@@ -19,6 +19,11 @@ internal static class MonarchApp
             return Statusline.Run(env);
         }
 
+        if (args.Length >= 1 && args[0] == "mcp")
+        {
+            return McpTools.Run(env);
+        }
+
         var root = BuildRoot(env);
         return root.Parse(args).Invoke(new InvocationConfiguration { Output = env.Out, Error = env.Err });
     }
@@ -74,30 +79,87 @@ internal static class MonarchApp
         show.Arguments.Add(showId);
         show.SetAction(r => QuestCommands.Show(env, r.GetValue(showId)!));
         quest.Subcommands.Add(show);
-        quest.Subcommands.Add(Stub(env, "verify", "Verify a quest (part 2)."));
-        quest.Subcommands.Add(Stub(env, "clear", "Clear a quest (part 2)."));
-        root.Subcommands.Add(quest);
-
-        foreach (var (name, description) in new[]
+        var prId = new Argument<string>("id") { Description = "Quest id." };
+        var prNumber = new Argument<string>("number") { Description = "Pull request number." };
+        var pr = new Command("pr", "Link a pull request to a quest.");
+        pr.Arguments.Add(prId);
+        pr.Arguments.Add(prNumber);
+        pr.SetAction(r => EvidenceCommands.Pr(env, r.GetValue(prId)!, r.GetValue(prNumber)!));
+        quest.Subcommands.Add(pr);
+        foreach (var verb in new[] { "verify", "clear" })
         {
-            ("mcp", "Run the MCP server."), ("gate", "Evaluate policy gates."), ("recap", "Summarize recent activity."),
-            ("rest", "Rest and restore mana."), ("mana", "Mana details."),
-        })
-        {
-            root.Subcommands.Add(Stub(env, name, description));
+            var vid = new Argument<string>("id") { Description = "Quest id." };
+            var c = new Command(verb, verb == "verify" ? "Verify an in-review quest from the checks of its PR head (forge evidence only)." : "Clear a verified quest once its PR is merged; books XP.");
+            c.Arguments.Add(vid);
+            c.SetAction(r => verb == "verify" ? EvidenceCommands.Verify(env, r.GetValue(vid)!) : EvidenceCommands.Clear(env, r.GetValue(vid)!));
+            quest.Subcommands.Add(c);
         }
 
-        return root;
-    }
+        root.Subcommands.Add(quest);
 
-    private static Command Stub(CliEnv env, string name, string description)
-    {
-        var command = new Command(name, description);
-        command.SetAction(_ =>
-        {
-            env.Err.WriteLine($"monarch {name}: not implemented yet");
-            return 2;
-        });
-        return command;
+        var evidence = new Command("evidence", "Forge evidence.");
+        var syncQuest = new Option<string?>("--quest") { Description = "Only this quest." };
+        var evSync = new Command("sync", "Verify and clear linked quests from GitHub checks and merge state.");
+        evSync.Options.Add(syncQuest);
+        evSync.SetAction(r => EvidenceCommands.Sync(env, r.GetValue(syncQuest)));
+        evidence.Subcommands.Add(evSync);
+        root.Subcommands.Add(evidence);
+
+        var gate = new Command("gate", "Gates: import, list, show, sync.");
+        var importDir = new Argument<string>("dir") { Description = "Backlog directory with G-*.md and Q-*.md." };
+        var importRepo = new Option<string?>("--repo") { Description = "Only quests whose scope.repo equals this name (case-insensitive) and their gates." };
+        var import = new Command("import", "Import backlog files into .monarch/gates and .monarch/quests.");
+        import.Arguments.Add(importDir);
+        import.Options.Add(importRepo);
+        import.SetAction(r => GateCommands.Import(env, r.GetValue(importDir)!, r.GetValue(importRepo)));
+        gate.Subcommands.Add(import);
+        var gateList = new Command("list", "List gates.");
+        gateList.SetAction(_ => GateCommands.List(env));
+        gate.Subcommands.Add(gateList);
+        var gateId = new Argument<string>("id") { Description = "Gate id." };
+        var gateShow = new Command("show", "Show a gate with its quests and merge rules.");
+        gateShow.Arguments.Add(gateId);
+        gateShow.SetAction(r => GateCommands.Show(env, r.GetValue(gateId)!));
+        gate.Subcommands.Add(gateShow);
+        var github = new Option<bool>("--github") { Description = "Sync to GitHub milestones and issues." };
+        var owner = new Option<string?>("--owner") { Description = "Repository owner." };
+        var syncRepo = new Option<string?>("--repo") { Description = "Repository name." };
+        var gateSync = new Command("sync", "Upsert milestones and issues and write their numbers back.");
+        gateSync.Options.Add(github);
+        gateSync.Options.Add(owner);
+        gateSync.Options.Add(syncRepo);
+        gateSync.SetAction(r => GateCommands.Sync(env, r.GetValue(github), r.GetValue(owner), r.GetValue(syncRepo)));
+        gate.Subcommands.Add(gateSync);
+        root.Subcommands.Add(gate);
+
+        var next = new Option<string?>("--next") { Description = "The next concrete step." };
+        var decision = new Option<string[]>("--decision") { Description = "An open decision; repeatable." };
+        var recap = new Command("recap", "Write .monarch/recap/RECAP.md.");
+        recap.Options.Add(next);
+        recap.Options.Add(decision);
+        recap.SetAction(r => ManaCommands.Recap(env, r.GetValue(next), r.GetValue(decision) ?? []));
+        root.Subcommands.Add(recap);
+
+        var rest = new Command("rest", "Show reset times, the guard decision and the resume time.");
+        rest.SetAction(_ => ManaCommands.Rest(env));
+        root.Subcommands.Add(rest);
+
+        var estimate = new Option<double?>("--estimate") { Description = "Estimated step cost in percentage points of the 5h window." };
+        var mana = new Command("mana", "Mana snapshot, limits and affordability.");
+        mana.Options.Add(estimate);
+        mana.SetAction(r => ManaCommands.Mana(env, r.GetValue(estimate)));
+        root.Subcommands.Add(mana);
+
+        var ledgerCmd = new Command("ledger", "Ledger tools.");
+        var ledgerVerify = new Command("verify", "Verify the hash chain of all ledger files.");
+        ledgerVerify.SetAction(_ => ManaCommands.LedgerVerify(env));
+        ledgerCmd.Subcommands.Add(ledgerVerify);
+        root.Subcommands.Add(ledgerCmd);
+
+        var mcp = new Command("mcp", "Run the MCP server on stdio.");
+        mcp.SetAction(_ => McpTools.Run(env));
+        root.Subcommands.Add(mcp);
+
+        return root;
     }
 }

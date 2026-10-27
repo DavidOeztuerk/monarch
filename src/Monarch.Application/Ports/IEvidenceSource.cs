@@ -30,4 +30,12 @@ public interface IEvidenceSource
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Evidence of kind <see cref="EvidenceKind.MergeCommit"/>, or <see langword="null"/> when not merged.</returns>
     Task<Evidence?> GetMergeAsync(string owner, string repo, int prNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>Gets the head commit sha of a pull request.</summary>
+    /// <param name="owner">Repository owner.</param>
+    /// <param name="repo">Repository name.</param>
+    /// <param name="prNumber">Pull request number.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The head sha as reported by the forge.</returns>
+    Task<string> GetPullHeadAsync(string owner, string repo, int prNumber, CancellationToken cancellationToken = default);
 }

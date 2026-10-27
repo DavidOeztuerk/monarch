@@ -86,7 +86,14 @@ public sealed class GitHubIssuesBoard : IQuestBoard
     }
 
     /// <inheritdoc />
-    public async Task UpsertGateAsync(BoardGate gate, CancellationToken cancellationToken = default)
+    public async Task UpsertGateAsync(BoardGate gate, CancellationToken cancellationToken = default) =>
+        _ = await SyncGateAsync(gate, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Creates or updates the gate's milestone idempotently.</summary>
+    /// <param name="gate">The gate.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The milestone number.</returns>
+    public async Task<int> SyncGateAsync(BoardGate gate, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(gate);
         var title = $"{gate.Id.Value}: {gate.Title}";
@@ -104,18 +111,28 @@ public sealed class GitHubIssuesBoard : IQuestBoard
         var found = await FindMilestoneAsync(gate.Id.Value, cancellationToken).ConfigureAwait(false);
         if (found is null)
         {
-            await _api.SendJsonAsync(HttpMethod.Post, $"{_repoPath}/milestones", new MilestoneWrite { Title = title, Description = description.ToString() },
+            var created = await _api.SendJsonAsync(HttpMethod.Post, $"{_repoPath}/milestones", new MilestoneWrite { Title = title, Description = description.ToString() },
                 GitHubJsonContext.Default.MilestoneWrite, GitHubJsonContext.Default.GhMilestone, cancellationToken).ConfigureAwait(false);
+            return created.Number;
         }
         else if (found.Title != title || found.Description != description.ToString())
         {
             await _api.SendJsonAsync(HttpMethod.Patch, $"{_repoPath}/milestones/{found.Number}", new MilestoneWrite { Title = title, Description = description.ToString() },
                 GitHubJsonContext.Default.MilestoneWrite, GitHubJsonContext.Default.GhMilestone, cancellationToken).ConfigureAwait(false);
         }
+
+        return found.Number;
     }
 
     /// <inheritdoc />
-    public async Task UpsertQuestAsync(BoardQuest quest, CancellationToken cancellationToken = default)
+    public async Task UpsertQuestAsync(BoardQuest quest, CancellationToken cancellationToken = default) =>
+        _ = await SyncQuestAsync(quest, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Creates or updates the quest's issue idempotently; cleared and abandoned quests close it.</summary>
+    /// <param name="quest">The quest.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The issue number.</returns>
+    public async Task<int> SyncQuestAsync(BoardQuest quest, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(quest);
         var id = quest.Id.Value;
@@ -142,7 +159,7 @@ public sealed class GitHubIssuesBoard : IQuestBoard
                 await CloseAsync(created.Number, quest.State, cancellationToken).ConfigureAwait(false);
             }
 
-            return;
+            return created.Number;
         }
 
         var same = existing.Title == title && existing.Body == body && existing.State == state && existing.Milestone?.Number == milestone
@@ -153,6 +170,8 @@ public sealed class GitHubIssuesBoard : IQuestBoard
                 new IssueWrite { Title = title, Body = body, Labels = labels, Milestone = milestone, State = state, StateReason = closed ? Reason(quest.State) : null },
                 GitHubJsonContext.Default.IssueWrite, GitHubJsonContext.Default.GhIssue, cancellationToken).ConfigureAwait(false);
         }
+
+        return existing.Number;
     }
 
     private static string Reason(QuestState state) => state == QuestState.Cleared ? "completed" : "not_planned";

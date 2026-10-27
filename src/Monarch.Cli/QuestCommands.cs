@@ -115,7 +115,7 @@ internal static class QuestCommands
     }
 
     /// <summary>Rebuilds the domain aggregate at the board's state by replaying the lifecycle.</summary>
-    private static Quest Reconstitute(BoardQuest bq, ManaCost estimate)
+    internal static Quest Reconstitute(BoardQuest bq, ManaCost estimate, Evidence? verification = null)
     {
         var q = new Quest(bq.Id, bq.Gate, bq.Kind, bq.Rank, estimate, bq.DefinitionOfDone, bq.Scope);
         switch (bq.State)
@@ -124,7 +124,8 @@ internal static class QuestCommands
             case QuestState.Accepted: q.Accept(new ShadowId("main")); break;
             case QuestState.InProgress: q.Accept(new ShadowId("main")); q.Start(); break;
             case QuestState.InReview: q.Accept(new ShadowId("main")); q.Start(); q.Submit(); break;
-            default: throw new DomainException($"Quest {bq.Id.Value} is {bq.State}; the CLI cannot transition it (verify/clear come with part 2).");
+            case QuestState.Verified when verification is not null: q.Accept(new ShadowId("main")); q.Start(); q.Submit(); q.Verify(verification); break;
+            default: throw new DomainException($"Quest {bq.Id.Value} is {bq.State}; the CLI cannot transition it with this command.");
         }
 
         return q;

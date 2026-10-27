@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Monarch.Application.Net;
 using Monarch.Application.Ports;
 
 namespace Monarch.Cli.Tests;
@@ -18,6 +19,8 @@ internal sealed class TempProject : IDisposable
     public string Root { get; } = Path.Combine(Path.GetTempPath(), "monarch-p-" + Guid.NewGuid().ToString("N"));
     public string Home { get; } = Path.Combine(Path.GetTempPath(), "monarch-h-" + Guid.NewGuid().ToString("N"));
     public FakeClock Clock { get; } = new(Now);
+
+    public HttpMessageHandler? Http { get; set; }
 
     public TempProject(bool awakened = true, string? activeRank = null, string include = "src/**", string? systemYaml = null)
     {
@@ -48,7 +51,7 @@ internal sealed class TempProject : IDisposable
     {
         var o = new StringWriter();
         var e = new StringWriter();
-        var code = MonarchApp.Run(args, new CliEnv(cwd ?? Root, Home, new StringReader(stdin ?? string.Empty), o, e, Clock));
+        var code = MonarchApp.Run(args, new CliEnv(cwd ?? Root, Home, new StringReader(stdin ?? string.Empty), o, e, Clock, Http, new GitHubTokenProvider(_ => "tok-test", () => null)));
         return new RunResult(code, o.ToString(), e.ToString());
     }
 

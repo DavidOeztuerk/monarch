@@ -66,4 +66,12 @@ public sealed class GitHubChecksEvidence : IEvidenceSource
 
         return new DomainEvidence(EvidenceKind.MergeCommit, pull.HtmlUrl ?? $"https://github.com/{owner}/{repo}/pull/{prNumber.ToString(CultureInfo.InvariantCulture)}", pull.MergeCommitSha, pull.MergedAt ?? DateTimeOffset.UnixEpoch);
     }
+
+    /// <inheritdoc />
+    public async Task<string> GetPullHeadAsync(string owner, string repo, int prNumber, CancellationToken cancellationToken = default)
+    {
+        var pull = await _api.GetAsync(
+            $"repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}/pulls/{prNumber.ToString(CultureInfo.InvariantCulture)}", EvidenceJsonContext.Default.PullDto, cancellationToken).ConfigureAwait(false);
+        return pull.Head?.Sha ?? throw new InvalidOperationException($"Pull request #{prNumber} has no head sha.");
+    }
 }

@@ -1,4 +1,5 @@
 using System.Text;
+using Monarch.Application.Net;
 using Monarch.Application.Ports;
 
 namespace Monarch.Cli;
@@ -10,7 +11,9 @@ namespace Monarch.Cli;
 /// <param name="Out">Standard output.</param>
 /// <param name="Err">Standard error.</param>
 /// <param name="Clock">Time source.</param>
-internal sealed record CliEnv(string Cwd, string Home, TextReader In, TextWriter Out, TextWriter Err, IClock Clock)
+/// <param name="Http">HTTP handler for GitHub calls; null uses the system handler (tests inject a fake).</param>
+/// <param name="Tokens">GitHub token source; null resolves from the environment.</param>
+internal sealed record CliEnv(string Cwd, string Home, TextReader In, TextWriter Out, TextWriter Err, IClock Clock, HttpMessageHandler? Http = null, GitHubTokenProvider? Tokens = null)
 {
     /// <summary>Builds the environment of the running process.</summary>
     public static CliEnv FromProcess()
