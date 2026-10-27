@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Monarch.Infrastructure.Ledger\Monarch.Infrastructure.Ledger.csproj" />
+    <ProjectReference Include="..\..\src\Monarch.Infrastructure.Boards\Monarch.Infrastructure.Boards.csproj" />
+    <ProjectReference Include="..\..\src\Monarch.Infrastructure.Evidence\Monarch.Infrastructure.Evidence.csproj" />
+    <ProjectReference Include="..\..\src\Monarch.Infrastructure.Runtimes\Monarch.Infrastructure.Runtimes.csproj" />
+  </ItemGroup>
+</Project>
