@@ -79,12 +79,14 @@ internal sealed class PathResolver
         return abs.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? abs[prefix.Length..] : abs;
     }
 
-    /// <summary>Ersetzt ein führendes <c>~</c> bzw. <c>~/</c> durch das Home-Verzeichnis (nur für Bash-Pfade).</summary>
+    /// <summary>Ersetzt ein führendes <c>~</c>, <c>~/</c>, <c>$HOME</c> bzw. <c>$HOME/</c> durch das Home-Verzeichnis (nur für Bash-Pfade).</summary>
     public static string ExpandTilde(string path)
     {
-        if (path != "~" && !path.StartsWith("~/", StringComparison.Ordinal)) return path;
+        var skip = path == "~" || path.StartsWith("~/", StringComparison.Ordinal) ? 1
+            : path == "$HOME" || path.StartsWith("$HOME/", StringComparison.Ordinal) ? 5 : 0;
+        if (skip == 0) return path;
         var home = Environment.GetEnvironmentVariable("HOME");
-        return string.IsNullOrEmpty(home) ? path : home.TrimEnd('/') + path[1..];
+        return string.IsNullOrEmpty(home) ? path : home.TrimEnd('/') + path[skip..];
     }
 
     private static void PushSegments(Stack<string> stack, string path)

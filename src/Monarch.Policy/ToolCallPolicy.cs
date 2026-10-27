@@ -21,7 +21,7 @@ public static class QuestAcceptancePolicy
 /// Pfade werden kanonisiert (relativ zu <see cref="ToolCall.Cwd"/>, <c>.</c>/<c>..</c>/<c>//</c> normalisiert, Symlinks aufgelöst, Wurzel und Ziel gleich);
 /// der Vergleich gegen geschützte Pfade und Secret-Globs ist case-insensitiv.
 /// </summary>
-public static class ToolCallPolicy
+public static partial class ToolCallPolicy
 {
     private static readonly string[] FileMutators = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
     private static readonly string[] AlwaysWritable = [".monarch/recap/**", ".monarch/knowledge/**"];
@@ -98,6 +98,39 @@ public static class ToolCallPolicy
             }
         }
 
+        /// <summary>Kanonische Projektwurzel.</summary>
+        public string Root => _rs.Root;
+
+        /// <summary>Kanonischer absoluter Pfad eines Datei-Tool-Ziels (ohne Tilde-Expansion), aufgelöst gegen das cwd.</summary>
+        public string AbsFile(string path) => _rs.Resolve(path, _rs.Cwd);
+
+        /// <summary>Kanonischer absoluter Pfad (Tilde und <c>$HOME</c> expandiert), aufgelöst gegen das cwd.</summary>
+        public string Abs(string path) => _rs.Resolve(PathResolver.ExpandTilde(path), _rs.Cwd);
+
+        /// <summary>Kanonischer absoluter Pfad, aufgelöst gegen jedes Basisverzeichnis (konservativ: jedes zählt).</summary>
+        public IEnumerable<string> AbsAll(string token)
+        {
+            var t = PathResolver.ExpandTilde(token);
+            foreach (var b in _bases) yield return _rs.Resolve(t, b);
+        }
+
+        /// <summary>Kanonisches Verzeichnis (absolut, Symlinks aufgelöst), z. B. das Home-Verzeichnis.</summary>
+        public string Canonical(string absolute) => _rs.Resolve(absolute, "/");
+
+        /// <summary>
+        /// Zerlegt ein Glob-Token am ersten Wildcard in das kanonische Verzeichnis des literalen Präfixes (je Basisverzeichnis) und den
+        /// unvollständigen letzten Namensteil davor (kleingeschrieben).
+        /// </summary>
+        public IEnumerable<(string Dir, string Name)> GlobParts(string token)
+        {
+            var prefix = token[..token.AsSpan().IndexOfAny('*', '?', '[')];
+            var slash = prefix.LastIndexOf('/');
+            var dir = slash < 0 ? "" : slash == 0 ? "/" : prefix[..slash];
+            var name = prefix[(slash + 1)..].ToLowerInvariant();
+            var d = PathResolver.ExpandTilde(dir.Length == 0 ? "." : dir);
+            foreach (var b in _bases) yield return (_rs.Resolve(d, b), name);
+        }
+
         /// <summary>Pfad relativ zur Wurzel, aufgelöst gegen das cwd.</summary>
         public string Rel(string path) => _rs.Relative(path);
 
@@ -154,54 +187,6 @@ public static class ToolCallPolicy
     {
         foreach (var t in BashAnalysis.RedirectTargets(command, '>'))
             if (t != "/dev/null") return true;
-        return false;
-    }
-
-    // ---- 1. protect_paths
-    private static PolicyDecision? ProtectPaths(ToolCall call, PolicyContext ctx, List<BashAnalysis.Segment> segments, Canon paths)
-    {
-        var globs = ctx.Options.ProtectPaths;
-        if (globs.Count == 0) return null;
-        if (Array.IndexOf(FileMutators, call.ToolName) >= 0 && call.FilePath is { } fp)
-        {
-            var rel = paths.Rel(fp);
-            if (MatchesAnyCI(globs, rel))
-                return PolicyDecision.Deny(PolicyRules.ProtectPaths, $"'{rel}' ist geschützt (Ledger/Shadow-Definition); nur die Engine schreibt dort.");
-            return null;
-        }
-
-        if (call.ToolName != "Bash" || call.Command is not { } cmd) return null;
-        var mentioned = BashAnalysis.PathTokens(cmd).Any(t => MentionsProtected(globs, paths, t));
-        if (!mentioned) return null;
-        var mutating = segments.Any(IsMutatingSegment) || HasOutputRedirect(cmd);
-        return mutating
-            ? PolicyDecision.Deny(PolicyRules.ProtectPaths, "Das Kommando verändert einen geschützten Pfad (Ledger/Shadow-Definition).")
-            : null;
-    }
-
-    private static bool MentionsProtected(IReadOnlyList<string> globs, Canon paths, string token)
-    {
-        if (token.StartsWith('-')) return false;
-        foreach (var rel in paths.RelAll(token))
-        {
-            if (rel.Length == 0) continue;
-            var lower = rel.ToLowerInvariant();
-            foreach (var g in globs) if (GlobMatcher.IsMatchOrAncestor(g.ToLowerInvariant(), lower)) return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsMutatingSegment(BashAnalysis.Segment s)
-    {
-        if (Array.IndexOf(MutatingWords, s.Word) >= 0) return true;
-        if (s.Word == "sed") return s.Tokens.Any(t => t == "--in-place" || t.StartsWith("-i", StringComparison.Ordinal));
-        if (s.Word == "git")
-        {
-            var sub = BashAnalysis.GitSubcommand(s.Tokens, out _);
-            return sub == "restore" || (sub == "checkout" && s.Tokens.Contains("--"));
-        }
-
         return false;
     }
 

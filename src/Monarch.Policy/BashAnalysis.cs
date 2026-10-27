@@ -31,6 +31,8 @@ internal static class BashAnalysis
             if (tokens.Length == 0) continue;
             var text = string.Join(' ', tokens);
             result.Add(new Segment(text, tokens, Canonicalize(tokens, text)));
+            if (depth < 3 && tokens[0] == "eval" && tokens.Length > 1)
+                result.AddRange(Segments(string.Join(' ', tokens[1..]), depth + 1));
             if (depth < 3 && Array.IndexOf(Shells, Path.GetFileName(tokens[0])) >= 0)
             {
                 var c = Array.IndexOf(tokens, "-c");
@@ -41,19 +43,83 @@ internal static class BashAnalysis
         return result;
     }
 
-    /// <summary>Pfad-artige Tokens eines Textes (getrennt an Whitespace, Operatoren, Quotes und <c>=</c>).</summary>
+    /// <summary>
+    /// Pfad-artige Tokens eines Textes. Quotes werden zuerst entfernt (<c>.mon""arch</c> ist für die Shell <c>.monarch</c>), dann wird an Whitespace,
+    /// Operatoren und <c>=</c> getrennt. Enthält ein Token einen Backslash, kommt zusätzlich die Variante ohne Backslash hinzu (<c>.mon\arch</c>).
+    /// </summary>
     public static List<string> PathTokens(string text)
     {
+        text = StripQuotes(text);
         var list = new List<string>();
         var start = -1;
         for (var i = 0; i <= text.Length; i++)
         {
             var sep = i == text.Length || PathSeparators.Contains(text[i], StringComparison.Ordinal);
             if (!sep) { if (start < 0) start = i; }
-            else if (start >= 0) { list.Add(text[start..i]); start = -1; }
+            else if (start >= 0)
+            {
+                var token = text[start..i];
+                list.Add(token);
+                if (token.Contains('\\', StringComparison.Ordinal)) list.Add(token.Replace("\\", "", StringComparison.Ordinal));
+                start = -1;
+            }
         }
 
         return list;
+    }
+
+    /// <summary>Entfernt einfache und doppelte Anführungszeichen (wie die Shell beim Zusammensetzen eines Wortes).</summary>
+    public static string StripQuotes(string text) =>
+        text.Replace("\"", "", StringComparison.Ordinal).Replace("'", "", StringComparison.Ordinal);
+
+    /// <summary>True, wenn das Token einen Shell-Wildcard enthält (<c>*</c>, <c>?</c>, <c>[</c>).</summary>
+    public static bool IsGlob(string token) => token.AsSpan().IndexOfAny('*', '?', '[') >= 0;
+
+    /// <summary>
+    /// Text zum Suchen verschleierter Pfadnennungen in Interpreter-Code: kleingeschrieben, ohne Quotes, Backslashes, <c>+</c>, Kommas und Whitespace
+    /// (<c>'.mon' + 'arch'</c> wird zu <c>.monarch</c>).
+    /// </summary>
+    public static string Compress(string text)
+    {
+        var sb = new System.Text.StringBuilder(text.Length);
+        foreach (var c in text)
+        {
+            if (c is '"' or '\'' or '\\' or '+' or ',' or ' ' or '\t' or '\n' or '\r') continue;
+            sb.Append(char.ToLowerInvariant(c));
+        }
+
+        return sb.ToString();
+    }
+
+    private static readonly string[] Interpreters = ["python", "python3", "perl", "ruby", "node", "php", "osascript", "deno", "bun"];
+
+    /// <summary>True für Interpreter-Kommandowörter (python, python3, python3.12, perl, ruby, node, php, osascript, deno, bun).</summary>
+    public static bool IsInterpreter(string word)
+    {
+        if (Array.IndexOf(Interpreters, word) >= 0) return true;
+        if (!word.StartsWith("python", StringComparison.Ordinal)) return false;
+        for (var i = "python".Length; i < word.Length; i++) if (!char.IsAsciiDigit(word[i]) && word[i] != '.') return false;
+        return true;
+    }
+
+    /// <summary>
+    /// True, wenn das Segment einen Interpreter mit Code von der Kommandozeile oder von stdin startet: ein Inline-Flag (<c>-c -e -E -i -p -r</c>, auch
+    /// gebündelt wie <c>-pi</c> oder <c>-ne</c>; <c>--eval</c>, <c>--print</c>; <c>deno eval</c>), kein Positionsargument (stdin) oder <c>-</c>.
+    /// Ein Interpreter mit einer Skriptdatei ist es nicht (dokumentierte Grenze).
+    /// </summary>
+    public static bool IsInlineInterpreter(Segment seg)
+    {
+        if (!IsInterpreter(seg.Word)) return false;
+        for (var i = 1; i < seg.Tokens.Length; i++)
+        {
+            var t = seg.Tokens[i];
+            if (t == "-" || t == "eval") return true;
+            if (t.StartsWith("--", StringComparison.Ordinal)) { if (t is "--eval" or "--print" || t.StartsWith("--eval=", StringComparison.Ordinal)) return true; continue; }
+            if (t.StartsWith('-')) { if (t.AsSpan(1).IndexOfAny("ceEipr") >= 0) return true; continue; }
+            return false; // erstes Positionsargument: Skriptdatei, alles danach gehört dem Skript
+        }
+
+        return true; // nur Flags: Code kommt von stdin
     }
 
     /// <summary>
