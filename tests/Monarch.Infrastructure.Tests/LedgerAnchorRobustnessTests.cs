@@ -105,7 +105,7 @@ public sealed class LedgerAnchorRobustnessTests : IDisposable
         Assert.True(LedgerVerifier.Verify(_t.Path).Ok);
     }
 
-    // Documented limit (ADR-0007): consistent forgery of an untracked file and its anchor is not detectable locally.
+    // Documented limit (ADR-0010): consistent forgery of an untracked file and its anchor is not detectable locally.
     [Fact]
     public void Consistent_forgery_of_untracked_file_and_anchor_is_not_detectable_locally()
     {

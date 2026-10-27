@@ -1,4 +1,4 @@
-# ADR-0007 — Grenzen der lokalen Ledger-Verankerung
+# ADR-0010 — Grenzen der lokalen Ledger-Verankerung
 
 **Datum:** 27.10.2026 · **Status:** angenommen · **Quest:** Q-0120 (ergänzt Q-0108)
 
