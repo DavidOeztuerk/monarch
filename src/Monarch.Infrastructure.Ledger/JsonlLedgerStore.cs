@@ -22,35 +22,74 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
         LedgerFiles.ValidateSessionId(sessionId);
         ArgumentNullException.ThrowIfNull(actor);
         ArgumentException.ThrowIfNullOrEmpty(type);
-        var root = options.Root;
         lock (Gate)
         {
-            var at = clock.UtcNow.ToUniversalTime();
-            var stem = $"{sessionId}.{LedgerFiles.WriterId(root)}";
-            var relative = LedgerFiles.ResolveRelative(root, stem, at);
-            if (File.Exists(LedgerFiles.Full(root, relative))
-                && LedgerFiles.ReadHeads(root)?.Files.ContainsKey(relative) != true
-                && GitAnchor.IsTracked(root, relative))
+            var entry = AppendCore(sessionId, actor, type, payload, out var reset);
+            if (reset is not null)
             {
-                // A committed file this worktree has no anchor for belongs to history: never append, start a new file.
-                stem = $"{sessionId}.{LedgerFiles.WriterId(root, regenerate: true)}";
-                relative = LedgerFiles.ResolveRelative(root, stem, at);
+                // The anchor was rebuilt: leave a loud trace in the ledger itself. It stays a finding until acknowledged.
+                AppendCore(sessionId, "ledger", "LedgerAnchorReset", ResetPayload(reset, entry.At), out _);
             }
 
-            var full = LedgerFiles.Full(root, relative);
-            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-            using var fs = LedgerFiles.OpenExclusive(full);
-            var (lastSeq, prevHash) = ReadTail(fs, stem);
-            var seq = lastSeq + 1;
-            var hashless = LedgerCanonical.Serialize(seq, at, actor, type, payload, prevHash);
-            var hash = LedgerCanonical.ComputeHash(hashless);
-            var bytes = Encoding.UTF8.GetBytes(LedgerCanonical.Seal(hashless, hash) + "\n");
-            fs.Seek(0, SeekOrigin.End);
-            fs.Write(bytes);
-            fs.Flush();
-            LedgerHeadStore.Update(root, relative, seq, hash);
-            return new LedgerEntry(relative, seq, at, actor, type, payload.Clone(), prevHash, hash);
+            return entry;
         }
+    }
+
+    private static JsonElement ResetPayload(AnchorReset reset, DateTimeOffset at)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms))
+        {
+            w.WriteStartObject();
+            w.WriteString("reason", reset.Reason);
+            w.WriteString("at", at);
+            if (reset.ArchivedTo is not null)
+            {
+                w.WriteString("archivedTo", reset.ArchivedTo);
+            }
+
+            w.WriteStartArray("reanchored");
+            foreach (var f in reset.Reanchored)
+            {
+                w.WriteStringValue(f);
+            }
+
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+
+        return JsonDocument.Parse(ms.ToArray()).RootElement.Clone();
+    }
+
+    private LedgerEntry AppendCore(string sessionId, string actor, string type, JsonElement payload, out AnchorReset? reset)
+    {
+        var root = options.Root;
+        var at = clock.UtcNow.ToUniversalTime();
+        var hadWriterId = File.Exists(LedgerFiles.Full(root, LedgerFiles.WriterIdPath));
+        var stem = $"{sessionId}.{LedgerFiles.WriterId(root)}";
+        var relative = LedgerFiles.ResolveRelative(root, stem, at);
+        if (File.Exists(LedgerFiles.Full(root, relative))
+            && !LedgerAnchor.Read(root).Heads.Files.ContainsKey(relative)
+            && GitAnchor.IsTracked(root, relative))
+        {
+            // A committed file this worktree has no anchor for belongs to history: never append, start a new file.
+            stem = $"{sessionId}.{LedgerFiles.WriterId(root, regenerate: true)}";
+            relative = LedgerFiles.ResolveRelative(root, stem, at);
+        }
+
+        var full = LedgerFiles.Full(root, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        using var fs = LedgerFiles.OpenExclusive(full);
+        var (lastSeq, prevHash) = ReadTail(fs, stem);
+        var seq = lastSeq + 1;
+        var hashless = LedgerCanonical.Serialize(seq, at, actor, type, payload, prevHash);
+        var hash = LedgerCanonical.ComputeHash(hashless);
+        var bytes = Encoding.UTF8.GetBytes(LedgerCanonical.Seal(hashless, hash) + "\n");
+        fs.Seek(0, SeekOrigin.End);
+        fs.Write(bytes);
+        fs.Flush();
+        reset = LedgerHeadStore.Update(root, relative, seq, hash, at, hadWriterId);
+        return new LedgerEntry(relative, seq, at, actor, type, payload.Clone(), prevHash, hash);
     }
 
     /// <inheritdoc />

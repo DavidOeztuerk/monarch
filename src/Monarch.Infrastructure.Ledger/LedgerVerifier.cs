@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace Monarch.Infrastructure.Ledger;
 
 /// <summary>
-/// Verifies the hash chain of every ledger file and compares the files with the head anchor
+/// Verifies the hash chain of every ledger file, compares the files with the git-tracked ledger files and with the head anchor
 /// (<c>.monarch/local/ledger-heads.json</c>), which is the only way to notice truncation, deletion or a validly
 /// re-chained forged tail. Note: a verification racing a concurrent append may report a transient head mismatch.
 /// </summary>
@@ -20,25 +20,25 @@ public static class LedgerVerifier
         var scanned = new Dictionary<string, FileScan>(StringComparer.Ordinal);
         foreach (var relative in LedgerFiles.EnumerateRelative(root))
         {
-            scanned[relative] = ScanFile(root, relative, violations);
+            if (TryScanFile(root, relative, violations) is { } scan)
+            {
+                scanned[relative] = scan;
+            }
         }
 
-        LedgerHeads? heads = null;
-        try
+        var anchor = LedgerAnchor.Read(root);
+        foreach (var problem in anchor.Problems)
         {
-            heads = LedgerFiles.ReadHeads(root);
-        }
-        catch (JsonException)
-        {
-            violations.Add(new LedgerViolation(LedgerFiles.HeadsPath, 0, LedgerViolationKind.Unparseable, "Head anchor is not valid JSON."));
+            violations.Add(new LedgerViolation(problem.File, 0, LedgerViolationKind.AnchorInvalid, problem.Detail));
         }
 
-        var known = heads?.Files ?? [];
-        var headsBroken = violations.Any(v => v.File == LedgerFiles.HeadsPath);
+        var known = anchor.Heads.Files;
+        var anchorBroken = anchor.Problems.Any(p => p.File == LedgerFiles.HeadsPath);
+        var invalidEntries = anchor.Problems.Select(p => p.File).ToHashSet(StringComparer.Ordinal);
         var byGit = 0;
         foreach (var file in scanned.Keys)
         {
-            if (known.ContainsKey(file) || headsBroken)
+            if (known.ContainsKey(file) || anchorBroken || invalidEntries.Contains(file))
             {
                 continue;
             }
@@ -57,7 +57,10 @@ public static class LedgerVerifier
         {
             if (!scanned.TryGetValue(file, out var scan))
             {
-                violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.Truncated, "Ledger file is missing but anchored."));
+                if (!File.Exists(LedgerFiles.Full(root, file)))
+                {
+                    violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.Truncated, "Ledger file is missing but anchored."));
+                }
             }
             else if (scan.Hashes.Count < head.Seq)
             {
@@ -73,7 +76,106 @@ public static class LedgerVerifier
             }
         }
 
-        return new LedgerVerification(violations, known.Keys.Count(scanned.ContainsKey), byGit);
+        CheckAgainstGit(root, scanned, violations);
+        CheckGenerations(scanned.Keys, violations);
+        var resets = CollectResets(scanned, violations);
+        return new LedgerVerification(violations, known.Keys.Count(scanned.ContainsKey), byGit, resets);
+    }
+
+    /// <summary>
+    /// Second, independent source: the ledger files tracked by git. A tracked file must exist and must extend its
+    /// <c>HEAD</c> blob byte for byte (append-only); fewer lines or a different prefix is tampering even when the local
+    /// anchor was rewritten consistently. Silently skipped when git is unavailable.
+    /// </summary>
+    private static void CheckAgainstGit(string root, Dictionary<string, FileScan> scanned, List<LedgerViolation> violations)
+    {
+        if (GitAnchor.TrackedLedgerFiles(root) is not { } tracked)
+        {
+            return;
+        }
+
+        var changed = GitAnchor.ChangedAgainstHead(root) ?? [];
+        foreach (var file in tracked.Where(f => f.EndsWith(".jsonl", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
+        {
+            if (!File.Exists(LedgerFiles.Full(root, file)))
+            {
+                violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.Truncated, "Ledger file is tracked by git but missing."));
+                continue;
+            }
+
+            if (!changed.Contains(file) || !scanned.ContainsKey(file) || GitAnchor.HeadBlob(root, file) is not { } blob)
+            {
+                continue;
+            }
+
+            byte[] current;
+            try
+            {
+                current = LedgerFiles.ReadAllShared(LedgerFiles.Full(root, file));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            if (current.AsSpan().StartsWith(blob))
+            {
+                continue;
+            }
+
+            var (have, expected) = (CountLines(current), CountLines(blob));
+            violations.Add(have < expected
+                ? new LedgerViolation(file, have, LedgerViolationKind.Truncated, $"File has {have} lines, the HEAD version has {expected}.")
+                : new LedgerViolation(file, 0, LedgerViolationKind.HeadMismatch, "Content is not an append-only extension of the HEAD version."));
+        }
+    }
+
+    private static int CountLines(byte[] data) => data.Count(b => b == (byte)'\n');
+
+    /// <summary>A writer file name must be unique across month folders; the file name is the only generation marker in the data.</summary>
+    private static void CheckGenerations(IEnumerable<string> files, List<LedgerViolation> violations)
+    {
+        foreach (var group in files.GroupBy(f => Path.GetFileName(f), StringComparer.Ordinal).Where(g => g.Count() > 1))
+        {
+            foreach (var file in group.Order(StringComparer.Ordinal))
+            {
+                violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.DuplicateGeneration, $"Writer file '{group.Key}' exists in more than one month folder."));
+            }
+        }
+    }
+
+    private static List<LedgerReset> CollectResets(Dictionary<string, FileScan> scanned, List<LedgerViolation> violations)
+    {
+        var acked = scanned.Values.SelectMany(s => s.Acks).ToHashSet(StringComparer.Ordinal);
+        var resets = new List<LedgerReset>();
+        foreach (var (file, scan) in scanned.OrderBy(k => k.Key, StringComparer.Ordinal))
+        {
+            foreach (var r in scan.Resets)
+            {
+                var reset = r with { File = file, Acknowledged = acked.Contains(r.Hash) };
+                resets.Add(reset);
+                if (!reset.Acknowledged)
+                {
+                    violations.Add(new LedgerViolation(file, reset.Line, LedgerViolationKind.AnchorReset,
+                        $"Ledger anchor was reset ({reset.Reason}); not acknowledged. Event {reset.Hash}; run 'monarch ledger ack-reset {reset.Hash}'."));
+                }
+            }
+        }
+
+        return resets;
+    }
+
+    private static FileScan? TryScanFile(string root, string relative, List<LedgerViolation> violations)
+    {
+        try
+        {
+            return ScanFile(root, relative, violations);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            violations.Add(new LedgerViolation(relative, 0, LedgerViolationKind.Unparseable, "Ledger file is unreadable: " + ex.GetType().Name + "."));
+            return null;
+        }
     }
 
     private static FileScan ScanFile(string root, string relative, List<LedgerViolation> violations)
@@ -83,6 +185,8 @@ public static class LedgerVerifier
         var lines = text.Split('\n');
         var complete = lines.Length - 1;
         var hashes = new List<string>(complete);
+        var resets = new List<LedgerReset>();
+        var acks = new List<string>();
         if (lines[^1].Length > 0)
         {
             violations.Add(new LedgerViolation(relative, lines.Length, LedgerViolationKind.Truncated, "File does not end with a newline."));
@@ -122,6 +226,15 @@ public static class LedgerVerifier
                 continue;
             }
 
+            if (parsed.Type == "LedgerAnchorReset")
+            {
+                resets.Add(new LedgerReset(relative, i, hash, StringProperty(parsed.Payload, "reason") ?? "no reason recorded", false));
+            }
+            else if (parsed.Type == "LedgerAnchorResetAcknowledged" && parsed.Actor == "cli" && StringProperty(parsed.Payload, "reset") is { } target)
+            {
+                acks.Add(target);
+            }
+
             if (parsed.Seq != i)
             {
                 violations.Add(new LedgerViolation(relative, i, LedgerViolationKind.SeqGap, $"Expected seq {i}, found {parsed.Seq}."));
@@ -135,8 +248,11 @@ public static class LedgerVerifier
             previous = hash;
         }
 
-        return new FileScan(hashes);
+        return new FileScan(hashes, resets, acks);
     }
 
-    private sealed record FileScan(List<string> Hashes);
+    private static string? StringProperty(System.Text.Json.JsonElement payload, string name) =>
+        payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+
+    private sealed record FileScan(List<string> Hashes, List<LedgerReset> Resets, List<string> Acks);
 }

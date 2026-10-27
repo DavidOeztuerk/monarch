@@ -250,6 +250,34 @@ internal static class ManaCommands
         return 1;
     }
 
+    /// <summary>Acknowledges a <c>LedgerAnchorReset</c> event; the only way to clear that finding. Not a tool path: runs through the CLI as actor <c>cli</c>.</summary>
+    public static int LedgerAckReset(CliEnv env, string eventHash)
+    {
+        if (ProjectPaths.Locate(env.Cwd, env.Home) is not { } paths)
+        {
+            env.Err.WriteLine("refused: not an awakened project.");
+            return 1;
+        }
+
+        var reset = LedgerVerifier.Verify(paths.Root).Resets?.FirstOrDefault(r => string.Equals(r.Hash, eventHash, StringComparison.OrdinalIgnoreCase));
+        if (reset is null)
+        {
+            env.Err.WriteLine($"refused: no LedgerAnchorReset event with hash {eventHash}.");
+            return 1;
+        }
+
+        if (reset.Acknowledged)
+        {
+            env.Out.WriteLine($"already acknowledged: {reset.Hash}");
+            return 0;
+        }
+
+        var ledger = new ProjectLedger(paths, env.Clock);
+        ledger.Append(ledger.SessionId(), "cli", "LedgerAnchorResetAcknowledged", ("reset", reset.Hash), ("file", reset.File));
+        env.Out.WriteLine($"acknowledged ledger anchor reset {reset.Hash} ({reset.Reason})");
+        return 0;
+    }
+
     /// <summary>MCP <c>mana_forecast</c>: asks the Mana-Guard about the summed estimates.</summary>
     public static string Forecast(CliEnv env, ProjectPaths paths, double session, double weekly)
     {

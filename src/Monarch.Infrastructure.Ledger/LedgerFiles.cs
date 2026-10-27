@@ -162,15 +162,4 @@ internal static class LedgerFiles
 
         return entries;
     }
-
-    public static LedgerHeads? ReadHeads(string root)
-    {
-        var path = Full(root, HeadsPath);
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
-        return JsonSerializer.Deserialize(ReadAllShared(path), LedgerJsonContext.Default.LedgerHeads);
-    }
 }

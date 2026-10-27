@@ -17,6 +17,12 @@ public enum LedgerViolationKind
     UnknownFile,
     /// <summary>The file head differs from the anchor, e.g. lines were appended or replaced behind the store's back.</summary>
     HeadMismatch,
+    /// <summary>The head anchor, or one of its entries, is unreadable, malformed or has impossible values.</summary>
+    AnchorInvalid,
+    /// <summary>The anchor was reset (corrupt or missing) and the owner has not acknowledged it yet.</summary>
+    AnchorReset,
+    /// <summary>The same writer file exists in more than one month folder, i.e. the file generations are not unique.</summary>
+    DuplicateGeneration,
 }
 
 /// <summary>One finding of the ledger verification.</summary>
@@ -30,8 +36,17 @@ public sealed record LedgerViolation(string File, int Line, LedgerViolationKind 
 /// <param name="Violations">All findings; empty when the ledger is intact.</param>
 /// <param name="AnchoredLocally">Number of ledger files covered by the local head anchor.</param>
 /// <param name="AnchoredByGit">Number of ledger files without a local anchor entry that are committed and unmodified in git.</param>
-public sealed record LedgerVerification(IReadOnlyList<LedgerViolation> Violations, int AnchoredLocally = 0, int AnchoredByGit = 0)
+/// <param name="Resets">All <c>LedgerAnchorReset</c> events found, acknowledged or not.</param>
+public sealed record LedgerVerification(IReadOnlyList<LedgerViolation> Violations, int AnchoredLocally = 0, int AnchoredByGit = 0, IReadOnlyList<LedgerReset>? Resets = null)
 {
     /// <summary>Gets a value indicating whether no violation was found.</summary>
     public bool Ok => Violations.Count == 0;
 }
+
+/// <summary>One <c>LedgerAnchorReset</c> event.</summary>
+/// <param name="File">Ledger file containing the event.</param>
+/// <param name="Line">1-based line of the event.</param>
+/// <param name="Hash">Event hash; the argument of <c>ledger ack-reset</c>.</param>
+/// <param name="Reason">Recorded reason.</param>
+/// <param name="Acknowledged">Whether a <c>LedgerAnchorResetAcknowledged</c> event by actor <c>cli</c> refers to it.</param>
+public sealed record LedgerReset(string File, int Line, string Hash, string Reason, bool Acknowledged);
