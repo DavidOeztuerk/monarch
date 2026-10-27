@@ -1,0 +1,8 @@
+{
+  "name": "monarch",
+  "version": "0.1.0",
+  "description": "Leveling system for agentic software development: gates, quests, shadows, mana.",
+  "author": { "name": "David Oeztuerk", "email": "davidoeztuerk1990@gmail.com" },
+  "license": "Apache-2.0",
+  "keywords": ["agents", "orchestration", "subagents", "gamification"]
+}

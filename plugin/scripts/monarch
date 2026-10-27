@@ -1,0 +1,60 @@
+#!/bin/sh
+# Monarch wrapper: resolves the versioned binary, verifies SHA-256 once per
+# version (stamp file), then execs. Runs on every tool call: keep it cheap.
+MONARCH_VERSION=0.1.0
+mode=${1:-}
+
+fail() {
+  case $mode in
+    hook|statusline)
+      echo "monarch: $1 (fail-open: $mode skipped)" >&2
+      exit 0 ;;
+    *)
+      echo "monarch: $1" >&2
+      echo "monarch: install with: scripts/install-local.sh (in the monarch repo)" >&2
+      exit 1 ;;
+  esac
+}
+
+if [ -n "${MONARCH_BIN:-}" ]; then
+  # explicit developer override: no checksum verification
+  [ -x "$MONARCH_BIN" ] || fail "MONARCH_BIN=$MONARCH_BIN is not executable"
+  exec "$MONARCH_BIN" "$@"
+fi
+
+dir=${HOME:-}/.monarch/bin/$MONARCH_VERSION
+bin=$dir/monarch
+[ -x "$bin" ] || fail "binary $bin not found"
+
+stamp=$dir/.verified
+sums=$dir/SHA256SUMS
+# size+mtime of the binary (GNU stat first: BSD stat -c fails cleanly)
+
+# Fast path without a fork: the stamp is newer than the binary, so the binary
+# has not been replaced since it was verified (test -nt is a shell builtin).
+if [ -f "$stamp" ] && ! [ "$bin" -nt "$stamp" ]; then
+  exec "$bin" "$@"
+fi
+
+[ -f "$sums" ] || fail "$sums missing, cannot verify binary"
+want=$(while read -r h f; do
+  f=${f#\*}
+  if [ "$f" = monarch ]; then echo "$h"; break; fi
+done < "$sums")
+[ -n "$want" ] || fail "no monarch entry in $sums"
+if command -v sha256sum >/dev/null 2>&1; then
+  got=$(sha256sum "$bin" | { read -r h _; echo "$h"; })
+elif command -v shasum >/dev/null 2>&1; then
+  got=$(shasum -a 256 "$bin" | { read -r h _; echo "$h"; })
+else
+  fail "no sha256sum/shasum available"
+fi
+if [ "$got" != "$want" ] && [ "$mode" = hook ] && [ "${2:-}" = pre-tool-use ]; then
+  # A replaced binary must not silently disable the policy (ADR-0003): ask.
+  cat >/dev/null
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"Monarch-Binary weicht von SHA256SUMS ab; Freigabe nötig."}}'
+  exit 0
+fi
+[ "$got" = "$want" ] || fail "SHA-256 mismatch for $bin (expected $want, got $got); refusing to execute"
+: > "$stamp" 2>/dev/null || :
+exec "$bin" "$@"
