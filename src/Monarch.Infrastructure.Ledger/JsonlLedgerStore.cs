@@ -6,7 +6,7 @@ namespace Monarch.Infrastructure.Ledger;
 
 /// <summary>
 /// Hash-chained JSONL ledger store: one append-only file per session at
-/// <c>&lt;root&gt;/.monarch/ledger/&lt;yyyy-MM&gt;/&lt;sessionId&gt;.jsonl</c>. Appends are safe across processes
+/// <c>&lt;root&gt;/.monarch/ledger/&lt;yyyy-MM&gt;/&lt;sessionId&gt;.&lt;writerId&gt;.jsonl</c>, where the writer id is a per-worktree random id. Appends are safe across processes
 /// (exclusive file sharing with bounded retry) and update the head anchor
 /// <c>&lt;root&gt;/.monarch/local/ledger-heads.json</c> atomically. See <see cref="LedgerCanonical"/> for the line form.
 /// </summary>
@@ -26,11 +26,21 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
         lock (Gate)
         {
             var at = clock.UtcNow.ToUniversalTime();
-            var relative = LedgerFiles.ResolveRelative(root, sessionId, at);
+            var stem = $"{sessionId}.{LedgerFiles.WriterId(root)}";
+            var relative = LedgerFiles.ResolveRelative(root, stem, at);
+            if (File.Exists(LedgerFiles.Full(root, relative))
+                && LedgerFiles.ReadHeads(root)?.Files.ContainsKey(relative) != true
+                && GitAnchor.IsTracked(root, relative))
+            {
+                // A committed file this worktree has no anchor for belongs to history: never append, start a new file.
+                stem = $"{sessionId}.{LedgerFiles.WriterId(root, regenerate: true)}";
+                relative = LedgerFiles.ResolveRelative(root, stem, at);
+            }
+
             var full = LedgerFiles.Full(root, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(full)!);
             using var fs = LedgerFiles.OpenExclusive(full);
-            var (lastSeq, prevHash) = ReadTail(fs, sessionId);
+            var (lastSeq, prevHash) = ReadTail(fs, stem);
             var seq = lastSeq + 1;
             var hashless = LedgerCanonical.Serialize(seq, at, actor, type, payload, prevHash);
             var hash = LedgerCanonical.ComputeHash(hashless);
@@ -47,7 +57,7 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
     public IReadOnlyList<LedgerEntry> ReadSession(string sessionId)
     {
         LedgerFiles.ValidateSessionId(sessionId);
-        var relative = LedgerFiles.ResolveRelative(options.Root, sessionId, clock.UtcNow);
+        var relative = LedgerFiles.ResolveRelative(options.Root, $"{sessionId}.{LedgerFiles.WriterId(options.Root)}", clock.UtcNow);
         return File.Exists(LedgerFiles.Full(options.Root, relative)) ? LedgerFiles.ReadEntries(options.Root, relative) : [];
     }
 

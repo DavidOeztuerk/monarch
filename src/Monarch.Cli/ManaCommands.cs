@@ -237,7 +237,7 @@ internal static class ManaCommands
         var result = LedgerVerifier.Verify(paths.Root);
         if (result.Ok)
         {
-            env.Out.WriteLine("ledger ok");
+            env.Out.WriteLine($"ledger ok ({result.AnchoredLocally} anchored locally, {result.AnchoredByGit} anchored by git)");
             return 0;
         }
 

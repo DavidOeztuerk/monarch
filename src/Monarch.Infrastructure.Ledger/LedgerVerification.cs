@@ -28,7 +28,9 @@ public sealed record LedgerViolation(string File, int Line, LedgerViolationKind 
 
 /// <summary>Result of verifying all ledger files.</summary>
 /// <param name="Violations">All findings; empty when the ledger is intact.</param>
-public sealed record LedgerVerification(IReadOnlyList<LedgerViolation> Violations)
+/// <param name="AnchoredLocally">Number of ledger files covered by the local head anchor.</param>
+/// <param name="AnchoredByGit">Number of ledger files without a local anchor entry that are committed and unmodified in git.</param>
+public sealed record LedgerVerification(IReadOnlyList<LedgerViolation> Violations, int AnchoredLocally = 0, int AnchoredByGit = 0)
 {
     /// <summary>Gets a value indicating whether no violation was found.</summary>
     public bool Ok => Violations.Count == 0;

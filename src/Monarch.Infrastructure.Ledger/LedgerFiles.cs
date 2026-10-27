@@ -11,6 +11,48 @@ internal static class LedgerFiles
     public const string HeadsPath = ".monarch/local/ledger-heads.json";
     private const int RetryBudgetMs = 200;
 
+    public const string WriterIdPath = ".monarch/local/writer-id";
+
+    /// <summary>Reads (or creates once) the per-worktree writer id: 8 lowercase hex characters, git-ignored.</summary>
+    public static string WriterId(string root, bool regenerate = false)
+    {
+        var path = Full(root, WriterIdPath);
+        if (!regenerate && TryReadWriterId(path) is { } existing)
+        {
+            return existing;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var id = Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(4));
+        if (regenerate)
+        {
+            File.WriteAllText(path, id);
+            return id;
+        }
+
+        try
+        {
+            using var fs = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            fs.Write(System.Text.Encoding.ASCII.GetBytes(id));
+            return id;
+        }
+        catch (IOException)
+        {
+            return TryReadWriterId(path) ?? throw new IOException("Cannot read or create the writer id.");
+        }
+    }
+
+    private static string? TryReadWriterId(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        var text = Encoding.ASCII.GetString(ReadAllShared(path)).Trim();
+        return text.Length == 8 && text.All(char.IsAsciiHexDigitLower) ? text : null;
+    }
+
     public static string Full(string root, string relative) => Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
 
     public static void ValidateSessionId(string sessionId)

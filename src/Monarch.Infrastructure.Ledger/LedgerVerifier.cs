@@ -35,9 +35,19 @@ public static class LedgerVerifier
 
         var known = heads?.Files ?? [];
         var headsBroken = violations.Any(v => v.File == LedgerFiles.HeadsPath);
+        var byGit = 0;
         foreach (var file in scanned.Keys)
         {
-            if (!known.ContainsKey(file) && !headsBroken)
+            if (known.ContainsKey(file) || headsBroken)
+            {
+                continue;
+            }
+
+            if (GitAnchor.IsAnchoredByGit(root, file))
+            {
+                byGit++;
+            }
+            else
             {
                 violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.UnknownFile, "Ledger file is not covered by the head anchor."));
             }
@@ -63,7 +73,7 @@ public static class LedgerVerifier
             }
         }
 
-        return new LedgerVerification(violations);
+        return new LedgerVerification(violations, known.Keys.Count(scanned.ContainsKey), byGit);
     }
 
     private static FileScan ScanFile(string root, string relative, List<LedgerViolation> violations)

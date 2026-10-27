@@ -12,7 +12,9 @@ public sealed class LedgerTests : IDisposable
 
     private JsonlLedgerStore NewStore(FixedClock? clock = null) => new(new JsonlLedgerOptions { Root = _t.Path }, clock ?? new FixedClock());
 
-    private string LedgerFile(string session = "s1") => Path.Combine(_t.Path, ".monarch", "ledger", "2026-10", session + ".jsonl");
+    private string LedgerFile(string session = "s1") => Path.Combine(_t.Path, ".monarch", "ledger", "2026-10", session + "." + WriterId + ".jsonl");
+
+    private string WriterId => File.ReadAllText(Path.Combine(_t.Path, ".monarch", "local", "writer-id")).Trim();
 
     private string HeadsFile => Path.Combine(_t.Path, ".monarch", "local", "ledger-heads.json");
 
@@ -34,8 +36,8 @@ public sealed class LedgerTests : IDisposable
     {
         var e = NewStore().Append("s1", "knight", "Note", P.Json("""{"a":1}"""));
         Assert.Equal(1, e.Seq);
-        Assert.Equal("genesis:s1", e.PrevHash);
-        Assert.Equal(".monarch/ledger/2026-10/s1.jsonl", e.File);
+        Assert.Equal($"genesis:s1.{WriterId}", e.PrevHash);
+        Assert.Equal($".monarch/ledger/2026-10/s1.{WriterId}.jsonl", e.File);
         Assert.True(File.Exists(LedgerFile()));
         Assert.Equal(64, e.Hash.Length);
         Assert.Equal(e.Hash, e.Hash.ToLowerInvariant());
@@ -133,7 +135,7 @@ public sealed class LedgerTests : IDisposable
         var lines = File.ReadAllLines(path);
         File.WriteAllText(path, string.Join("\n", lines.Take(4)) + "\n");
         var v = LedgerVerifier.Verify(_t.Path);
-        Assert.Contains(v.Violations, x => x.Kind == LedgerViolationKind.Truncated && x.File.EndsWith("s1.jsonl", StringComparison.Ordinal));
+        Assert.Contains(v.Violations, x => x.Kind == LedgerViolationKind.Truncated && x.File.EndsWith(".jsonl", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -194,7 +196,7 @@ public sealed class LedgerTests : IDisposable
     {
         Seed(3);
         var heads = File.ReadAllText(HeadsFile);
-        Assert.Contains("\".monarch/ledger/2026-10/s1.jsonl\"", heads);
+        Assert.Contains($"\".monarch/ledger/2026-10/s1.{WriterId}.jsonl\"", heads);
         Assert.Contains("\"seq\":3", heads);
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(HeadsFile)!, "*.tmp"));
     }
