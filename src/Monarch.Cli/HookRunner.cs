@@ -192,7 +192,7 @@ internal static class HookRunner
         {
             ledger.Append(session, "hook", "ManaSnapshotTaken", ("five_hour_used_pct", s.FiveHourUsedPct), ("five_hour_resets_at", ManaStore.Stamp(s.FiveHourResetsAt)),
                 ("seven_day_used_pct", s.SevenDayUsedPct), ("seven_day_resets_at", ManaStore.Stamp(s.SevenDayResetsAt)), ("stale", s.IsStale),
-                ("context_used_pct", mana?.ContextWindow?.UsedPercentage));
+                ("context_used_pct", ManaStore.ContextOf(mana, input.SessionId)));
         }
     }
 

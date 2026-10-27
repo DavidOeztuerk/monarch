@@ -107,4 +107,102 @@ public class StatuslineTests
         Assert.StartsWith("STILL-HERE", r.Out, StringComparison.Ordinal);
         Assert.Equal(string.Empty, r.Err);
     }
+
+    private static string Multi(string root, string session, int five, long r5, int week, long r7, int ctx) =>
+        "{\"session_id\":\"" + session + "\",\"cwd\":" + JsonSerializer.Serialize(root) + ",\"context_window\":{\"used_percentage\":" + ctx
+        + "},\"rate_limits\":{\"five_hour\":{\"used_percentage\":" + five + ",\"resets_at\":" + r5 + "},\"seven_day\":{\"used_percentage\":" + week + ",\"resets_at\":" + r7 + "}}}";
+
+    private static readonly long R1 = TempProject.Now.AddHours(2).ToUnixTimeSeconds();
+    private static readonly long W1 = TempProject.Now.AddDays(3).ToUnixTimeSeconds();
+
+    private static void Write(TempProject p, string session, int five, long r5, int week, long r7, int ctx)
+    {
+        p.Clock.UtcNow = p.Clock.UtcNow.AddSeconds(30);
+        p.Run(["statusline"], Multi(p.Root, session, five, r5, week, r7, ctx));
+    }
+
+    [Fact]
+    public void Idle_session_with_lower_value_and_same_reset_does_not_overwrite_five_hour()
+    {
+        using var p = new TempProject();
+        Write(p, "A", 80, R1, 51, W1, 48);
+        Write(p, "B", 76, R1, 40, W1, 0);
+        var m = Mana(p);
+        Assert.Equal(80, m.GetProperty("rate_limits").GetProperty("five_hour").GetProperty("used_percentage").GetDouble());
+        Assert.Equal(51, m.GetProperty("rate_limits").GetProperty("seven_day").GetProperty("used_percentage").GetDouble());
+        Assert.True(m.GetProperty("rate_limits").GetProperty("seven_day").TryGetProperty("observed_at", out _));
+    }
+
+    [Fact]
+    public void Later_reset_replaces_the_window()
+    {
+        using var p = new TempProject();
+        Write(p, "A", 80, R1, 51, W1, 48);
+        Write(p, "B", 3, R1 + 18000, 51, W1, 0);
+        var m = Mana(p);
+        Assert.Equal(3, m.GetProperty("rate_limits").GetProperty("five_hour").GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void Older_reset_never_replaces_a_newer_window()
+    {
+        using var p = new TempProject();
+        Write(p, "A", 3, R1 + 18000, 51, W1, 48);
+        Write(p, "B", 99, R1, 51, W1, 0);
+        Assert.Equal(3, Mana(p).GetProperty("rate_limits").GetProperty("five_hour").GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void Hp_is_stored_per_session_and_the_statusline_uses_its_own()
+    {
+        using var p = new TempProject();
+        Write(p, "A", 80, R1, 51, W1, 48);
+        Write(p, "B", 76, R1, 40, W1, 0);
+        var sessions = Mana(p).GetProperty("sessions");
+        Assert.Equal(48, sessions.GetProperty("A").GetProperty("used_percentage").GetDouble());
+        Assert.Equal(0, sessions.GetProperty("B").GetProperty("used_percentage").GetDouble());
+        Assert.True(sessions.GetProperty("A").TryGetProperty("written_at", out _));
+        p.Clock.UtcNow = p.Clock.UtcNow.AddSeconds(30);
+        var r = p.Run(["statusline"], Multi(p.Root, "A", 80, R1, 51, W1, 48));
+        Assert.Contains("HP 52%", r.Out, StringComparison.Ordinal);
+        Assert.Contains("MP 80%", r.Out, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Session_entries_older_than_24h_are_dropped()
+    {
+        using var p = new TempProject();
+        Write(p, "OLD", 10, R1, 10, W1, 5);
+        p.Clock.UtcNow = p.Clock.UtcNow.AddHours(25);
+        Write(p, "NEW", 10, R1 + 100, 10, W1 + 100, 7);
+        var sessions = Mana(p).GetProperty("sessions");
+        Assert.False(sessions.TryGetProperty("OLD", out _));
+        Assert.True(sessions.TryGetProperty("NEW", out _));
+    }
+
+    [FsCheck.Xunit.Property(MaxTest = 25)]
+    public bool Any_interleaving_stores_the_maximum_of_the_latest_window(byte[] ops)
+    {
+        if (ops.Length == 0)
+        {
+            return true;
+        }
+
+        using var p = new TempProject();
+        (long Reset, int Used)? best = null;
+        foreach (var b in ops.Take(12))
+        {
+            var session = "S" + (b & 3);
+            var reset = R1 + (((b >> 2) & 1) * 18000);
+            var used = (b >> 3) % 100;
+            Write(p, session, used, reset, 1, W1, used);
+            if (best is null || reset > best.Value.Reset || (reset == best.Value.Reset && used > best.Value.Used))
+            {
+                best = (reset, used);
+            }
+        }
+
+        var five = Mana(p).GetProperty("rate_limits").GetProperty("five_hour");
+        return five.GetProperty("used_percentage").GetDouble() == best!.Value.Used && five.GetProperty("resets_at").GetInt64() == best.Value.Reset;
+    }
 }

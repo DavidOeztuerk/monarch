@@ -9,6 +9,7 @@ namespace Monarch.Cli;
 internal static class Statusline
 {
     private static readonly TimeSpan Debounce = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan SessionTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan WrapTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>Prints the wrapped output (if any) and the Monarch line; always returns 0.</summary>
@@ -114,7 +115,7 @@ internal static class Statusline
     {
         var input = JsonSerializer.Deserialize(raw, CliJson.Default.StatuslineInput) ?? new StatuslineInput();
         var now = env.Clock.UtcNow;
-        var prev = ManaStore.Read(env.Home);
+        var prev = ManaStore.ReadForMerge(env.Home);
         var next = Merge(prev, input, now);
         if (!Unchanged(prev, next, now))
         {
@@ -137,17 +138,19 @@ internal static class Statusline
             }
         }
 
-        return Format(next, active, neutral, now);
+        return Format(next, active, neutral, now, ManaStore.ContextOf(next, input.SessionId));
     }
 
     private static ManaFile Merge(ManaFile? prev, StatuslineInput input, DateTimeOffset now)
     {
+        string stamp;
         var fresh5 = input.RateLimits?.FiveHour is { UsedPercentage: not null };
         var fresh7 = input.RateLimits?.SevenDay is { UsedPercentage: not null };
+        stamp = ManaStore.Stamp(now);
         var limits = new RateLimits
         {
-            FiveHour = fresh5 ? input.RateLimits!.FiveHour : prev?.RateLimits?.FiveHour,
-            SevenDay = fresh7 ? input.RateLimits!.SevenDay : prev?.RateLimits?.SevenDay,
+            FiveHour = MergeWindow(prev?.RateLimits?.FiveHour, fresh5 ? input.RateLimits!.FiveHour : null, stamp),
+            SevenDay = MergeWindow(prev?.RateLimits?.SevenDay, fresh7 ? input.RateLimits!.SevenDay : null, stamp),
         };
         var fresh = fresh5 && fresh7;
         return new ManaFile
@@ -157,10 +160,54 @@ internal static class Statusline
             SessionId = input.SessionId ?? prev?.SessionId,
             Model = input.Model?.Id ?? prev?.Model,
             ContextWindow = input.ContextWindow ?? prev?.ContextWindow,
+            Sessions = MergeSessions(prev, input, now),
             RateLimits = limits.FiveHour is null && limits.SevenDay is null ? null : limits,
             RateLimitsAt = fresh ? ManaStore.Stamp(now) : prev?.RateLimitsAt,
             RateLimitsStale = !fresh,
         };
+    }
+
+    /// <summary>Rate limits are account-global: the later <c>resets_at</c> wins, and within one window the higher usage wins (usage is monotonic per window).</summary>
+    private static RateWindow? MergeWindow(RateWindow? prev, RateWindow? incoming, string stamp)
+    {
+        if (incoming is null)
+        {
+            return prev;
+        }
+
+        var fresh = new RateWindow { UsedPercentage = incoming.UsedPercentage, ResetsAt = incoming.ResetsAt, ObservedAt = stamp };
+        if (prev?.UsedPercentage is not { } pu)
+        {
+            return fresh;
+        }
+
+        var pr = prev.ResetsAt ?? 0;
+        var ir = incoming.ResetsAt ?? 0;
+        if (ir > pr || (ir == pr && incoming.UsedPercentage > pu))
+        {
+            return fresh;
+        }
+
+        return prev;
+    }
+
+    private static Dictionary<string, SessionEntry> MergeSessions(ManaFile? prev, StatuslineInput input, DateTimeOffset now)
+    {
+        var result = new Dictionary<string, SessionEntry>(StringComparer.Ordinal);
+        foreach (var (id, e) in prev?.Sessions ?? [])
+        {
+            if (ManaStore.ParseStamp(e.WrittenAt) is { } at && now - at <= SessionTtl && at <= now.AddMinutes(1))
+            {
+                result[id] = e;
+            }
+        }
+
+        if (input.SessionId is { } sid && input.ContextWindow?.UsedPercentage is { } used)
+        {
+            result[sid] = new SessionEntry { UsedPercentage = used, WrittenAt = ManaStore.Stamp(now) };
+        }
+
+        return result;
     }
 
     private static bool Unchanged(ManaFile? prev, ManaFile next, DateTimeOffset now)
@@ -178,7 +225,7 @@ internal static class Statusline
             && prev.RateLimits?.SevenDay?.ResetsAt == next.RateLimits?.SevenDay?.ResetsAt;
     }
 
-    private static string Format(ManaFile m, ActiveFile? active, bool neutral, DateTimeOffset now)
+    private static string Format(ManaFile m, ActiveFile? active, bool neutral, DateTimeOffset now, double? context)
     {
         var parts = new List<string>();
         var mark = m.RateLimitsStale ? "~" : "";
@@ -193,7 +240,7 @@ internal static class Statusline
             parts.Add($"{(neutral ? "7d" : "W")} {Pct(seven)}{mark}");
         }
 
-        if (m.ContextWindow?.UsedPercentage is { } ctx)
+        if (context is { } ctx)
         {
             parts.Add(neutral ? $"ctx {Pct(ctx)}" : $"HP {Pct(100 - ctx)}");
         }

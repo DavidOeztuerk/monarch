@@ -103,6 +103,16 @@ internal sealed class ManaFile
     [JsonPropertyName("rate_limits_at")] public string? RateLimitsAt { get; set; }
 
     [JsonPropertyName("rate_limits_stale")] public bool RateLimitsStale { get; set; }
+
+    [JsonPropertyName("sessions")] public Dictionary<string, SessionEntry>? Sessions { get; set; }
+}
+
+/// <summary>Per-session context usage (HP is session-local, not account-global).</summary>
+internal sealed class SessionEntry
+{
+    [JsonPropertyName("used_percentage")] public double? UsedPercentage { get; set; }
+
+    [JsonPropertyName("written_at")] public string? WrittenAt { get; set; }
 }
 
 /// <summary>Context usage.</summary>
@@ -125,6 +135,8 @@ internal sealed class RateWindow
     [JsonPropertyName("used_percentage")] public double? UsedPercentage { get; set; }
 
     [JsonPropertyName("resets_at")] public long? ResetsAt { get; set; }
+
+    [JsonPropertyName("observed_at")] public string? ObservedAt { get; set; }
 }
 
 /// <summary>Claude Code statusline stdin (subset).</summary>

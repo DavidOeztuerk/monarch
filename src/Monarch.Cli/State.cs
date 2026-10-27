@@ -74,6 +74,41 @@ internal static class ManaStore
         }
     }
 
+    /// <summary>Reads the snapshot for a read-merge-write cycle, retrying briefly when a concurrent writer makes the read fail.</summary>
+    public static ManaFile? ReadForMerge(string home)
+    {
+        var path = PathOf(home);
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                return File.Exists(path) ? JsonSerializer.Deserialize(File.ReadAllText(path), CliJson.Default.ManaFile) : null;
+            }
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(20);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Context usage of one session, falling back to the legacy top-level value only when it was written by that session.</summary>
+    public static double? ContextOf(ManaFile? f, string? sessionId)
+    {
+        if (f is null || sessionId is null)
+        {
+            return null;
+        }
+
+        if (f.Sessions is { } s && s.TryGetValue(sessionId, out var e))
+        {
+            return e.UsedPercentage;
+        }
+
+        return f.SessionId == sessionId ? f.ContextWindow?.UsedPercentage : null;
+    }
+
     /// <summary>Formats a time stamp the way the file stores it.</summary>
     public static string Stamp(DateTimeOffset t) => t.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
