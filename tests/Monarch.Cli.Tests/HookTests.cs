@@ -132,22 +132,96 @@ public class HookTests
     }
 
     [Fact]
-    public void Config_error_with_low_rank_is_silent_but_logged()
+    public void Config_error_with_low_rank_keeps_the_built_in_policy_active_and_logs()
     {
         using var p = new TempProject(activeRank: "B", systemYaml: "policy:\n  deny_bash: [unterminated\n");
-        var r = p.Hook("pre-tool-use", TempProject.PreToolUse("Edit", file: "src/a.cs"));
-        Assert.Equal(0, r.Code);
-        Assert.Equal(string.Empty, r.Out);
+        var ok = p.Hook("pre-tool-use", TempProject.PreToolUse("Edit", file: "src/a.cs"));
+        Assert.Equal(0, ok.Code);
+        Assert.Equal(string.Empty, ok.Out);
+        Assert.True(File.Exists(p.LocalPath("hook-errors.log")));
+        Assert.Contains("\"deny\"", p.Hook("pre-tool-use", TempProject.PreToolUse("Edit", file: ".monarch/ledger/x.jsonl")).Out);
+        Assert.Contains("\"deny\"", p.Hook("pre-tool-use", TempProject.PreToolUse("Bash", command: "git reset --hard")).Out);
+    }
+
+    [Fact]
+    public void Config_error_with_rank_a_asks()
+    {
+        using var p = new TempProject(activeRank: "A", systemYaml: "policy:\n  deny_bash: [unterminated\n");
+        Assert.Contains("\"ask\"", p.Hook("pre-tool-use", TempProject.PreToolUse("Edit", file: "src/a.cs")).Out);
+    }
+
+    [Fact]
+    public void Corrupt_active_json_asks_and_never_allows_ledger_paths()
+    {
+        using var p = new TempProject();
+        File.WriteAllText(p.LocalPath("active.json"), "{not json");
+        var src = p.Hook("pre-tool-use", TempProject.PreToolUse("Edit", file: "src/a.cs"));
+        Assert.Contains("\"ask\"", src.Out);
+        var ledger = p.Hook("pre-tool-use", TempProject.PreToolUse("Edit", file: ".monarch/ledger/x.jsonl"));
+        Assert.Contains("\"deny\"", ledger.Out);
         Assert.True(File.Exists(p.LocalPath("hook-errors.log")));
     }
 
     [Fact]
-    public void Garbage_stdin_never_fails_visibly()
+    public void Active_json_with_unknown_rank_asks()
+    {
+        using var p = new TempProject(activeRank: "Z");
+        Assert.Contains("\"ask\"", p.Hook("pre-tool-use", TempProject.PreToolUse("Edit", file: "src/a.cs")).Out);
+    }
+
+    [Fact]
+    public void Garbage_stdin_in_an_awakened_project_asks()
     {
         using var p = new TempProject();
         var r = p.Hook("pre-tool-use", "{not json");
         Assert.Equal(0, r.Code);
+        Assert.Contains("\"ask\"", r.Out);
+    }
+
+    [Fact]
+    public void Decision_is_flushed_before_the_ledger_append()
+    {
+        using var p = new TempProject(activeRank: "B");
+        var spy = new FlushSpy(() => p.Events().Count);
+        var env = new CliEnv(p.Root, p.Home, new StringReader(TempProject.PreToolUse("Edit", file: "docs/readme.md")), spy,
+            new StringWriter(), p.Clock);
+        Assert.Equal(0, MonarchApp.Run(["hook", "pre-tool-use"], env));
+        Assert.Contains("permissionDecision", spy.ToString());
+        Assert.NotEmpty(spy.EventCountsAtFlush);
+        Assert.Equal(0, spy.EventCountsAtFlush[0]);
+        Assert.NotEmpty(p.Events());
+    }
+
+    private sealed class FlushSpy(Func<int> events) : StringWriter
+    {
+        public List<int> EventCountsAtFlush { get; } = [];
+
+        public override void Flush()
+        {
+            if (ToString().Length > 0)
+            {
+                EventCountsAtFlush.Add(events());
+            }
+
+            base.Flush();
+        }
+    }
+
+    [Fact]
+    public void Garbage_stdin_outside_an_awakened_project_stays_silent()
+    {
+        using var p = new TempProject(awakened: false);
+        var r = p.Hook("pre-tool-use", "{not json");
+        Assert.Equal(0, r.Code);
         Assert.Equal(string.Empty, r.Out);
+    }
+
+    [Fact]
+    public void Empty_read_only_shadows_cannot_lift_the_built_in_read_only_shadows()
+    {
+        using var p = new TempProject(activeRank: "B", systemYaml: "policy:\n  read_only_shadows: []\n");
+        var r = p.Hook("pre-tool-use", TempProject.PreToolUse("Edit", file: "src/a.cs", agentType: "warden"));
+        Assert.Contains("\"deny\"", r.Out);
     }
 
     [Property(MaxTest = 60)]

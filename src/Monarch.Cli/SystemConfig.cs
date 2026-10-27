@@ -40,7 +40,7 @@ internal sealed record SystemConfig(
             ProtectPaths = [.. d.ProtectPaths.Concat(ProtectPaths).Distinct(StringComparer.Ordinal)],
             DenyBash = [.. d.DenyBash.Concat(DenyBash).Distinct(StringComparer.Ordinal)],
             ExtraSecretGlobs = ProtectSecretsExtra,
-            ReadOnlyShadowTypes = ReadOnlyShadows,
+            ReadOnlyShadowTypes = [.. d.ReadOnlyShadowTypes.Concat(ReadOnlyShadows).Distinct(StringComparer.Ordinal)],
             ScopeLock = ScopeLock,
             RefuseHighRankInBypassMode = RefuseHighRankInBypassMode,
         };

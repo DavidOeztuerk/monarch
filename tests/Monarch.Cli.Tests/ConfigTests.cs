@@ -72,4 +72,14 @@ public class ConfigTests
         using var p = new TempProject();
         Assert.Equal(SystemConfig.Default.Plan, SystemConfigReader.Load(p.Root).Plan);
     }
+
+    [Fact]
+    public void Read_only_shadows_in_the_file_only_add_to_the_built_ins()
+    {
+        Assert.Equal(["warden", "scout"], SystemConfigReader.Parse("policy:\n  read_only_shadows: []\n").ToPolicyOptions().ReadOnlyShadowTypes);
+        var added = SystemConfigReader.Parse("policy:\n  read_only_shadows: [scribe]\n").ToPolicyOptions().ReadOnlyShadowTypes;
+        Assert.Contains("scribe", added);
+        Assert.Contains("warden", added);
+        Assert.Contains("scout", added);
+    }
 }
