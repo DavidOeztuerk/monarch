@@ -27,12 +27,17 @@ public class GitHubChecksEvidenceTests
     private static string Sha256(string s) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(s)));
 
     [Fact]
-    public async Task Completed_check_runs_become_ci_evidence_with_digest_and_conclusion()
+    public async Task Check_runs_become_ci_evidence_with_digest_status_and_conclusion()
     {
         var h = new StubHandler(_ => Json(ChecksJson));
         var list = await Source(h).GetChecksAsync("o", "r", Sha, TestContext.Current.CancellationToken);
-        Assert.Equal(2, list.Count);
+        Assert.Equal(3, list.Count);
         var build = list[0];
+        Assert.True(build.IsCompleted);
+        var deploy = list[2];
+        Assert.Equal("in_progress", deploy.Status);
+        Assert.False(deploy.IsCompleted);
+        Assert.False(deploy.IsSuccess);
         Assert.Equal(EvidenceKind.CiRun, build.Evidence.Kind);
         Assert.Equal("success", build.Conclusion);
         Assert.True(build.IsSuccess);

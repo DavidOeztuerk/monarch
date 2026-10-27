@@ -23,6 +23,22 @@ public class ToolCallPropertyTests
         return ToolCallPolicy.Evaluate(call, ctx).Kind == PolicyDecisionKind.Deny;
     }
 
+    private static readonly string[] SecretNames = [".env", ".env.local", "a.key", "b.p8", "c.pfx", "keycloak.env", ".netrc", "id_rsa", "id_rsa.pub"];
+
+    [Property]
+    public bool Grep_of_any_secret_path_is_denied_and_Glob_is_not(int[] dirs, int name, int viaGlob)
+    {
+        var secret = SecretNames[I(name, SecretNames.Length)];
+        var ctx = new PolicyContext(ToolCallPolicyTests.Root, null, false, new PolicyOptions());
+        var grep = I(viaGlob, 2) == 0
+            ? new ToolCall("Grep", FilePath: $"{Dirs(dirs)}/{secret}")
+            : new ToolCall("Grep", FilePath: Dirs(dirs), Glob: secret);
+        var glob = grep with { ToolName = "Glob" };
+        var d = ToolCallPolicy.Evaluate(grep, ctx);
+        return d.Kind == PolicyDecisionKind.Deny && d.Rule == PolicyRules.ProtectSecrets
+            && ToolCallPolicy.Evaluate(glob, ctx).Rule != PolicyRules.ProtectSecrets;
+    }
+
     private static readonly string[] DenyCmds =
         ["git push --force", "git push -f origin main", "git push origin +main", "git push --force-with-lease", "git reset --hard HEAD~2",
          "dotnet ef database drop --force", "monarch permit x", "monarch promote y"];

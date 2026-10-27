@@ -164,7 +164,7 @@ internal static class EvidenceCommands
         var source = Forge.Evidence(env);
         var head = source.GetPullHeadAsync(forge.Owner, forge.Repo, pr).GetAwaiter().GetResult();
         var latest = source.GetChecksAsync(forge.Owner, forge.Repo, head).GetAwaiter().GetResult()
-            .GroupBy(c => c.Name).Select(g => g.OrderBy(c => c.Evidence.At).Last()).OrderBy(c => c.Name, StringComparer.Ordinal).ToList();
+            .GroupBy(c => c.Name).Select(g => g.OrderBy(c => c.IsCompleted ? c.Evidence.At : DateTimeOffset.MaxValue).Last()).OrderBy(c => c.Name, StringComparer.Ordinal).ToList();
         var required = Forge.Required(paths);
         List<CheckEvidence> relevant;
         if (required.Count > 0)
@@ -172,7 +172,7 @@ internal static class EvidenceCommands
             var missing = required.Where(n => latest.All(c => c.Name != n)).ToList();
             if (missing.Count > 0)
             {
-                return new StepResult(StepKind.Pending, $"required checks not completed on {head[..Math.Min(8, head.Length)]}: {string.Join(", ", missing)}.");
+                return new StepResult(StepKind.Pending, $"required checks missing on {head[..Math.Min(8, head.Length)]}: {string.Join(", ", missing)}.");
             }
 
             relevant = [.. latest.Where(c => required.Contains(c.Name))];
@@ -182,8 +182,14 @@ internal static class EvidenceCommands
             relevant = latest;
             if (relevant.Count == 0)
             {
-                return new StepResult(StepKind.Pending, $"no completed check runs on {head[..Math.Min(8, head.Length)]} yet.");
+                return new StepResult(StepKind.Pending, $"no check runs on {head[..Math.Min(8, head.Length)]} yet.");
             }
+        }
+
+        var running = relevant.Where(c => !c.IsCompleted).ToList();
+        if (running.Count > 0)
+        {
+            return new StepResult(StepKind.Pending, "checks still running: " + string.Join(", ", running.Select(c => $"{c.Name}={c.Status}")) + "; verify again when they have completed.");
         }
 
         var bad = relevant.Where(c => !c.IsSuccess).ToList();

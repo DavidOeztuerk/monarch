@@ -14,6 +14,8 @@ internal sealed class CheckRunDto
 
     public string? Conclusion { get; set; }
 
+    public DateTimeOffset? StartedAt { get; set; }
+
     public DateTimeOffset? CompletedAt { get; set; }
 
     public string? HtmlUrl { get; set; }

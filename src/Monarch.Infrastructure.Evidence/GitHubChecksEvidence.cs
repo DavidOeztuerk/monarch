@@ -9,7 +9,7 @@ using DomainEvidence = Monarch.Domain.Evidence;
 namespace Monarch.Infrastructure.Evidence;
 
 /// <summary>
-/// Evidence source reading GitHub check runs and pull request merges. The digest of a check run is the lowercase hex SHA-256 of
+/// Evidence source reading GitHub check runs (all statuses: queued, in_progress, completed) and pull request merges. The digest of a check run is the lowercase hex SHA-256 of
 /// <c>checkRunId|headSha|conclusion|completedAt</c> (completedAt as UTC <c>yyyy-MM-ddTHH:mm:ssZ</c>); the digest of a merge is
 /// the <c>merge_commit_sha</c>. Only conclusion <c>success</c> may verify a quest (see <see cref="CheckEvidence.IsSuccess"/>).
 /// </summary>
@@ -35,15 +35,20 @@ public sealed class GitHubChecksEvidence : IEvidenceSource
             seen += batch.CheckRuns.Count;
             foreach (var run in batch.CheckRuns)
             {
-                if (run.Status != "completed" || run.Conclusion is null || run.CompletedAt is not { } completed)
+                var head = run.HeadSha ?? sha;
+                var status = run.Status ?? "queued";
+                var id = run.Id.ToString(CultureInfo.InvariantCulture);
+                var source = run.HtmlUrl ?? $"https://github.com/{owner}/{repo}/runs/{id}";
+                if (status != "completed" || run.Conclusion is null || run.CompletedAt is not { } completed)
                 {
+                    var started = run.StartedAt ?? DateTimeOffset.UnixEpoch;
+                    var pending = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{id}|{head}|{status}")));
+                    result.Add(new CheckEvidence(new DomainEvidence(EvidenceKind.CiRun, source, pending, started), run.Name ?? string.Empty, string.Empty, status == "completed" ? "in_progress" : status));
                     continue;
                 }
 
-                var head = run.HeadSha ?? sha;
                 var stamp = completed.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
-                var digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{run.Id.ToString(CultureInfo.InvariantCulture)}|{head}|{run.Conclusion}|{stamp}")));
-                var source = run.HtmlUrl ?? $"https://github.com/{owner}/{repo}/runs/{run.Id.ToString(CultureInfo.InvariantCulture)}";
+                var digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{id}|{head}|{run.Conclusion}|{stamp}")));
                 result.Add(new CheckEvidence(new DomainEvidence(EvidenceKind.CiRun, source, digest, completed), run.Name ?? string.Empty, run.Conclusion));
             }
 

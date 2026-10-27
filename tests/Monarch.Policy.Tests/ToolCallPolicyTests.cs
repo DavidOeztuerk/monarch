@@ -117,6 +117,31 @@ public class ToolCallPolicyTests
     [InlineData(".env.example"), InlineData("app/.env.example"), InlineData("src/Program.cs"), InlineData("README.md")]
     public void Read_of_non_secrets_is_allowed(string path) => Allowed(new ToolCall("Read", FilePath: path));
 
+    [Theory]
+    [InlineData(".env", null)]
+    [InlineData("config/prod.key", null)]
+    [InlineData("src", "*.key")]
+    [InlineData(".", ".env*")]
+    [InlineData(null, "**/*.p8")]
+    [InlineData("deploy", "id_rsa*")]
+    public void Grep_reaching_secrets_is_denied(string? path, string? glob) =>
+        Denied(new ToolCall("Grep", FilePath: path, Glob: glob), PolicyRules.ProtectSecrets);
+
+    [Theory]
+    [InlineData("src", "*.cs")]
+    [InlineData(".", "**/*.md")]
+    [InlineData(".env.example", null)]
+    [InlineData(null, null)]
+    [InlineData(".", "*")]
+    public void Grep_on_ordinary_targets_is_allowed(string? path, string? glob) =>
+        Allowed(new ToolCall("Grep", FilePath: path, Glob: glob));
+
+    [Theory]
+    [InlineData(".env", "*.key")]
+    [InlineData(null, ".env*")]
+    public void Glob_tool_lists_names_only_and_is_never_denied_by_protect_secrets(string? path, string? glob) =>
+        Allowed(new ToolCall("Glob", FilePath: path, Glob: glob));
+
     [Fact]
     public void Extra_secret_globs_apply() =>
         Denied(new ToolCall("Read", FilePath: "vault/token.txt"), PolicyRules.ProtectSecrets,

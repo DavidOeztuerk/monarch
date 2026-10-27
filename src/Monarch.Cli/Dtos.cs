@@ -33,6 +33,12 @@ internal sealed class HookToolInput
     [JsonPropertyName("notebook_path")] public string? NotebookPath { get; set; }
 
     [JsonPropertyName("command")] public string? Command { get; set; }
+
+    /// <summary>Search path of the Grep tool (<c>tool_input.path</c>).</summary>
+    [JsonPropertyName("path")] public string? Path { get; set; }
+
+    /// <summary>File filter of the Grep/Glob tools (<c>tool_input.glob</c>).</summary>
+    [JsonPropertyName("glob")] public string? Glob { get; set; }
 }
 
 /// <summary>Hook stdout envelope.</summary>

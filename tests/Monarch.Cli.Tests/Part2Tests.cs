@@ -157,6 +157,43 @@ public class VerifyClearTests
     }
 
     [Fact]
+    public void Verify_is_refused_while_a_check_is_still_running()
+    {
+        var (p, f, quest) = Setup();
+        using (p)
+        {
+            f.SetChecks(FakeForge.Run(1, "build", "success"), FakeForge.Run(2, "test", "", "in_progress"));
+            var r = p.Run(["quest", "verify", "Q-0001"]);
+            Assert.NotEqual(0, r.Code);
+            Assert.Contains("still running", r.Out + r.Err, StringComparison.Ordinal);
+            Assert.Contains("test=in_progress", r.Out + r.Err, StringComparison.Ordinal);
+            Assert.Equal("in_review", Seed.State(quest));
+            Assert.DoesNotContain(p.Events(), e => e.Type == "QuestVerified");
+
+            f.SetChecks(FakeForge.Run(1, "build", "success"), FakeForge.Run(2, "test", "", "queued"));
+            Assert.NotEqual(0, p.Run(["quest", "verify", "Q-0001"]).Code);
+
+            f.SetChecks(FakeForge.Run(1, "build", "success"), FakeForge.Run(2, "test", "success"));
+            Assert.Equal(0, p.Run(["quest", "verify", "Q-0001"]).Code);
+            Assert.Equal("verified", Seed.State(quest));
+        }
+    }
+
+    [Fact]
+    public void Verify_counts_neutral_and_skipped_as_not_green()
+    {
+        var (p, f, quest) = Setup();
+        using (p)
+        {
+            f.SetChecks(FakeForge.Run(1, "build", "success"), FakeForge.Run(2, "lint", "skipped"));
+            var r = p.Run(["quest", "verify", "Q-0001"]);
+            Assert.NotEqual(0, r.Code);
+            Assert.Contains("lint=skipped", r.Out + r.Err, StringComparison.Ordinal);
+            Assert.Equal("in_review", Seed.State(quest));
+        }
+    }
+
+    [Fact]
     public void Verify_refuses_failing_missing_or_unlinked_cases_without_changing_anything()
     {
         var (p, f, quest) = Setup();

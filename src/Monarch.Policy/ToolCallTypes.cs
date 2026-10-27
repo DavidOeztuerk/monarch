@@ -70,9 +70,10 @@ public sealed record PolicyDecision(PolicyDecisionKind Kind, string Rule, string
 /// <param name="AgentId">Id des Subagents.</param>
 /// <param name="PermissionMode">Permission-Mode (ADR-0002); null oder unbekannt gilt als default.</param>
 /// <param name="Cwd">Arbeitsverzeichnis.</param>
+/// <param name="Glob">Glob-Filter bei Grep/Glob (<c>tool_input.glob</c>); bei Grep ist <paramref name="FilePath"/> der Suchpfad (<c>tool_input.path</c>).</param>
 public sealed record ToolCall(
     string ToolName, string? FilePath = null, string? Command = null, string? AgentType = null,
-    string? AgentId = null, string? PermissionMode = null, string Cwd = "");
+    string? AgentId = null, string? PermissionMode = null, string Cwd = "", string? Glob = null);
 
 /// <summary>Die aktive Quest, soweit die Policy sie braucht.</summary>
 /// <param name="Id">Kennung.</param>

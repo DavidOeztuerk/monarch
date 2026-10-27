@@ -162,6 +162,14 @@ public static class ToolCallPolicy
             return IsSecret(ctx, PathNormalizer.Normalize(ctx.ProjectRoot, fp))
                 ? PolicyDecision.Deny(PolicyRules.ProtectSecrets, "Credential-Dateien liest Monarch nie. Nutze Existenz-Prüfungen (ls, test) oder frage den Guild Master.")
                 : null;
+        if (call.ToolName == "Grep")
+        {
+            var deniedPath = call.FilePath is { Length: > 0 } gp && IsSecret(ctx, PathNormalizer.Normalize(ctx.ProjectRoot, gp));
+            if (deniedPath || (call.Glob is { Length: > 0 } glob && GlobTargetsSecret(ctx, glob)))
+                return PolicyDecision.Deny(PolicyRules.ProtectSecrets, "Grep liest Dateiinhalte: Credential-Dateien (Pfad oder Glob) sind tabu. Nutze Glob für Namen oder frage den Guild Master.");
+            return null;
+        }
+
         if (call.ToolName != "Bash" || call.Command is not { } cmd) return null;
         foreach (var seg in segments)
         {
@@ -176,6 +184,29 @@ public static class ToolCallPolicy
             if (IsSecretToken(ctx, t))
                 return PolicyDecision.Deny(PolicyRules.ProtectSecrets, "Das Kommando liest eine Credential-Datei per Umleitung.");
         return null;
+    }
+
+    /// <summary>
+    /// True, wenn ein Grep-Glob Dateinamen einer Secret-Glob-Familie treffen kann. Je Secret-Glob wird dessen Dateiname instanziiert
+    /// (<c>*</c> durch <c>x</c>, plus die Variante ohne Wildcard-Teil) und gegen den Grep-Glob als Muster geprüft.
+    /// Reine Wildcard-Globs (<c>*</c>, <c>**</c>, <c>**/*</c>) sind ausgenommen: ripgrep überspringt versteckte Dateien und sie wären sonst jede Suche.
+    /// </summary>
+    private static bool GlobTargetsSecret(PolicyContext ctx, string glob)
+    {
+        var g = glob.Replace('\\', '/').Trim();
+        if (g.Length == 0 || g.All(c => c is '*' or '/' or '?')) return false;
+        var name = g[(g.LastIndexOf('/') + 1)..];
+        if (name.Length == 0) return false;
+        foreach (var secret in PolicyOptions.DefaultSecretGlobs.Concat(ctx.Options.ExtraSecretGlobs))
+        {
+            var sName = secret[(secret.LastIndexOf('/') + 1)..];
+            if (GlobMatcher.WildcardMatch(name, sName.Replace("*", "x", StringComparison.Ordinal))
+                || GlobMatcher.WildcardMatch(name, sName.Replace(".*", "", StringComparison.Ordinal).Replace("*", "", StringComparison.Ordinal))
+                || (sName.Contains('*', StringComparison.Ordinal) && GlobMatcher.WildcardMatch(sName, name.Replace("*", "x", StringComparison.Ordinal))))
+                return !MatchesAny(ctx.Options.SecretExceptions, name);
+        }
+
+        return false;
     }
 
     private static bool IsSecretToken(PolicyContext ctx, string token) =>

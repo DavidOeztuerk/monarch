@@ -81,7 +81,7 @@ internal static class HookRunner
 
     private static string Actor(HookInput i) => i.AgentType ?? "hook";
 
-    private static string? FileOf(HookInput i) => i.ToolInput?.FilePath ?? i.ToolInput?.NotebookPath;
+    private static string? FileOf(HookInput i) => i.ToolInput?.FilePath ?? i.ToolInput?.NotebookPath ?? (i.ToolName is "Grep" or "Glob" ? i.ToolInput?.Path : null);
 
     private static string? ActiveId(ProjectPaths paths) => ActiveStore.Read(paths)?.QuestId;
 
@@ -107,7 +107,7 @@ internal static class HookRunner
 
         var config = SystemConfigReader.Load(paths.Root);
         var active = ActiveStore.Read(paths);
-        var call = new ToolCall(input.ToolName, FileOf(input), input.ToolInput?.Command, input.AgentType, input.AgentId, input.PermissionMode, input.Cwd ?? env.Cwd);
+        var call = new ToolCall(input.ToolName, FileOf(input), input.ToolInput?.Command, input.AgentType, input.AgentId, input.PermissionMode, input.Cwd ?? env.Cwd, input.ToolInput?.Glob);
         var ctx = new PolicyContext(paths.Root, active is null ? null : ActiveStore.ToPolicy(active), false, config.ToPolicyOptions());
         var decision = ToolCallPolicy.Evaluate(call, ctx);
 
