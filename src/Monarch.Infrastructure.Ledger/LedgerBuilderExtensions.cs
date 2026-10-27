@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Monarch.Application.Ports;
 using Monarch.Infrastructure.Ledger;
 
@@ -9,15 +11,20 @@ public static class LedgerBuilderExtensions
 {
     /// <summary>Registers the JSONL ledger.</summary>
     /// <param name="builder">The builder.</param>
-    /// <param name="configure">Optional options callback.</param>
+    /// <param name="configure">Optional options callback, e.g. <c>o =&gt; o.Root = "/repo"</c>.</param>
     /// <returns>The same builder.</returns>
     public static MonarchBuilder UseJsonlLedger(this MonarchBuilder builder, Action<JsonlLedgerOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        var options = new JsonlLedgerOptions();
-        configure?.Invoke(options);
-        builder.Services.AddSingleton(options);
-        builder.Services.AddSingleton<ILedgerStore, JsonlLedgerStore>();
+        var o = builder.Services.AddOptions<JsonlLedgerOptions>();
+        if (configure is not null)
+        {
+            o.Configure(configure);
+        }
+
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<JsonlLedgerOptions>, JsonlLedgerOptionsValidator>());
+        builder.Services.AddSingleton<ILedgerStore>(sp =>
+            new JsonlLedgerStore(sp.GetRequiredService<IOptions<JsonlLedgerOptions>>().Value, sp.GetRequiredService<IClock>()));
         return builder;
     }
 
@@ -28,8 +35,9 @@ public static class LedgerBuilderExtensions
     public static MonarchBuilder UseSqliteReadModel(this MonarchBuilder builder, string path = ".monarch/local/read.db")
     {
         ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
         builder.Services.AddSingleton(new SqliteReadModelOptions(path));
-        builder.Services.AddSingleton<IReadModel, SqliteReadModel>();
+        builder.Services.AddSingleton<IReadModel>(sp => new SqliteReadModel(sp.GetRequiredService<SqliteReadModelOptions>()));
         return builder;
     }
 }

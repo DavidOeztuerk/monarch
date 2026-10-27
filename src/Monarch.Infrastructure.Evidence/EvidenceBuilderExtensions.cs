@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Monarch.Application.Net;
 using Monarch.Application.Ports;
 using Monarch.Infrastructure.Evidence;
 
@@ -13,7 +15,9 @@ public static class EvidenceBuilderExtensions
     public static MonarchBuilder AddGitHubChecksEvidence(this MonarchBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        builder.Services.AddSingleton<IEvidenceSource, GitHubChecksEvidence>();
+        builder.Services.TryAddSingleton<GitHubTokenProvider>();
+        builder.Services.AddSingleton<IEvidenceSource>(sp =>
+            new GitHubChecksEvidence(new HttpClient { BaseAddress = new Uri("https://api.github.com/") }, sp.GetRequiredService<GitHubTokenProvider>()));
         return builder;
     }
 }

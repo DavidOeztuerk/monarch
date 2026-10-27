@@ -83,8 +83,8 @@ public sealed record ActiveQuest(QuestId Id, Rank Rank, QuestScope Scope);
 /// <summary>Konfigurierbare Policy-Optionen (Defaults aus system.yaml).</summary>
 public sealed record PolicyOptions
 {
-    /// <summary>Geschützte Pfade (Ledger, Shadow-Definitionen).</summary>
-    public IReadOnlyList<string> ProtectPaths { get; init; } = [".monarch/ledger/**", ".monarch/shadows/*/shadow.yaml"];
+    /// <summary>Geschützte Pfade (Ledger, lokale Anker/Snapshots, Shadow-Definitionen).</summary>
+    public IReadOnlyList<string> ProtectPaths { get; init; } = [".monarch/ledger/**", ".monarch/local/**", ".monarch/shadows/*/shadow.yaml"];
 
     /// <summary>Zusätzliche Secret-Globs zu <see cref="DefaultSecretGlobs"/>.</summary>
     public IReadOnlyList<string> ExtraSecretGlobs { get; init; } = [];

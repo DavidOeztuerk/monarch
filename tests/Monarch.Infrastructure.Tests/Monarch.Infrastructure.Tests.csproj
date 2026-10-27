@@ -4,6 +4,9 @@
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Monarch.Infrastructure.Ledger\Monarch.Infrastructure.Ledger.csproj" />
     <ProjectReference Include="..\..\src\Monarch.Infrastructure.Boards\Monarch.Infrastructure.Boards.csproj" />
     <ProjectReference Include="..\..\src\Monarch.Infrastructure.Evidence\Monarch.Infrastructure.Evidence.csproj" />
