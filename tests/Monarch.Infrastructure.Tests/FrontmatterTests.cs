@@ -103,3 +103,16 @@ public class FrontmatterTests
         Assert.Equal("9", root.GetString("a"));
     }
 }
+
+public class YamlCommentTests
+{
+    [Fact]
+    public void Comments_outside_quotes_are_stripped_and_inside_quotes_kept()
+    {
+        var m = Monarch.Infrastructure.Boards.Frontmatter.YamlDocument.Parse("a: b # c\n# full\nq: \"x # y\"  # z\nl: [1, 2] # t\nu: it's#ok\n");
+        Assert.Equal("b", m.GetString("a"));
+        Assert.Equal("x # y", m.GetString("q"));
+        Assert.Equal(["1", "2"], m.GetStrings("l"));
+        Assert.Equal("it's#ok", m.GetString("u"));
+    }
+}

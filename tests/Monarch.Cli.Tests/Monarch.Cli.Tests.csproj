@@ -2,8 +2,13 @@
   <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
+    <PackageReference Include="FsCheck.Xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\docs\evidence\a0-probe\hooks.jsonl" Link="Fixtures\hooks.jsonl" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Monarch.Cli\Monarch.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Monarch.Policy\Monarch.Policy.csproj" />
   </ItemGroup>
 </Project>

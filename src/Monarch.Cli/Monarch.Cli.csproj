@@ -7,10 +7,14 @@
     <ProjectReference Include="..\Monarch.Infrastructure.Evidence\Monarch.Infrastructure.Evidence.csproj" />
     <ProjectReference Include="..\Monarch.Infrastructure.Runtimes\Monarch.Infrastructure.Runtimes.csproj" />
     <ProjectReference Include="..\Monarch.Mcp\Monarch.Mcp.csproj" />
+    <ProjectReference Include="..\Monarch.Policy\Monarch.Policy.csproj" />
     <ProjectReference Include="..\Monarch.Themes\Monarch.Themes.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Monarch.Cli.Tests" />
   </ItemGroup>
 </Project>

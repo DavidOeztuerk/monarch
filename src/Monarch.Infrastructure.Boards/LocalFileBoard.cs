@@ -32,6 +32,26 @@ public sealed class LocalFileBoard : IQuestBoard
     {
     }
 
+    /// <summary>Finds the quest file for <paramref name="id"/>.</summary>
+    /// <param name="id">Quest id, e.g. Q-0003.</param>
+    /// <returns>The absolute path or null.</returns>
+    public string? FindQuestFile(string id) => Find(QuestDir, id);
+
+    /// <summary>Reads the quest's <c>estimate: { session_pct, weekly_pct }</c>.</summary>
+    /// <param name="id">Quest id.</param>
+    /// <returns>The estimate, or null when absent.</returns>
+    public ManaCost? ReadEstimate(QuestId id)
+    {
+        var path = Find(QuestDir, id.Value);
+        if (path is null || Load(path).Doc.Root.Get("estimate") is not YamlMap m)
+        {
+            return null;
+        }
+
+        static double N(string? t) => double.TryParse(t, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
+        return new ManaCost(N(m.GetString("session_pct")), N(m.GetString("weekly_pct")), 0m);
+    }
+
     private string QuestDir => Path.Combine(_root, ".monarch", "quests");
 
     private string GateDir => Path.Combine(_root, ".monarch", "gates");

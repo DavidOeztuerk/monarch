@@ -19,6 +19,12 @@ internal sealed class YamlReader
                 continue;
             }
 
+            var code = StripComment(trimmed);
+            if (code.Length == 0)
+            {
+                continue;
+            }
+
             if (line.Length > trimmed.Length && line[..(line.Length - trimmed.Length)].Contains('\t', StringComparison.Ordinal))
             {
                 throw new FormatException("Tabs are not allowed for indentation.");
@@ -29,8 +35,43 @@ internal sealed class YamlReader
                 throw new FormatException("Tabs are not allowed for indentation.");
             }
 
-            _items.Add((line.Length - trimmed.Length, trimmed.TrimEnd()));
+            _items.Add((line.Length - trimmed.Length, code.TrimEnd()));
         }
+    }
+
+    /// <summary>Cuts a trailing <c># comment</c> (a '#' at the start or after whitespace, outside quotes).</summary>
+    private static string StripComment(string text)
+    {
+        char quote = '\0';
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (quote != '\0')
+            {
+                if (quote == '"' && c == '\\')
+                {
+                    i++;
+                }
+                else if (c == quote)
+                {
+                    quote = '\0';
+                }
+
+                continue;
+            }
+
+            var opensToken = i == 0 || text[i - 1] is ' ' or '[' or '{' or ',' or ':';
+            if (c is '"' or '\'' && opensToken)
+            {
+                quote = c;
+            }
+            else if (c == '#' && (i == 0 || text[i - 1] == ' '))
+            {
+                return text[..i];
+            }
+        }
+
+        return text;
     }
 
     public static YamlMap ParseBlock(IEnumerable<string> lines)
