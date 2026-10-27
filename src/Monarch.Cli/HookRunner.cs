@@ -38,7 +38,11 @@ internal static class HookRunner
         }
 
         var cwd = !string.IsNullOrEmpty(input?.Cwd) && Path.IsPathRooted(input.Cwd) ? input.Cwd : env.Cwd;
-        var paths = ProjectPaths.Locate(cwd, env.Home) ?? ProjectPaths.Locate(env.Cwd, env.Home);
+        var primary = ProjectPaths.Locate(cwd, env.Home) ?? ProjectPaths.Locate(env.Cwd, env.Home);
+        var targets = evt == "pre-tool-use" && parseError is null && input is { ToolName: { Length: > 0 } }
+            ? TargetProjects(input, cwd, primary, env)
+            : [];
+        var paths = primary ?? (targets.Count > 0 ? targets[0] : null);
         if (paths is null)
         {
             return 0;
@@ -51,7 +55,14 @@ internal static class HookRunner
                 throw parseError;
             }
 
-            Dispatch(evt, input!, paths, env);
+            if (evt == "pre-tool-use")
+            {
+                PreToolUse(input!, primary, targets, env);
+            }
+            else
+            {
+                Dispatch(evt, input!, paths, env);
+            }
         }
         catch (Exception ex)
         {
@@ -66,7 +77,6 @@ internal static class HookRunner
         var ledger = new ProjectLedger(paths, env.Clock);
         switch (evt)
         {
-            case "pre-tool-use": PreToolUse(input, paths, env, ledger); break;
             case "post-tool-use": Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "ToolUsed",
                 ("tool", input.ToolName), ("agent_type", input.AgentType), ("agent_id", input.AgentId), ("file", FileOf(input)), ("quest", ActiveId(paths)))); break;
             case "subagent-stop": Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "ShadowRunCompleted",
@@ -98,19 +108,59 @@ internal static class HookRunner
         }
     }
 
-    private static void PreToolUse(HookInput input, ProjectPaths paths, CliEnv env, ProjectLedger ledger)
+    private static ToolCall CallOf(HookInput input, string cwd) =>
+        new(input.ToolName!, FileOf(input), input.ToolInput?.Command, input.AgentType, input.AgentId, input.PermissionMode, cwd, input.ToolInput?.Glob);
+
+    /// <summary>
+    /// Awakened projects a tool call can reach besides the cwd project: found from the canonical target path (file tools) and from
+    /// <c>cd</c>/<c>pushd</c>/<c>git -C</c>/<c>--git-dir</c>/<c>--work-tree</c> targets and absolute path tokens (Bash).
+    /// </summary>
+    private static List<ProjectPaths> TargetProjects(HookInput input, string cwd, ProjectPaths? primary, CliEnv env)
     {
-        if (string.IsNullOrEmpty(input.ToolName))
+        var result = new List<ProjectPaths>();
+        var seen = new List<string>();
+        if (primary is not null)
         {
-            return;
+            seen.Add(PathCanon.Resolve("/", primary.Root));
         }
 
-        var config = SystemConfigReader.Load(paths.Root);
-        var active = ActiveStore.Read(paths);
-        var call = new ToolCall(input.ToolName, FileOf(input), input.ToolInput?.Command, input.AgentType, input.AgentId, input.PermissionMode, input.Cwd ?? env.Cwd, input.ToolInput?.Glob);
-        var ctx = new PolicyContext(paths.Root, active is null ? null : ActiveStore.ToPolicy(active), false, config.ToPolicyOptions());
-        var decision = ToolCallPolicy.Evaluate(call, ctx);
+        foreach (var location in ProjectTargets.Locations(CallOf(input, cwd)))
+        {
+            if (ProjectPaths.Locate(location, env.Home) is not { } found)
+            {
+                continue;
+            }
 
+            var canonical = PathCanon.Resolve("/", found.Root);
+            if (seen.Exists(r => string.Equals(r, canonical, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            seen.Add(canonical);
+            result.Add(found);
+        }
+
+        return result;
+    }
+
+    private static void PreToolUse(HookInput input, ProjectPaths? primary, List<ProjectPaths> targets, CliEnv env)
+    {
+        var call = CallOf(input, input.Cwd ?? env.Cwd);
+
+        // The cwd project gets every rule; each further project reached by the call gets protect_paths and protect_secrets. The strictest result wins.
+        var evaluated = new List<(ProjectPaths Paths, ActiveFile? Active, PolicyDecision Decision, bool Full)>();
+        if (primary is not null)
+        {
+            evaluated.Add(Evaluate(primary, call, env, full: true));
+        }
+
+        foreach (var t in targets)
+        {
+            evaluated.Add(Evaluate(t, call, env, full: false));
+        }
+
+        var decision = ToolCallPolicy.Combine(evaluated.Select(e => e.Decision));
         if (decision.Kind != PolicyDecisionKind.Allow)
         {
             Emit(env, new HookSpecificOutput
@@ -121,27 +171,39 @@ internal static class HookRunner
             });
         }
 
-        var kind = decision.Kind == PolicyDecisionKind.Deny ? "deny" : "ask";
-        var signaled = decision.Signals.Contains(PolicySignals.DoubleDungeon);
-        if (decision.Kind == PolicyDecisionKind.Allow && !signaled)
+        foreach (var (paths, active, d, full) in evaluated)
         {
-            return;
+            var signaled = full && d.Signals.Contains(PolicySignals.DoubleDungeon);
+            if (d.Kind == PolicyDecisionKind.Allow && !signaled)
+            {
+                continue;
+            }
+
+            var kind = d.Kind == PolicyDecisionKind.Deny ? "deny" : "ask";
+            var ledger = new ProjectLedger(paths, env.Clock);
+            Append(paths, env, () =>
+            {
+                var session = ledger.SessionId(input.SessionId);
+                if (d.Kind != PolicyDecisionKind.Allow)
+                {
+                    ledger.Append(session, Actor(input), "PolicyDecided", ("rule", d.Rule), ("kind", kind), ("tool", input.ToolName),
+                        ("agent_type", input.AgentType), ("quest", active?.QuestId), ("reason", d.Reason));
+                }
+
+                if (signaled)
+                {
+                    ledger.Append(session, Actor(input), "DoubleDungeonSignaled", ("tool", input.ToolName), ("file", FileOf(input)), ("quest", active?.QuestId));
+                }
+            });
         }
+    }
 
-        Append(paths, env, () =>
-        {
-            var session = ledger.SessionId(input.SessionId);
-            if (decision.Kind != PolicyDecisionKind.Allow)
-            {
-                ledger.Append(session, Actor(input), "PolicyDecided", ("rule", decision.Rule), ("kind", kind), ("tool", input.ToolName),
-                    ("agent_type", input.AgentType), ("quest", active?.QuestId), ("reason", decision.Reason));
-            }
-
-            if (signaled)
-            {
-                ledger.Append(session, Actor(input), "DoubleDungeonSignaled", ("tool", input.ToolName), ("file", FileOf(input)), ("quest", active?.QuestId));
-            }
-        });
+    private static (ProjectPaths, ActiveFile?, PolicyDecision, bool) Evaluate(ProjectPaths paths, ToolCall call, CliEnv env, bool full)
+    {
+        var config = SystemConfigReader.Load(paths.Root);
+        var active = ActiveStore.Read(paths);
+        var ctx = new PolicyContext(paths.Root, active is null ? null : ActiveStore.ToPolicy(active), false, config.ToPolicyOptions());
+        return (paths, active, full ? ToolCallPolicy.Evaluate(call, ctx) : ToolCallPolicy.EvaluateProtection(call, ctx), full);
     }
 
     private static void SessionStart(HookInput input, ProjectPaths paths, CliEnv env)

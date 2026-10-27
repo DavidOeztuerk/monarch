@@ -88,6 +88,40 @@ internal static class BashAnalysis
         return targets;
     }
 
+    /// <summary>
+    /// Verzeichnisse, die ein Kommando ansteuert: Ziele von <c>cd</c>/<c>pushd</c> (<c>Changes</c>: das Arbeitsverzeichnis wechselt für die folgenden Segmente)
+    /// sowie <c>git -C dir</c>, <c>--git-dir</c> und <c>--work-tree</c> (in beiden Schreibweisen).
+    /// </summary>
+    public static List<(string Path, bool Changes)> DirectoryTargets(List<Segment> segments)
+    {
+        var list = new List<(string, bool)>();
+        foreach (var seg in segments)
+        {
+            var t = seg.Tokens;
+            if (seg.Word is "cd" or "pushd")
+            {
+                var i = 1;
+                while (i < t.Length && t[i].StartsWith('-') && t[i].Length > 1) i++;
+                if (i < t.Length) list.Add((t[i], true));
+                continue;
+            }
+
+            if (seg.Word != "git") continue;
+            for (var i = 1; i < t.Length && t[i].StartsWith('-'); i++)
+            {
+                if (t[i] is "-C" or "--git-dir" or "--work-tree")
+                {
+                    if (i + 1 < t.Length) list.Add((t[++i], false));
+                }
+                else if (t[i].StartsWith("--git-dir=", StringComparison.Ordinal)) list.Add((t[i]["--git-dir=".Length..], false));
+                else if (t[i].StartsWith("--work-tree=", StringComparison.Ordinal)) list.Add((t[i]["--work-tree=".Length..], false));
+                else if (t[i] is "-c") i++;
+            }
+        }
+
+        return list;
+    }
+
     /// <summary>Git-Unterkommando (nach Globaloptionen wie <c>-C dir</c>) und sein Index, sonst <c>null</c>.</summary>
     public static string? GitSubcommand(string[] tokens, out int index)
     {

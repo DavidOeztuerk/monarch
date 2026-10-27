@@ -18,7 +18,8 @@ public static class QuestAcceptancePolicy
 /// Deny vor Ask vor Allow kombiniert (wie in Claude Code); Signale aller Regeln bleiben erhalten.
 /// Reihenfolge der Regeln (bestimmt, welches Deny gemeldet wird): protect_paths, protect_secrets, deny_bash,
 /// shadow_read_only, refuse_high_rank_in_bypass_mode, scope_lock, rank_s_approval.
-/// Pfade werden relativ zu <see cref="PolicyContext.ProjectRoot"/> aufgelöst (nicht relativ zu <see cref="ToolCall.Cwd"/>).
+/// Pfade werden kanonisiert (relativ zu <see cref="ToolCall.Cwd"/>, <c>.</c>/<c>..</c>/<c>//</c> normalisiert, Symlinks aufgelöst, Wurzel und Ziel gleich);
+/// der Vergleich gegen geschützte Pfade und Secret-Globs ist case-insensitiv.
 /// </summary>
 public static class ToolCallPolicy
 {
@@ -53,14 +54,59 @@ public static class ToolCallPolicy
         var results = new List<PolicyDecision>(7);
         void Add(PolicyDecision? d) { if (d is not null) results.Add(d); }
         var segments = call.ToolName == "Bash" && call.Command is { } cmd ? BashAnalysis.Segments(cmd) : [];
-        Add(ProtectPaths(call, context, segments));
-        Add(ProtectSecrets(call, context, segments));
+        var paths = new Canon(call, context, segments);
+        Add(ProtectPaths(call, context, segments, paths));
+        Add(ProtectSecrets(call, context, segments, paths));
         Add(DenyBash(call, context, segments));
         Add(ShadowReadOnly(call, context, segments));
         Add(RefuseHighRank(call, context));
-        Add(ScopeLock(call, context));
+        Add(ScopeLock(call, context, paths));
         Add(RankS(call, context));
         return Combine(results);
+    }
+
+    /// <summary>
+    /// Nur protect_paths und protect_secrets, kombiniert (Deny vor Ask). Für Projekte, die nur als Ziel eines Tool-Calls vorkommen
+    /// (das cwd-Projekt wertet <see cref="Evaluate"/> vollständig aus).
+    /// </summary>
+    public static PolicyDecision EvaluateProtection(ToolCall call, PolicyContext context)
+    {
+        var segments = call.ToolName == "Bash" && call.Command is { } cmd ? BashAnalysis.Segments(cmd) : [];
+        var paths = new Canon(call, context, segments);
+        var results = new List<PolicyDecision>(2);
+        if (ProtectPaths(call, context, segments, paths) is { } a) results.Add(a);
+        if (ProtectSecrets(call, context, segments, paths) is { } b) results.Add(b);
+        return Combine(results);
+    }
+
+    /// <summary>Kanonisierung eines Tool-Calls: Resolver (Wurzel, cwd) und die Verzeichnisse, gegen die relative Bash-Pfade gelten (cwd und <c>cd</c>/<c>pushd</c>/<c>git -C</c>-Ziele).</summary>
+    private sealed class Canon
+    {
+        private readonly PathResolver _rs;
+        private readonly List<string> _bases;
+
+        public Canon(ToolCall call, PolicyContext ctx, List<BashAnalysis.Segment> segments)
+        {
+            _rs = new PathResolver(ctx.ProjectRoot, call.Cwd);
+            _bases = [_rs.Cwd];
+            var cur = _rs.Cwd;
+            foreach (var (dir, changes) in BashAnalysis.DirectoryTargets(segments))
+            {
+                var d = _rs.Resolve(PathResolver.ExpandTilde(dir), cur);
+                if (!_bases.Contains(d)) _bases.Add(d);
+                if (changes) cur = d;
+            }
+        }
+
+        /// <summary>Pfad relativ zur Wurzel, aufgelöst gegen das cwd.</summary>
+        public string Rel(string path) => _rs.Relative(path);
+
+        /// <summary>Pfad relativ zur Wurzel, aufgelöst gegen jedes Basisverzeichnis (konservativ: jedes zählt).</summary>
+        public IEnumerable<string> RelAll(string token)
+        {
+            var t = PathResolver.ExpandTilde(token);
+            foreach (var b in _bases) yield return _rs.Relative(t, b);
+        }
     }
 
     /// <summary>Kombiniert Regelergebnisse: das erste Deny gewinnt vor dem ersten Ask vor Allow; die Signale aller Ergebnisse werden vereinigt.</summary>
@@ -112,20 +158,20 @@ public static class ToolCallPolicy
     }
 
     // ---- 1. protect_paths
-    private static PolicyDecision? ProtectPaths(ToolCall call, PolicyContext ctx, List<BashAnalysis.Segment> segments)
+    private static PolicyDecision? ProtectPaths(ToolCall call, PolicyContext ctx, List<BashAnalysis.Segment> segments, Canon paths)
     {
         var globs = ctx.Options.ProtectPaths;
         if (globs.Count == 0) return null;
         if (Array.IndexOf(FileMutators, call.ToolName) >= 0 && call.FilePath is { } fp)
         {
-            var rel = PathNormalizer.Normalize(ctx.ProjectRoot, fp);
-            if (MatchesAny(globs, rel))
+            var rel = paths.Rel(fp);
+            if (MatchesAnyCI(globs, rel))
                 return PolicyDecision.Deny(PolicyRules.ProtectPaths, $"'{rel}' ist geschützt (Ledger/Shadow-Definition); nur die Engine schreibt dort.");
             return null;
         }
 
         if (call.ToolName != "Bash" || call.Command is not { } cmd) return null;
-        var mentioned = BashAnalysis.PathTokens(cmd).Any(t => MentionsProtected(globs, ctx.ProjectRoot, t));
+        var mentioned = BashAnalysis.PathTokens(cmd).Any(t => MentionsProtected(globs, paths, t));
         if (!mentioned) return null;
         var mutating = segments.Any(IsMutatingSegment) || HasOutputRedirect(cmd);
         return mutating
@@ -133,12 +179,16 @@ public static class ToolCallPolicy
             : null;
     }
 
-    private static bool MentionsProtected(IReadOnlyList<string> globs, string root, string token)
+    private static bool MentionsProtected(IReadOnlyList<string> globs, Canon paths, string token)
     {
         if (token.StartsWith('-')) return false;
-        var rel = PathNormalizer.Normalize(root, token);
-        if (rel.Length == 0) return false;
-        foreach (var g in globs) if (GlobMatcher.IsMatchOrAncestor(g, rel)) return true;
+        foreach (var rel in paths.RelAll(token))
+        {
+            if (rel.Length == 0) continue;
+            var lower = rel.ToLowerInvariant();
+            foreach (var g in globs) if (GlobMatcher.IsMatchOrAncestor(g.ToLowerInvariant(), lower)) return true;
+        }
+
         return false;
     }
 
@@ -156,15 +206,15 @@ public static class ToolCallPolicy
     }
 
     // ---- 2. protect_secrets
-    private static PolicyDecision? ProtectSecrets(ToolCall call, PolicyContext ctx, List<BashAnalysis.Segment> segments)
+    private static PolicyDecision? ProtectSecrets(ToolCall call, PolicyContext ctx, List<BashAnalysis.Segment> segments, Canon paths)
     {
         if (call.ToolName == "Read" && call.FilePath is { } fp)
-            return IsSecret(ctx, PathNormalizer.Normalize(ctx.ProjectRoot, fp))
+            return IsSecret(ctx, paths.Rel(fp))
                 ? PolicyDecision.Deny(PolicyRules.ProtectSecrets, "Credential-Dateien liest Monarch nie. Nutze Existenz-Prüfungen (ls, test) oder frage den Guild Master.")
                 : null;
         if (call.ToolName == "Grep")
         {
-            var deniedPath = call.FilePath is { Length: > 0 } gp && IsSecret(ctx, PathNormalizer.Normalize(ctx.ProjectRoot, gp));
+            var deniedPath = call.FilePath is { Length: > 0 } gp && IsSecret(ctx, paths.Rel(gp));
             if (deniedPath || (call.Glob is { Length: > 0 } glob && GlobTargetsSecret(ctx, glob)))
                 return PolicyDecision.Deny(PolicyRules.ProtectSecrets, "Grep liest Dateiinhalte: Credential-Dateien (Pfad oder Glob) sind tabu. Nutze Glob für Namen oder frage den Guild Master.");
             return null;
@@ -176,12 +226,12 @@ public static class ToolCallPolicy
             if (Array.IndexOf(SecretReaders, seg.Word) < 0) continue;
             for (var i = 1; i < seg.Tokens.Length; i++)
                 foreach (var t in BashAnalysis.PathTokens(seg.Tokens[i]))
-                    if (IsSecretToken(ctx, t))
+                    if (IsSecretToken(ctx, paths, t))
                         return PolicyDecision.Deny(PolicyRules.ProtectSecrets, "Das Kommando liest eine Credential-Datei. Metadaten (ls, stat, test) sind erlaubt, Inhalte nicht.");
         }
 
         foreach (var t in BashAnalysis.RedirectTargets(cmd, '<'))
-            if (IsSecretToken(ctx, t))
+            if (IsSecretToken(ctx, paths, t))
                 return PolicyDecision.Deny(PolicyRules.ProtectSecrets, "Das Kommando liest eine Credential-Datei per Umleitung.");
         return null;
     }
@@ -209,13 +259,13 @@ public static class ToolCallPolicy
         return false;
     }
 
-    private static bool IsSecretToken(PolicyContext ctx, string token) =>
-        !token.StartsWith('-') && PathNormalizer.Normalize(ctx.ProjectRoot, token) is { Length: > 0 } rel && IsSecret(ctx, rel);
+    private static bool IsSecretToken(PolicyContext ctx, Canon paths, string token) =>
+        !token.StartsWith('-') && paths.RelAll(token).Any(rel => rel.Length > 0 && IsSecret(ctx, rel));
 
     private static bool IsSecret(PolicyContext ctx, string rel)
     {
-        if (MatchesAny(ctx.Options.SecretExceptions, rel)) return false;
-        return MatchesAny(PolicyOptions.DefaultSecretGlobs, rel) || MatchesAny(ctx.Options.ExtraSecretGlobs, rel);
+        if (MatchesAnyCI(ctx.Options.SecretExceptions, rel)) return false;
+        return MatchesAnyCI(PolicyOptions.DefaultSecretGlobs, rel) || MatchesAnyCI(ctx.Options.ExtraSecretGlobs, rel);
     }
 
     // ---- 3. deny_bash
@@ -260,10 +310,10 @@ public static class ToolCallPolicy
     }
 
     // ---- 6. Scope lock
-    private static PolicyDecision? ScopeLock(ToolCall call, PolicyContext ctx)
+    private static PolicyDecision? ScopeLock(ToolCall call, PolicyContext ctx, Canon paths)
     {
         if (!ctx.Options.ScopeLock || ctx.ActiveQuest is not { } quest || Array.IndexOf(FileMutators, call.ToolName) < 0) return null;
-        var rel = call.FilePath is { Length: > 0 } fp ? PathNormalizer.Normalize(ctx.ProjectRoot, fp) : "";
+        var rel = call.FilePath is { Length: > 0 } fp ? paths.Rel(fp) : "";
         if (rel.Length > 0 && MatchesAny(AlwaysWritable, rel)) return null;
         if (rel.Length > 0 && MatchesAny(quest.Scope.Include, rel) && !MatchesAny(quest.Scope.Exclude, rel)) return null;
         return PolicyDecision.Deny(PolicyRules.ScopeLock,
@@ -276,6 +326,14 @@ public static class ToolCallPolicy
         ctx.ActiveQuest is { Rank: Rank.S } && IsMutating(call)
             ? PolicyDecision.Ask(PolicyRules.RankSApproval, "Rank S: Freigabe nötig. Stoppe diesen Schritt und melde ihn dem Guild Master.")
             : null;
+
+    private static bool MatchesAnyCI(IReadOnlyList<string> globs, string path)
+    {
+        if (globs.Count == 0) return false;
+        var lower = path.ToLowerInvariant();
+        for (var i = 0; i < globs.Count; i++) if (GlobMatcher.IsMatch(globs[i].ToLowerInvariant(), lower)) return true;
+        return false;
+    }
 
     private static bool MatchesAny(IReadOnlyList<string> globs, string path)
     {

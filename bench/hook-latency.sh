@@ -61,6 +61,8 @@ input Edit '{"file_path":"src/a.cs"}' "$proj" in-scope
 input Edit '{"file_path":"docs/readme.md"}' "$proj" out-of-scope
 input Bash '{"command":"git push --force origin main"}' "$proj" denied-bash
 input Edit '{"file_path":"src/a.cs"}' "$work/plain" non-awakened
+input Bash '{"command":"cd /usr/local && git -C /usr/local status && ls /usr/bin/../lib"}' "$proj" bash-targets
+input Edit '{"file_path":"'"$proj"'/src/deep/er/a.cs"}' "$proj" abs-target
 
 status=0
 printf '%-16s %10s %10s\n' scenario p50_ms p99_ms
@@ -86,5 +88,7 @@ run in-scope "$proj"
 run out-of-scope "$proj"
 run denied-bash "$proj"
 run non-awakened "$work/plain"
+run bash-targets "$proj"
+run abs-target "$proj"
 [[ $status -eq 0 ]] && echo "OK: all p99 <= ${limit_ms} ms" || echo "FAIL: p99 > ${limit_ms} ms" >&2
 exit $status
