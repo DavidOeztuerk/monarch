@@ -9,6 +9,8 @@
 #                  instead of calling the binary directly.
 #        RUNS     hyperfine runs per scenario (default 300).
 #        ATTEMPTS measurements per scenario before it fails (default 2; see run()).
+#        BENCH_RESULTS_DIR  evaluation only: read <scenario>.result.json (hyperfine --export-json format) from this directory
+#                  instead of measuring; needs neither binary, hyperfine nor timing (used by bench/test-gate.sh).
 set -euo pipefail
 export LC_ALL=C
 
@@ -16,8 +18,11 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 limit_ms="${LIMIT_MS:-20}"
 gate_pct="${GATE_PCT:-99}"
 case "$gate_pct" in 95|99) ;; *) echo "GATE_PCT must be 95 or 99" >&2; exit 2 ;; esac
+results_dir="${BENCH_RESULTS_DIR:-}"
 bin="${1:-${MONARCH_BIN:-}}"
-if [[ -z "$bin" ]]; then
+if [[ -n "$results_dir" ]]; then
+  [[ -d "$results_dir" ]] || { echo "BENCH_RESULTS_DIR $results_dir is not a directory" >&2; exit 2; }
+elif [[ -z "$bin" ]]; then
   case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) rid=osx-arm64 ;;
     Linux-x86_64) rid=linux-x64 ;;
@@ -26,16 +31,20 @@ if [[ -z "$bin" ]]; then
   dotnet publish "$repo/src/Monarch.Cli" -c Release -r "$rid" -v quiet >/dev/null
   bin="$repo/src/Monarch.Cli/bin/Release/net10.0/$rid/publish/monarch"
 fi
-[[ -x "$bin" ]] || { echo "binary $bin not executable" >&2; exit 2; }
 runs="${RUNS:-300}"
-command -v hyperfine >/dev/null || { echo "hyperfine not found" >&2; exit 2; }
 command -v jq >/dev/null || { echo "jq not found" >&2; exit 2; }
+if [[ -z "$results_dir" ]]; then
+  [[ -x "$bin" ]] || { echo "binary $bin not executable" >&2; exit 2; }
+  command -v hyperfine >/dev/null || { echo "hyperfine not found" >&2; exit 2; }
+fi
 
 work="$(mktemp -d "${BENCH_TMPDIR:-${TMPDIR:-/tmp}}/hl.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 export MONARCH_HOME="$work/home"
-mkdir -p "$MONARCH_HOME"
+mkdir -p "$MONARCH_HOME" "$work/plain"
 
+proj="" inner="" target=""
+if [[ -z "$results_dir" ]]; then
 target="$bin"
 if [[ "${WRAPPER:-0}" == "1" ]]; then
   version="$(sed -n 's/^MONARCH_VERSION=//p' "$repo/plugin/scripts/monarch" | head -n1)"
@@ -82,8 +91,9 @@ input Edit '{"file_path":"a.cs"}' "$inner" nested-projects
 body="$(for i in $(seq 1 200); do printf 'Zeile %d: Notizen zum Entwurf, ohne Pfade, Kommandos wie rm oder git push nur als Prosa.\n' "$i"; done)"
 heredoc_cmd="$(printf "cat <<'EOF' > notes.md\n%s\nEOF" "$body")"
 input Bash "$(jq -cn --arg c "$heredoc_cmd" '{command:$c}')" "$proj" long-heredoc
+fi
 
-if [[ -n "${BENCH_SHOW:-}" ]]; then # debug: print the decision of each scenario
+if [[ -z "$results_dir" && -n "${BENCH_SHOW:-}" ]]; then # debug: print the decision of each scenario
   for f in "$work"/*.json; do
     case "$f" in *.result.json) continue ;; esac
     n="$(basename "$f" .json)"; case "$n" in nested-projects) d="$inner" ;; non-awakened) d="$work/plain" ;; *) d="$proj" ;; esac
@@ -92,11 +102,20 @@ if [[ -n "${BENCH_SHOW:-}" ]]; then # debug: print the decision of each scenario
 fi
 status=0
 printf '%-16s %10s %10s %10s   (gate: p%s <= %s ms)\n' scenario p50_ms p95_ms p99_ms "$gate_pct" "$limit_ms"
+# percentiles <hyperfine-json>: the evaluation, independent of how the numbers were obtained.
+percentiles() {
+  jq -r '(.results[0] | (.times // [.measurements[].time_wall_clock.value])) | sort | [(.[length/2|floor]*1000), (.[((length*0.95)|ceil)-1]*1000), (.[((length*0.99)|ceil)-1]*1000)] | @tsv' "$1"
+}
 measure() { # name, dir -> prints "p50 p95 p99"
   local name="$1" dir="$2"
+  if [[ -n "$results_dir" ]]; then
+    [[ -f "$results_dir/$name.result.json" ]] || { echo "missing $results_dir/$name.result.json" >&2; exit 2; }
+    percentiles "$results_dir/$name.result.json"
+    return
+  fi
   (cd "$dir" && hyperfine -N --warmup 30 --runs "$runs" --input "$work/$name.json" \
     --export-json "$work/$name.result.json" "$target hook pre-tool-use" >/dev/null 2>&1)
-  jq -r '(.results[0] | (.times // [.measurements[].time_wall_clock.value])) | sort | [(.[length/2|floor]*1000), (.[((length*0.95)|ceil)-1]*1000), (.[((length*0.99)|ceil)-1]*1000)] | @tsv' "$work/$name.result.json"
+  percentiles "$work/$name.result.json"
 }
 # A scenario passes if the gate percentile (p99, or p95 with GATE_PCT=95) is <= LIMIT_MS in one of up to ATTEMPTS
 # (default 2) independent measurements: a single scheduler hiccup on a shared machine must not fail the gate, a real

@@ -79,17 +79,43 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
 
         var full = LedgerFiles.Full(root, relative);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        using var fs = LedgerFiles.OpenExclusive(full);
-        var (lastSeq, prevHash) = ReadTail(fs, stem);
-        var seq = lastSeq + 1;
-        var hashless = LedgerCanonical.Serialize(seq, at, actor, type, payload, prevHash);
-        var hash = LedgerCanonical.ComputeHash(hashless);
-        var bytes = Encoding.UTF8.GetBytes(LedgerCanonical.Seal(hashless, hash) + "\n");
-        fs.Seek(0, SeekOrigin.End);
-        fs.Write(bytes);
-        fs.Flush();
-        reset = LedgerHeadStore.Update(root, relative, seq, hash, at, hadWriterId);
-        return new LedgerEntry(relative, seq, at, actor, type, payload.Clone(), prevHash, hash);
+        var fs = LedgerFiles.OpenExclusive(full);
+        try
+        {
+            var (lastSeq, prevHash) = ReadTail(fs, stem);
+            string? staleRelative = null;
+            LedgerHead? staleTail = null;
+            if (LedgerAnchor.Read(root).Heads.Files.TryGetValue(relative, out var anchored)
+                && (lastSeq < anchored.Seq || (lastSeq == anchored.Seq && prevHash != anchored.Hash)))
+            {
+                // The anchor is ahead of the file (e.g. a git stash took the uncommitted tail): never continue it, never advance the anchor.
+                staleRelative = relative;
+                staleTail = lastSeq >= 1 ? new LedgerHead { Seq = lastSeq, Hash = prevHash } : null;
+                fs.Dispose();
+                stem = $"{sessionId}.{LedgerFiles.WriterId(root, regenerate: true)}";
+                relative = LedgerFiles.ResolveRelative(root, stem, at);
+                full = LedgerFiles.Full(root, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                fs = LedgerFiles.OpenExclusive(full);
+                (lastSeq, prevHash) = ReadTail(fs, stem);
+            }
+
+            var seq = lastSeq + 1;
+            var hashless = LedgerCanonical.Serialize(seq, at, actor, type, payload, prevHash);
+            var hash = LedgerCanonical.ComputeHash(hashless);
+            var bytes = Encoding.UTF8.GetBytes(LedgerCanonical.Seal(hashless, hash) + "\n");
+            fs.Seek(0, SeekOrigin.End);
+            fs.Write(bytes);
+            fs.Flush();
+            reset = staleRelative is null
+                ? LedgerHeadStore.Update(root, relative, seq, hash, at, hadWriterId)
+                : LedgerHeadStore.RebaseAheadOfFile(root, staleRelative, staleTail, relative, seq, hash);
+            return new LedgerEntry(relative, seq, at, actor, type, payload.Clone(), prevHash, hash);
+        }
+        finally
+        {
+            fs.Dispose();
+        }
     }
 
     /// <inheritdoc />

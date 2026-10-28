@@ -48,10 +48,40 @@ internal static class LedgerHeadStore
             heads.Files[relative] = new LedgerHead { Seq = seq, Hash = hash };
         }
 
+        Write(path, heads);
+        return reset;
+    }
+
+    /// <summary>
+    /// The anchor of <paramref name="staleRelative"/> lies ahead of the file (fewer lines, or another hash at the anchored sequence).
+    /// The stale file is re-anchored to its current tail (or its entry dropped when empty), the first line of the new generation
+    /// <paramref name="relative"/> is anchored, and the caller gets a reset that stays a finding until the owner acknowledges it.
+    /// </summary>
+    public static AnchorReset RebaseAheadOfFile(string root, string staleRelative, LedgerHead? staleTail, string relative, long seq, string hash)
+    {
+        var path = LedgerFiles.Full(root, LedgerFiles.HeadsPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var guard = LedgerFiles.OpenExclusive(path + ".lock");
+        var heads = LedgerAnchor.Read(root).Heads;
+        if (staleTail is null)
+        {
+            heads.Files.Remove(staleRelative);
+        }
+        else
+        {
+            heads.Files[staleRelative] = staleTail;
+        }
+
+        heads.Files[relative] = new LedgerHead { Seq = seq, Hash = hash };
+        Write(path, heads);
+        return new AnchorReset($"Anchor ahead of file: {staleRelative} is shorter than, or differs from, its anchored head; a new writer generation was started.", null, [staleRelative]);
+    }
+
+    private static void Write(string path, LedgerHeads heads)
+    {
         var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         File.WriteAllBytes(temp, JsonSerializer.SerializeToUtf8Bytes(heads, LedgerJsonContext.Default.LedgerHeads));
         File.Move(temp, path, overwrite: true);
-        return reset;
     }
 
     private static string? Archive(string path, DateTimeOffset at)
