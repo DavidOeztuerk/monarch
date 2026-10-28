@@ -79,14 +79,44 @@ internal sealed class PathResolver
         return abs.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? abs[prefix.Length..] : abs;
     }
 
-    /// <summary>Ersetzt ein führendes <c>~</c>, <c>~/</c>, <c>$HOME</c> bzw. <c>$HOME/</c> durch das Home-Verzeichnis (nur für Bash-Pfade).</summary>
-    public static string ExpandTilde(string path)
+    /// <summary>Ersetzt ein führendes <c>~</c>, <c>~/</c>, <c>$HOME</c> bzw. <c>${HOME}</c> durch das Home-Verzeichnis (nur für Bash-Pfade).</summary>
+    public static string ExpandTilde(string path) => ExpandVars(path, null, null);
+
+    /// <summary>
+    /// Wie <see cref="ExpandTilde"/>, zusätzlich <c>$PWD</c>/<c>${PWD}</c> (durch <paramref name="pwd"/>) und den Platzhalter für
+    /// <c>$(git rev-parse --show-toplevel)</c> (durch <paramref name="top"/>). Nur am Anfang des Tokens, gefolgt von <c>/</c> oder dem Ende.
+    /// </summary>
+    public static string ExpandVars(string path, string? pwd, string? top)
     {
-        var skip = path == "~" || path.StartsWith("~/", StringComparison.Ordinal) ? 1
-            : path == "$HOME" || path.StartsWith("$HOME/", StringComparison.Ordinal) ? 5 : 0;
-        if (skip == 0) return path;
-        var home = Environment.GetEnvironmentVariable("HOME");
-        return string.IsNullOrEmpty(home) ? path : home.TrimEnd('/') + path[skip..];
+        string? value = null;
+        var skip = 0;
+        if (path == "~" || path.StartsWith("~/", StringComparison.Ordinal)) { skip = 1; value = Environment.GetEnvironmentVariable("HOME"); }
+        else if (TryPrefix(path, "$HOME", out skip) || TryPrefix(path, "${HOME}", out skip)) value = Environment.GetEnvironmentVariable("HOME");
+        else if (TryPrefix(path, "$PWD", out skip) || TryPrefix(path, "${PWD}", out skip)) value = pwd;
+        else if (TryPrefix(path, ShellLexer.TopMarker, out skip)) value = top;
+        return string.IsNullOrEmpty(value) ? path : value.TrimEnd('/') + path[skip..];
+    }
+
+    /// <summary>Rein lexikalisch normalisierter absoluter Pfad (<c>.</c>, <c>..</c>, <c>//</c>), ohne Symlinks aufzulösen (logischer Pfad wie bei <c>cd -L</c>).</summary>
+    public static string Lexical(string path, string baseDir)
+    {
+        var p = path.Replace('\\', '/');
+        if (!p.StartsWith('/')) p = baseDir.TrimEnd('/') + "/" + p;
+        var cur = new List<string>();
+        foreach (var seg in p.Split('/'))
+        {
+            if (seg.Length == 0 || seg == ".") continue;
+            if (seg == "..") { if (cur.Count > 0) cur.RemoveAt(cur.Count - 1); continue; }
+            cur.Add(seg);
+        }
+
+        return "/" + string.Join('/', cur);
+    }
+
+    private static bool TryPrefix(string path, string prefix, out int length)
+    {
+        length = prefix.Length;
+        return path.StartsWith(prefix, StringComparison.Ordinal) && (path.Length == prefix.Length || path[prefix.Length] == '/');
     }
 
     private static void PushSegments(Stack<string> stack, string path)

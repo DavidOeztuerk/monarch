@@ -79,39 +79,87 @@ public static partial class ToolCallPolicy
         return Combine(results);
     }
 
-    /// <summary>Kanonisierung eines Tool-Calls: Resolver (Wurzel, cwd) und die Verzeichnisse, gegen die relative Bash-Pfade gelten (cwd und <c>cd</c>/<c>pushd</c>/<c>git -C</c>-Ziele).</summary>
+    /// <summary>
+    /// Kanonisierung eines Tool-Calls: Resolver (Wurzel, cwd) und die Verzeichnisse, gegen die relative Bash-Pfade gelten (cwd und <c>cd</c>/<c>pushd</c>/<c>git -C</c>-Ziele).
+    /// <c>cd</c>-Ziele werden logisch und physisch aufgelöst (ADR-0011 Regel 3); beide gelten als Basis.
+    /// </summary>
     private sealed class Canon
     {
+        private const int MaxCandidates = 16;
         private readonly PathResolver _rs;
         private readonly List<string> _bases;
+        private readonly string[][] _cwdAt;
 
         public Canon(ToolCall call, PolicyContext ctx, List<BashAnalysis.Segment> segments)
         {
             _rs = new PathResolver(ctx.ProjectRoot, call.Cwd);
-            _bases = [_rs.Cwd];
-            var cur = _rs.Cwd;
-            foreach (var (dir, changes) in BashAnalysis.DirectoryTargets(segments))
+            var cur = new List<string> { _rs.Cwd };
+            if (call.Cwd.StartsWith('/') && PathResolver.Lexical(call.Cwd, "/") is var lex && !cur.Contains(lex)) cur.Add(lex);
+            _bases = [.. cur];
+            _cwdAt = new string[segments.Count][];
+            for (var i = 0; i < segments.Count; i++)
             {
-                var d = _rs.Resolve(PathResolver.ExpandTilde(dir), cur);
-                if (!_bases.Contains(d)) _bases.Add(d);
-                if (changes) cur = d;
+                var seg = segments[i];
+                _cwdAt[i] = [.. cur];
+                if (seg.Word is "cd" or "pushd")
+                {
+                    var target = BashAnalysis.CdTarget(seg);
+                    if (target == "-") continue;
+                    var next = new List<string>();
+                    foreach (var c in cur)
+                        foreach (var v in AbsFrom(target, c))
+                            if (!next.Contains(v) && next.Count < MaxCandidates) next.Add(v);
+                    foreach (var v in next) if (!_bases.Contains(v)) _bases.Add(v);
+                    if (next.Count > 0) cur = next;
+                }
+                else
+                {
+                    foreach (var (dir, changes) in BashAnalysis.DirectoryTargets([seg]))
+                        if (!changes)
+                            foreach (var c in cur)
+                                foreach (var v in AbsFrom(dir, c))
+                                    if (!_bases.Contains(v)) _bases.Add(v);
+                }
             }
         }
 
         /// <summary>Kanonische Projektwurzel.</summary>
         public string Root => _rs.Root;
 
+        /// <summary>Kanonisches Home-Verzeichnis oder null.</summary>
+        public string? Home =>
+            Environment.GetEnvironmentVariable("HOME") is { Length: > 1 } home && home.StartsWith('/') ? Canonical(home) : null;
+
+        /// <summary>Wirksame Arbeitsverzeichnisse (logisch und physisch) vor dem Segment <paramref name="index"/>.</summary>
+        public string[] CwdAt(int index) => _cwdAt[index];
+
         /// <summary>Kanonischer absoluter Pfad eines Datei-Tool-Ziels (ohne Tilde-Expansion), aufgelöst gegen das cwd.</summary>
         public string AbsFile(string path) => _rs.Resolve(path, _rs.Cwd);
 
         /// <summary>Kanonischer absoluter Pfad (Tilde und <c>$HOME</c> expandiert), aufgelöst gegen das cwd.</summary>
-        public string Abs(string path) => _rs.Resolve(PathResolver.ExpandTilde(path), _rs.Cwd);
+        public string Abs(string path) => _rs.Resolve(PathResolver.ExpandVars(path, _rs.Cwd, _rs.Root), _rs.Cwd);
+
+        /// <summary>
+        /// Absolute Pfade eines Tokens relativ zu <paramref name="baseDir"/>: physisch aufgelöst, dazu logisch (lexikalisch) und dieser logische Pfad physisch aufgelöst.
+        /// Tilde, <c>$HOME</c>, <c>$PWD</c> und das Git-Toplevel sind expandiert.
+        /// </summary>
+        public IEnumerable<string> AbsFrom(string token, string baseDir)
+        {
+            var t = PathResolver.ExpandVars(token, baseDir, _rs.Root);
+            var phys = _rs.Resolve(t, baseDir);
+            yield return phys;
+            var lex = PathResolver.Lexical(t, baseDir);
+            if (lex == phys) yield break;
+            yield return lex;
+            var both = _rs.Resolve(lex, "/");
+            if (both != phys && both != lex) yield return both;
+        }
 
         /// <summary>Kanonischer absoluter Pfad, aufgelöst gegen jedes Basisverzeichnis (konservativ: jedes zählt).</summary>
         public IEnumerable<string> AbsAll(string token)
         {
-            var t = PathResolver.ExpandTilde(token);
-            foreach (var b in _bases) yield return _rs.Resolve(t, b);
+            foreach (var b in _bases)
+                foreach (var a in AbsFrom(token, b)) yield return a;
         }
 
         /// <summary>Kanonisches Verzeichnis (absolut, Symlinks aufgelöst), z. B. das Home-Verzeichnis.</summary>
@@ -119,16 +167,16 @@ public static partial class ToolCallPolicy
 
         /// <summary>
         /// Zerlegt ein Glob-Token am ersten Wildcard in das kanonische Verzeichnis des literalen Präfixes (je Basisverzeichnis) und den
-        /// unvollständigen letzten Namensteil davor (kleingeschrieben).
+        /// unvollständigen letzten Namensteil davor (gefaltet).
         /// </summary>
         public IEnumerable<(string Dir, string Name)> GlobParts(string token)
         {
             var prefix = token[..token.AsSpan().IndexOfAny('*', '?', '[')];
             var slash = prefix.LastIndexOf('/');
             var dir = slash < 0 ? "" : slash == 0 ? "/" : prefix[..slash];
-            var name = prefix[(slash + 1)..].ToLowerInvariant();
-            var d = PathResolver.ExpandTilde(dir.Length == 0 ? "." : dir);
-            foreach (var b in _bases) yield return (_rs.Resolve(d, b), name);
+            var name = PathFold.Fold(prefix[(slash + 1)..]);
+            foreach (var b in _bases)
+                foreach (var d in AbsFrom(dir.Length == 0 ? "." : dir, b)) yield return (d, name);
         }
 
         /// <summary>Pfad relativ zur Wurzel, aufgelöst gegen das cwd.</summary>
@@ -257,10 +305,40 @@ public static partial class ToolCallPolicy
     private static PolicyDecision? DenyBash(ToolCall call, PolicyContext ctx, List<BashAnalysis.Segment> segments)
     {
         foreach (var seg in segments)
+            if (OwnerCommand(seg) is { } owner)
+                return PolicyDecision.Deny(PolicyRules.DenyBash,
+                    $"Regel 7 (ADR-0011): '{owner}' ist dem Owner vorbehalten (deny_bash: {owner}); der Agent führt es nie aus. Melde dem Guild Master, was nötig ist.");
+        foreach (var seg in segments)
             foreach (var pattern in ctx.Options.DenyBash)
                 if (GlobMatcher.WildcardMatch(pattern, seg.Canonical) || GlobMatcher.WildcardMatch(pattern, seg.Text))
                     return PolicyDecision.Deny(PolicyRules.DenyBash, $"Das Kommando '{seg.Canonical}' ist verboten (deny_bash: {pattern}).");
         return null;
+    }
+
+    private static readonly string[] ReadingGit = ["add", "commit", "diff", "log", "show", "blame", "status", "ls-files", "grep", "mv", "rm"];
+
+    /// <summary>
+    /// Owner-Befehle (ADR-0011 Regel 7): ein Token mit Basename <c>monarch</c> irgendwo im Segment, gefolgt von <c>ledger ack-reset</c>, <c>permit</c> oder
+    /// <c>promote</c>, bzw. ein Token mit Basename <c>install-local.sh</c>. Lesende Kommandos (cat, grep, git add/diff/…) nennen das Skript nur und gelten nicht.
+    /// </summary>
+    private static string? OwnerCommand(BashAnalysis.Segment seg)
+    {
+        var t = seg.Tokens;
+        for (var i = 0; i < t.Length; i++)
+        {
+            if (Path.GetFileName(t[i]) == "monarch")
+            {
+                var sub = new List<string>(2);
+                for (var j = i + 1; j < t.Length && sub.Count < 2; j++) if (!t[j].StartsWith('-')) sub.Add(t[j]);
+                if (sub.Count > 0 && sub[0] is "permit" or "promote") return "monarch " + sub[0];
+                if (sub.Count > 1 && sub[0] == "ledger" && sub[1] == "ack-reset") return "monarch ledger ack-reset";
+            }
+        }
+
+        if (!t.Any(x => Path.GetFileName(x) == "install-local.sh")) return null;
+        if (Array.IndexOf(ReadOnlyWords, seg.Word) >= 0) return null;
+        if (seg.Word == "git" && BashAnalysis.GitSubcommand(t, out _) is { } g && Array.IndexOf(ReadingGit, g) >= 0) return null;
+        return "install-local.sh";
     }
 
     // ---- 4. Shadow read-only classes (ADR-0005)
@@ -315,8 +393,8 @@ public static partial class ToolCallPolicy
     private static bool MatchesAnyCI(IReadOnlyList<string> globs, string path)
     {
         if (globs.Count == 0) return false;
-        var lower = path.ToLowerInvariant();
-        for (var i = 0; i < globs.Count; i++) if (GlobMatcher.IsMatch(globs[i].ToLowerInvariant(), lower)) return true;
+        var lower = PathFold.Fold(path);
+        for (var i = 0; i < globs.Count; i++) if (GlobMatcher.IsMatch(PathFold.Fold(globs[i]), lower)) return true;
         return false;
     }
 

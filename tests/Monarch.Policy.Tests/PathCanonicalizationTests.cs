@@ -140,6 +140,8 @@ public sealed class PathCanonicalizationTests : IDisposable
     [Fact]
     public void Bypass6_same_relative_name_in_a_subdirectory_is_not_the_ledger()
     {
+        // ADR-0011 Regel 6: ein NEUES .monarch anzulegen ist deny; ein bestehendes verschachteltes ist nicht Teil der Schutzzone dieses Projekts.
+        Directory.CreateDirectory(Path.Combine(_root, "src", ".monarch"));
         Assert.Equal(PolicyDecisionKind.Allow, Run(new ToolCall("Write", FilePath: ".monarch/ledger/x", Cwd: Path.Combine(_root, "src")), Ctx()).Kind);
     }
 

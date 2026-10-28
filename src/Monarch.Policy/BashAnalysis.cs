@@ -6,9 +6,12 @@ namespace Monarch.Policy;
 /// </summary>
 internal static class BashAnalysis
 {
-    private static readonly string[] Wrappers = ["sudo", "env", "command", "exec", "nohup", "time", "nice"];
+    private static readonly string[] Wrappers = ["sudo", "env", "command", "builtin", "exec", "nohup", "time", "nice", "timeout", "setsid"];
+    private static readonly string[] Keywords = ["if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac", "{", "}", "!"];
     private static readonly string[] SudoOptionsWithValue = ["-u", "-g", "-h", "-p", "-U", "-C", "-D", "-R", "-T"];
+    private static readonly string[] EnvOptionsWithValue = ["-u", "-C", "-S", "-P"];
     private static readonly string[] Shells = ["bash", "sh", "zsh", "dash"];
+    private static readonly string[] StdinCodeSinks = ["bash", "sh", "zsh", "dash", "source", ".", "eval"];
     private const string PathSeparators = " \t\r\n;|&()<>\"'`=,{}";
 
     /// <summary>Ein analysiertes Kommando-Segment.</summary>
@@ -19,18 +22,38 @@ internal static class BashAnalysis
     {
         /// <summary>Kommandowort ohne Verzeichnis, sonst leer.</summary>
         public string Word => Tokens.Length == 0 ? "" : Path.GetFileName(Tokens[0]);
+
+        /// <summary>Ziele von Ausgabe-Umleitungen (<c>&gt;</c>, <c>&gt;&gt;</c>, <c>&amp;&gt;</c>) dieses Segments.</summary>
+        public IReadOnlyList<string> OutRedirects { get; init; } = [];
+
+        /// <summary>Ziele von Eingabe-Umleitungen (<c>&lt;</c>) dieses Segments.</summary>
+        public IReadOnlyList<string> InRedirects { get; init; } = [];
+
+        /// <summary>Heredoc-Bodies und Here-Strings (Daten, außer das Segment führt sie als Code aus).</summary>
+        public string? Heredoc { get; init; }
     }
 
-    /// <summary>Alle Segmente (inklusive verschachtelter <c>bash -c</c>-Strings, Tiefe max. 3).</summary>
+    /// <summary>
+    /// Alle Segmente (inklusive verschachtelter <c>bash -c</c>-Strings, Befehlsersetzungen und Heredocs, die an eine Shell gehen; Tiefe max. 3).
+    /// Quotes, <c>\</c>-Escapes, <c>$'…'</c> und Brace-Expansion sind aufgelöst, Shell-Schlüsselwörter und Wrapper entfernt (ADR-0011 Regel 1).
+    /// </summary>
     public static List<Segment> Segments(string command, int depth = 0)
     {
         var result = new List<Segment>();
-        foreach (var raw in SplitRaw(command))
+        var raws = ShellLexer.Lex(command);
+        for (var k = 0; k < raws.Count; k++)
         {
-            var tokens = Strip(Tokenize(raw));
-            if (tokens.Length == 0) continue;
+            var raw = raws[k];
+            var tokens = Strip([.. raw.Words.Where(w => w.Length > 0)]);
+            if (tokens.Length == 0 && raw.OutRedirects.Count == 0 && raw.InRedirects.Count == 0) continue;
             var text = string.Join(' ', tokens);
-            result.Add(new Segment(text, tokens, Canonicalize(tokens, text)));
+            result.Add(new Segment(text, tokens, Canonicalize(tokens, text))
+            {
+                OutRedirects = raw.OutRedirects,
+                InRedirects = raw.InRedirects,
+                Heredoc = raw.Heredoc?.ToString(),
+            });
+            if (tokens.Length == 0) continue;
             if (depth < 3 && tokens[0] == "eval" && tokens.Length > 1)
                 result.AddRange(Segments(string.Join(' ', tokens[1..]), depth + 1));
             if (depth < 3 && Array.IndexOf(Shells, Path.GetFileName(tokens[0])) >= 0)
@@ -38,10 +61,18 @@ internal static class BashAnalysis
                 var c = Array.IndexOf(tokens, "-c");
                 if (c >= 0 && c + 1 < tokens.Length) result.AddRange(Segments(string.Join(' ', tokens[(c + 1)..]), depth + 1));
             }
+
+            // Heredoc-Bodies sind Daten, außer sie gehen an eine Shell (direkt oder per Pipe).
+            if (depth < 3 && raw.Heredoc is { Length: > 0 } hd
+                && (ReadsCodeFromStdin(tokens) || (raw.PipesToNext && k + 1 < raws.Count && ReadsCodeFromStdin(Strip([.. raws[k + 1].Words])))))
+                result.AddRange(Segments(hd.ToString(), depth + 1));
         }
 
         return result;
     }
+
+    private static bool ReadsCodeFromStdin(string[] tokens) =>
+        tokens.Length > 0 && Array.IndexOf(StdinCodeSinks, Path.GetFileName(tokens[0])) >= 0 && Array.IndexOf(tokens, "-c") < 0;
 
     /// <summary>
     /// Pfad-artige Tokens eines Textes. Quotes werden zuerst entfernt (<c>.mon""arch</c> ist für die Shell <c>.monarch</c>), dann wird an Whitespace,
@@ -188,6 +219,15 @@ internal static class BashAnalysis
         return list;
     }
 
+    /// <summary>Ziel von <c>cd</c>/<c>pushd</c> (erstes Argument ohne Option); ohne Argument das Home-Verzeichnis (<c>~</c>).</summary>
+    public static string CdTarget(Segment seg)
+    {
+        var t = seg.Tokens;
+        var i = 1;
+        while (i < t.Length && t[i].StartsWith('-') && t[i].Length > 1) i++;
+        return i < t.Length ? t[i] : "~";
+    }
+
     /// <summary>Git-Unterkommando (nach Globaloptionen wie <c>-C dir</c>) und sein Index, sonst <c>null</c>.</summary>
     public static string? GitSubcommand(string[] tokens, out int index)
     {
@@ -200,43 +240,24 @@ internal static class BashAnalysis
         return tokens[i];
     }
 
-    private static List<string> SplitRaw(string command)
-    {
-        var parts = new List<string>();
-        var sb = new System.Text.StringBuilder();
-        void Flush() { if (sb.Length > 0) { parts.Add(sb.ToString()); sb.Clear(); } }
-        for (var i = 0; i < command.Length; i++)
-        {
-            var c = command[i];
-            var next = i + 1 < command.Length ? command[i + 1] : '\0';
-            var prev = i > 0 ? command[i - 1] : '\0';
-            if ((c == '&' && next == '&') || (c == '|' && next == '|') || (c == '$' && next == '(')) { Flush(); i++; }
-            else if (c == '&' && (prev == '>' || next == '>')) sb.Append(c);
-            else if (c is ';' or '|' or '\n' or '\r' or '(' or ')' or '`' or '&') Flush();
-            else sb.Append(c);
-        }
-
-        Flush();
-        return parts;
-    }
-
-    private static string[] Tokenize(string segment) =>
-        segment.Replace("\"", "", StringComparison.Ordinal).Replace("'", "", StringComparison.Ordinal)
-            .Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
-
     private static string[] Strip(string[] tokens)
     {
         var i = 0;
         while (i < tokens.Length)
         {
             var t = tokens[i];
-            if (IsAssignment(t)) { i++; continue; }
+            if (IsAssignment(t) || Array.IndexOf(Keywords, t) >= 0) { i++; continue; }
             if (Array.IndexOf(Wrappers, t) < 0) break;
             i++;
             while (i < tokens.Length && tokens[i].StartsWith('-'))
             {
-                i += t == "sudo" && Array.IndexOf(SudoOptionsWithValue, tokens[i]) >= 0 ? 2 : 1;
+                var withValue = (t == "sudo" && Array.IndexOf(SudoOptionsWithValue, tokens[i]) >= 0)
+                    || (t == "env" && Array.IndexOf(EnvOptionsWithValue, tokens[i]) >= 0)
+                    || (t == "nice" && tokens[i] == "-n");
+                i += withValue ? 2 : 1;
             }
+
+            if (t == "timeout" && i < tokens.Length) i++; // Dauer
         }
 
         return i >= tokens.Length ? [] : tokens[i..];
