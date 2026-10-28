@@ -5,7 +5,7 @@ kind: main
 rank: A
 severity: high
 risk_tags: [policy]
-state: in_review
+state: cleared
 scope:
   repo: monarch
   include: ["src/Monarch.Policy/**", "src/Monarch.Cli/**", "src/Monarch.Infrastructure.Evidence/**", "src/Monarch.Domain/**", "tests/**", "docs/adr/0007-*", "plugin/README.md", "plugin/skills/**"]
