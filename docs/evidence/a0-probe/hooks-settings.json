@@ -1,0 +1,7 @@
+{"hooks":{
+ "SessionStart":[{"hooks":[{"type":"command","command":"$PROBE/bin/log-hook.sh"}]}],
+ "PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"$PROBE/bin/log-hook.sh"}]}],
+ "PostToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"$PROBE/bin/log-hook.sh"}]}],
+ "SubagentStop":[{"hooks":[{"type":"command","command":"$PROBE/bin/log-hook.sh"}]}],
+ "Stop":[{"hooks":[{"type":"command","command":"$PROBE/bin/log-hook.sh"}]}]
+}}

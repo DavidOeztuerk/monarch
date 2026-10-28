@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Monarch.Application/Monarch.Application.csproj" />
+    <Project Path="src/Monarch.Cli/Monarch.Cli.csproj" />
+    <Project Path="src/Monarch.Domain/Monarch.Domain.csproj" />
+    <Project Path="src/Monarch.Infrastructure.Boards/Monarch.Infrastructure.Boards.csproj" />
+    <Project Path="src/Monarch.Infrastructure.Evidence/Monarch.Infrastructure.Evidence.csproj" />
+    <Project Path="src/Monarch.Infrastructure.Ledger/Monarch.Infrastructure.Ledger.csproj" />
+    <Project Path="src/Monarch.Infrastructure.Runtimes/Monarch.Infrastructure.Runtimes.csproj" />
+    <Project Path="src/Monarch.Mcp/Monarch.Mcp.csproj" />
+    <Project Path="src/Monarch.Policy/Monarch.Policy.csproj" />
+    <Project Path="src/Monarch.Themes/Monarch.Themes.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Monarch.Cli.Tests/Monarch.Cli.Tests.csproj" />
+    <Project Path="tests/Monarch.Domain.Tests/Monarch.Domain.Tests.csproj" />
+    <Project Path="tests/Monarch.Infrastructure.Tests/Monarch.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Monarch.Policy.Tests/Monarch.Policy.Tests.csproj" />
+  </Folder>
+</Solution>

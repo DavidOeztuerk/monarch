@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Measures end-to-end latency of `monarch hook pre-tool-use` (AOT binary) with hyperfine.
+# Usage: bench/hook-latency.sh [path-to-monarch-binary]   (default: publishes Release for this host first)
+# Env:   LIMIT_MS  latency limit in ms (default 20) for the gate percentile; exit 1 if any scenario exceeds it.
+#        GATE_PCT  gate percentile: 99 (default, the MVP criterion on the target machine) or 95 (CI on shared runners,
+#                  see .github/workflows/ci.yml for the measured reason). p50/p95/p99 are always printed.
+#        BENCH_TMPDIR  parent directory for the scratch project (default $TMPDIR or /tmp).
+#        WRAPPER=1 measure through plugin/scripts/monarch (temp HOME with .monarch/bin/<version>/monarch + SHA256SUMS)
+#                  instead of calling the binary directly.
+#        RUNS     hyperfine runs per scenario (default 300).
+#        ATTEMPTS measurements per scenario before it fails (default 2; see run()).
+#        BENCH_RESULTS_DIR  evaluation only: read <scenario>.result.json (hyperfine --export-json format) from this directory
+#                  instead of measuring; needs neither binary, hyperfine nor timing (used by bench/test-gate.sh).
+set -euo pipefail
+export LC_ALL=C
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+limit_ms="${LIMIT_MS:-20}"
+gate_pct="${GATE_PCT:-99}"
+case "$gate_pct" in 95|99) ;; *) echo "GATE_PCT must be 95 or 99" >&2; exit 2 ;; esac
+results_dir="${BENCH_RESULTS_DIR:-}"
+bin="${1:-${MONARCH_BIN:-}}"
+if [[ -n "$results_dir" ]]; then
+  [[ -d "$results_dir" ]] || { echo "BENCH_RESULTS_DIR $results_dir is not a directory" >&2; exit 2; }
+elif [[ -z "$bin" ]]; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) rid=osx-arm64 ;;
+    Linux-x86_64) rid=linux-x64 ;;
+    *) echo "unsupported host $(uname -s)-$(uname -m); pass a binary path" >&2; exit 2 ;;
+  esac
+  dotnet publish "$repo/src/Monarch.Cli" -c Release -r "$rid" -v quiet >/dev/null
+  bin="$repo/src/Monarch.Cli/bin/Release/net10.0/$rid/publish/monarch"
+fi
+runs="${RUNS:-300}"
+command -v jq >/dev/null || { echo "jq not found" >&2; exit 2; }
+if [[ -z "$results_dir" ]]; then
+  [[ -x "$bin" ]] || { echo "binary $bin not executable" >&2; exit 2; }
+  command -v hyperfine >/dev/null || { echo "hyperfine not found" >&2; exit 2; }
+fi
+
+work="$(mktemp -d "${BENCH_TMPDIR:-${TMPDIR:-/tmp}}/hl.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+export MONARCH_HOME="$work/home"
+mkdir -p "$MONARCH_HOME" "$work/plain"
+
+proj="" inner="" target=""
+if [[ -z "$results_dir" ]]; then
+target="$bin"
+if [[ "${WRAPPER:-0}" == "1" ]]; then
+  version="$(sed -n 's/^MONARCH_VERSION=//p' "$repo/plugin/scripts/monarch" | head -n1)"
+  [[ -n "$version" ]] || { echo "MONARCH_VERSION not found in wrapper" >&2; exit 2; }
+  fakehome="$work/fakehome"
+  mkdir -p "$fakehome/.monarch/bin/$version"
+  cp "$bin" "$fakehome/.monarch/bin/$version/monarch"
+  if command -v sha256sum >/dev/null; then sum="$(sha256sum "$bin" | cut -d' ' -f1)"; else sum="$(shasum -a 256 "$bin" | cut -d' ' -f1)"; fi
+  printf '%s  monarch\n' "$sum" >"$fakehome/.monarch/bin/$version/SHA256SUMS"
+  export HOME="$fakehome"
+  unset MONARCH_BIN
+  target="$repo/plugin/scripts/monarch"
+  echo "mode: wrapper ($target, version $version)"
+else
+  echo "mode: direct ($bin)"
+fi
+
+proj="$work/proj"
+mkdir -p "$proj/.monarch/local" "$proj/.monarch/ledger" "$proj/src" "$work/plain"
+cat >"$proj/.monarch/local/active.json" <<JSON
+{"questId":"Q-0003","gateId":"G-0001","rank":"B","kind":"main","scope":{"include":["src/**"],"exclude":[]},"acceptedAt":"2026-10-27T10:00:00Z"}
+JSON
+
+# nested-projects (ADR-0011 rule 9): the cwd project sits inside another awakened project; both are evaluated in full.
+nest="$work/outer"
+mkdir -p "$nest/.monarch/local" "$nest/.monarch/ledger" "$nest/src/inner/.monarch/local" "$nest/src/inner/.monarch/ledger"
+cat >"$nest/.monarch/local/active.json" <<JSON
+{"questId":"Q-0004","gateId":"G-0001","rank":"B","kind":"main","scope":{"include":["src/**"],"exclude":[]},"acceptedAt":"2026-10-27T10:00:00Z"}
+JSON
+sed 's#"src/\*\*"#"**"#' "$nest/.monarch/local/active.json" >"$nest/src/inner/.monarch/local/active.json"
+inner="$nest/src/inner"
+
+input() { # tool, tool_input-json, cwd
+  printf '{"session_id":"bench","cwd":"%s","hook_event_name":"PreToolUse","permission_mode":"default","tool_name":"%s","tool_input":%s}' "$3" "$1" "$2" >"$work/$4.json"
+}
+input Edit '{"file_path":"src/a.cs"}' "$proj" in-scope
+input Edit '{"file_path":"docs/readme.md"}' "$proj" out-of-scope
+input Bash '{"command":"git push --force origin main"}' "$proj" denied-bash
+input Edit '{"file_path":"src/a.cs"}' "$work/plain" non-awakened
+input Bash '{"command":"cd /usr/local && git -C /usr/local status && ls /usr/bin/../lib"}' "$proj" bash-targets
+input Edit '{"file_path":"'"$proj"'/src/deep/er/a.cs"}' "$proj" abs-target
+input Edit '{"file_path":"a.cs"}' "$inner" nested-projects
+# long-heredoc: Bash writing ~200 lines of notes via a quoted heredoc, no protected path (the body is data).
+body="$(for i in $(seq 1 200); do printf 'Zeile %d: Notizen zum Entwurf, ohne Pfade, Kommandos wie rm oder git push nur als Prosa.\n' "$i"; done)"
+heredoc_cmd="$(printf "cat <<'EOF' > notes.md\n%s\nEOF" "$body")"
+input Bash "$(jq -cn --arg c "$heredoc_cmd" '{command:$c}')" "$proj" long-heredoc
+fi
+
+if [[ -z "$results_dir" && -n "${BENCH_SHOW:-}" ]]; then # debug: print the decision of each scenario
+  for f in "$work"/*.json; do
+    case "$f" in *.result.json) continue ;; esac
+    n="$(basename "$f" .json)"; case "$n" in nested-projects) d="$inner" ;; non-awakened) d="$work/plain" ;; *) d="$proj" ;; esac
+    echo "$n: $(cd "$d" && MONARCH_HOME="$MONARCH_HOME" "$target" hook pre-tool-use <"$f" | cut -c1-120)"
+  done
+fi
+status=0
+printf '%-16s %10s %10s %10s   (gate: p%s <= %s ms)\n' scenario p50_ms p95_ms p99_ms "$gate_pct" "$limit_ms"
+# percentiles <hyperfine-json>: the evaluation, independent of how the numbers were obtained.
+percentiles() {
+  jq -r '(.results[0] | (.times // [.measurements[].time_wall_clock.value])) | sort | [(.[length/2|floor]*1000), (.[((length*0.95)|ceil)-1]*1000), (.[((length*0.99)|ceil)-1]*1000)] | @tsv' "$1"
+}
+measure() { # name, dir -> prints "p50 p95 p99"
+  local name="$1" dir="$2"
+  if [[ -n "$results_dir" ]]; then
+    [[ -f "$results_dir/$name.result.json" ]] || { echo "missing $results_dir/$name.result.json" >&2; exit 2; }
+    percentiles "$results_dir/$name.result.json"
+    return
+  fi
+  (cd "$dir" && hyperfine -N --warmup 30 --runs "$runs" --input "$work/$name.json" \
+    --export-json "$work/$name.result.json" "$target hook pre-tool-use" >/dev/null 2>&1)
+  percentiles "$work/$name.result.json"
+}
+# A scenario passes if the gate percentile (p99, or p95 with GATE_PCT=95) is <= LIMIT_MS in one of up to ATTEMPTS
+# (default 2) independent measurements: a single scheduler hiccup on a shared machine must not fail the gate, a real
+# regression fails every attempt.
+run() { # name, cwd
+  local name="$1" dir="$2" attempt p50 p95 p99 gate history=""
+  for ((attempt = 1; attempt <= ${ATTEMPTS:-2}; attempt++)); do
+    read -r p50 p95 p99 < <(measure "$name" "$dir")
+    history+=$(printf ' [%d: p50 %.2f p95 %.2f p99 %.2f]' "$attempt" "$p50" "$p95" "$p99")
+    if [[ $gate_pct == 95 ]]; then gate=$p95; else gate=$p99; fi
+    if ! awk -v p="$gate" -v l="$limit_ms" 'BEGIN{exit !(p>l)}'; then break; fi
+  done
+  printf '%-16s %10.2f %10.2f %10.2f   attempts:%s\n' "$name" "$p50" "$p95" "$p99" "$history"
+  if awk -v p="$gate" -v l="$limit_ms" 'BEGIN{exit !(p>l)}'; then status=1; fi
+}
+run in-scope "$proj"
+run out-of-scope "$proj"
+run denied-bash "$proj"
+run non-awakened "$work/plain"
+run bash-targets "$proj"
+run abs-target "$proj"
+run nested-projects "$inner"
+run long-heredoc "$proj"
+[[ $status -eq 0 ]] && echo "OK: all p${gate_pct} <= ${limit_ms} ms" || echo "FAIL: p${gate_pct} > ${limit_ms} ms" >&2
+exit $status

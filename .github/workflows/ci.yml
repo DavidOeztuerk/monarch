@@ -1,0 +1,130 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Least privilege: jobs only read the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  build-test:
+    name: build-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - run: dotnet test -c Release --no-build
+
+  aot:
+    name: aot (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    needs: build-test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, rid: osx-arm64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+    env:
+      # Gate for bench/hook-latency.sh: p99 <= 20 ms on every runner; do not raise it without recording measured
+      # numbers from this job's log next to the new value. Measurements of the runner noise (shared runners preempt
+      # sporadically) are in commit 5abdd63. A relative A/B gate follows as its own quest.
+      LIMIT_MS: "20"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Install native toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      - name: Publish Native AOT
+        run: dotnet publish src/Monarch.Cli -c Release -r ${{ matrix.rid }} -o publish
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: monarch-${{ matrix.rid }}
+          path: publish/monarch
+          if-no-files-found: error
+      - name: Install hyperfine and jq (macOS)
+        if: runner.os == 'macOS'
+        run: brew install hyperfine jq
+      - name: Install hyperfine and jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y hyperfine jq
+      - name: Latency gate self-test
+        run: bench/test-gate.sh
+      - name: Hook latency (direct)
+        run: bench/hook-latency.sh "$GITHUB_WORKSPACE/publish/monarch"
+      # QUARANTÄNE nur auf macOS bis Issue #8 (relatives A/B-Gate), spätestens vor dem MVP-Gate C1. Grenze bleibt 20 ms;
+      # der Schritt läuft weiter und schreibt seine Werte in Log und Job-Summary, wird bei Überschreitung aber nicht rot.
+      # Grund (gemessen): Wrapper-Modus auf geteilten macOS-Runnern schwankt bei stabilem p50 10–12 ms zwischen p99 11 und
+      # 38 ms im selben Lauf (Run 40695429009, out-of-scope 37,98 → 11,14 ms); schon vor der Härtung p99 16–18 ms
+      # (Run 40509898746, 069a99c). Direkt-Modus (beide OS) und Wrapper auf Linux bleiben blockierend. C1 misst p99 über
+      # den Wrapper auf der Zielmaschine des Owners (installiertes Binary, reale Last); p99 > 20 ms dort ist ein Blocker.
+      - name: Hook latency (through plugin/scripts/monarch)
+        continue-on-error: ${{ runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            echo "### Hook latency via wrapper (${{ matrix.rid }})"
+            [ "$RUNNER_OS" = macOS ] && echo "_Quarantäne bis #8: Überschreitung macht den Job nicht rot._"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          WRAPPER=1 bench/hook-latency.sh "$GITHUB_WORKSPACE/publish/monarch" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Shell syntax
+        run: |
+          set -eu
+          sh -n plugin/scripts/monarch
+          for f in bench/*.sh e2e/*.sh scripts/*.sh plugin/tests/*.sh; do
+            [ -f "$f" ] && bash -n "$f"
+          done
+      - name: Wrapper tests
+        run: |
+          set -eu
+          sh plugin/tests/wrapper-test.sh
+          dash plugin/tests/wrapper-test.sh
+      - name: JSON validity
+        run: |
+          set -eu
+          find plugin .claude-plugin -name '*.json' -print0 | xargs -0 -n1 jq empty
+      - name: Wrapper version matches plugin.json
+        run: |
+          set -eu
+          wrapper=$(sed -n 's/^MONARCH_VERSION=//p' plugin/scripts/monarch | head -n1)
+          manifest=$(jq -r .version plugin/.claude-plugin/plugin.json)
+          echo "wrapper=$wrapper plugin.json=$manifest"
+          [ -n "$wrapper" ] && [ "$wrapper" = "$manifest" ]

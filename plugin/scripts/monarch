@@ -1,0 +1,106 @@
+#!/bin/sh
+# Monarch wrapper: resolves the versioned binary, verifies SHA-256 once per
+# version (stamp file), then execs. Runs on every tool call: keep it cheap.
+MONARCH_VERSION=0.1.0
+mode=${1:-}
+
+# Is a directory (or a parent) an awakened project? Pure shell loop, no fork.
+awakened_in() {
+  d=$1
+  case $d in /*) ;; *) return 1 ;; esac
+  while :; do
+    [ -f "$d/.monarch/system.yaml" ] && return 0
+    [ -z "$d" ] || [ "$d" = / ] && return 1
+    d=${d%/*}
+    [ -n "$d" ] || d=/
+  done
+}
+
+# Awakened if the cwd of the hook input (first line of stdin, `read` builtin, no fork) or $PWD is inside an awakened
+# project; the stricter of both counts. The input is read only in the fail path, which ends the wrapper anyway.
+# The first `"cwd":"` is the hook's own field (it precedes tool_input, and quotes inside strings are escaped as \").
+# A path with a JSON escape is not decoded and falls back to $PWD.
+awakened() {
+  line=
+  IFS= read -r line || :
+  case $line in
+    *'"cwd":"'*)
+      c=${line#*'"cwd":"'}
+      c=${c%%'"'*}
+      case $c in *\\*) ;; *) awakened_in "$c" && return 0 ;; esac ;;
+  esac
+  awakened_in "${PWD:-}"
+}
+
+ask() {
+  cat >/dev/null
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"'"$1"'"}}'
+  exit 0
+}
+
+# PreToolUse in an awakened project is fail-closed (ask); everything else that
+# cannot run stays fail-open for hooks (they allow nothing) and the statusline.
+fail() {
+  case $mode in
+    hook|statusline)
+      if [ "$mode" = hook ] && [ "${2:-}" = pre-tool-use ] && awakened; then
+        echo "monarch: $1 (fail-closed: asking)" >&2
+        ask "Monarch-Wrapper: $1; Freigabe nötig."
+      fi
+      echo "monarch: $1 (fail-open: $mode skipped)" >&2
+      exit 0 ;;
+    *)
+      echo "monarch: $1" >&2
+      echo "monarch: install with: scripts/install-local.sh (in the monarch repo)" >&2
+      exit 1 ;;
+  esac
+}
+
+if [ -n "${MONARCH_BIN:-}" ]; then
+  # explicit developer override: no checksum verification
+  [ -x "$MONARCH_BIN" ] || fail "MONARCH_BIN=$MONARCH_BIN is not executable" "${2:-}"
+  exec "$MONARCH_BIN" "$@"
+fi
+
+dir=${HOME:-}/.monarch/bin/$MONARCH_VERSION
+bin=$dir/monarch
+[ -x "$bin" ] || fail "binary $bin not found" "${2:-}"
+
+stamp=$dir/.verified
+link=$dir/.verified-inode
+sums=$dir/SHA256SUMS
+
+# Fast path without a fork (test builtins only): a verified binary has (1) the
+# same inode as the hard link taken at verification (replacement by a new file
+# fails -ef) and (2) exactly the mtime of the stamp, which the slow path copies
+# from the binary (touch -r). A changed binary or a touched stamp breaks the
+# equality and falls back to the SHA-256 check.
+if [ -f "$stamp" ] && [ "$bin" -ef "$link" ] && ! [ "$bin" -nt "$stamp" ] && ! [ "$stamp" -nt "$bin" ]; then
+  exec "$bin" "$@"
+fi
+
+[ -f "$sums" ] || fail "$sums missing, cannot verify binary" "${2:-}"
+want=$(while read -r h f; do
+  f=${f#\*}
+  if [ "$f" = monarch ]; then echo "$h"; break; fi
+done < "$sums")
+[ -n "$want" ] || fail "no monarch entry in $sums" "${2:-}"
+# Pin the inode before hashing: what is hashed is what the stamp vouches for.
+rm -f "$stamp" "$link" 2>/dev/null || :
+ln "$bin" "$link" 2>/dev/null || link=$bin
+if command -v sha256sum >/dev/null 2>&1; then
+  got=$(sha256sum "$link" | { read -r h _; echo "$h"; })
+elif command -v shasum >/dev/null 2>&1; then
+  got=$(shasum -a 256 "$link" | { read -r h _; echo "$h"; })
+else
+  fail "no sha256sum/shasum available" "${2:-}"
+fi
+if [ "$got" != "$want" ] && [ "$mode" = hook ] && [ "${2:-}" = pre-tool-use ]; then
+  # A replaced binary must not silently disable the policy (ADR-0003): ask.
+  ask "Monarch-Binary weicht von SHA256SUMS ab; Freigabe nötig."
+fi
+[ "$got" = "$want" ] || fail "SHA-256 mismatch for $bin (expected $want, got $got); refusing to execute" "${2:-}"
+if [ "$link" != "$bin" ]; then
+  : > "$stamp" 2>/dev/null && touch -r "$bin" "$stamp" 2>/dev/null || rm -f "$stamp" 2>/dev/null || :
+fi
+exec "$bin" "$@"
