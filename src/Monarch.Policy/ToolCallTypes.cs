@@ -22,6 +22,8 @@ public static class PolicyRules
     public const string ProtectSecrets = "protect_secrets";
     /// <summary>Verbotene Bash-Kommandos.</summary>
     public const string DenyBash = "deny_bash";
+    /// <summary>Schutz geschützter Branches und Merge-Wege (ADR-0007).</summary>
+    public const string ProtectBranches = "protect_branches";
     /// <summary>Read-only Shadow-Klassen.</summary>
     public const string ShadowReadOnly = "shadow_read_only";
     /// <summary>Hoher Rank in permissiven Modi (ADR-0002).</summary>
@@ -100,6 +102,12 @@ public sealed record PolicyOptions
 
     /// <summary>Shadow-Klassen, die nichts schreiben dürfen.</summary>
     public IReadOnlyList<string> ReadOnlyShadowTypes { get; init; } = ["warden", "scout"];
+
+    /// <summary>Branches, in die kein Akteur pushen oder mergen darf (Vergleich case-insensitiv). Die Konfiguration kann nur ergänzen.</summary>
+    public IReadOnlyList<string> ProtectedBranches { get; init; } = ["main", "master"];
+
+    /// <summary>Integrations-Branch: ein direkter Push dorthin fragt nach, gemerged wird über <c>monarch gate merge</c>.</summary>
+    public string IntegrationBranch { get; init; } = "develop";
 
     /// <summary>Schaltet <see cref="PolicyRules.RefuseHighRankInBypassMode"/>.</summary>
     public bool RefuseHighRankInBypassMode { get; init; } = true;

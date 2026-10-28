@@ -39,9 +39,9 @@ public sealed record RankDecision(Rank Rank, IReadOnlyList<string> Reasons);
 /// <summary>Merge-Regel je Rank.</summary>
 public enum MergeRule
 {
-    /// <summary>Auto-Merge bei grüner CI und Warden-Freigabe.</summary>
+    /// <summary>Merge in den Integrations-Branch bei grüner CI und Warden-Freigabe (ADR-0007).</summary>
     AutoMergeWhenCiGreenAndWardenApproved,
-    /// <summary>PR öffnen, nie autonom mergen.</summary>
+    /// <summary>Owner-Freigabe nötig (vor ADR-0007 für B und A; heute von keinem Rank genutzt).</summary>
     OwnerApprovalRequired,
     /// <summary>Jede mutierende Aktion einzeln freigeben.</summary>
     EachMutationNeedsApproval,

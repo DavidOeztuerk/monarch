@@ -80,11 +80,13 @@ public static class RankPolicy
 /// <summary>Governance je Rank: Merge-Regel und Warden-Pflicht.</summary>
 public static class RankGovernance
 {
-    /// <summary>E bis C: Auto-Merge; B und A: Owner-Freigabe (PR öffnen, nie autonom mergen); S: jede Mutation einzeln.</summary>
+    /// <summary>
+    /// E bis A: Merge in den Integrations-Branch über <c>monarch gate merge</c> bei grüner CI und Warden-Freigabe (ADR-0007 löst die frühere
+    /// Owner-Freigabe für B und A ab); S: jede Mutation einzeln. Merge nach main/master bleibt in jedem Rank dem Owner vorbehalten.
+    /// </summary>
     public static MergeRule For(Rank rank) => rank switch
     {
-        <= Rank.C => MergeRule.AutoMergeWhenCiGreenAndWardenApproved,
-        <= Rank.A => MergeRule.OwnerApprovalRequired,
+        <= Rank.A => MergeRule.AutoMergeWhenCiGreenAndWardenApproved,
         _ => MergeRule.EachMutationNeedsApproval,
     };
 

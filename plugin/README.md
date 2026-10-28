@@ -61,6 +61,12 @@ Grundlage ist ADR-0011 (Bedrohungsmodell Phase 0). Der Hook ist eine **Leitplank
 - G2: die Policy ist auf plausiblen Wegen nicht still abschaltbar (`.monarch/system.yaml`, `quests/`, `gates/`, `local/`, `~/.monarch/**`, `~/.claude/settings*.json`, `~/.claude/plugins/**`, `<projekt>/.claude/settings*.json`).
 - G3: Ledger-Manipulation ist gegen plausible Fehlgriffe erkennbar. `ledger verify` laeuft vor `quest clear` und `evidence sync`; bei Befunden wird nicht geclear't (Event `ClearRefusedLedgerInvalid`). Anker-Resets quittiert nur der Owner im Terminal (`monarch ledger ack-reset <hash>` verlangt ein TTY auf stdin).
 
+### Merge-Policy (ADR-0007, Q-0113)
+
+- Regel `protect_branches` im PreToolUse-Hook, fuer Main und Shadows: `git push` auf `git.protected_branches` (Default main, master; `system.yaml` kann nur ergaenzen) wird verweigert, in jeder Schreibweise (Refspec, `HEAD`, `+`, `:ziel`, `--delete`, `--all`, `--mirror`, Wildcards, `-C`, `--git-dir`, `GIT_DIR=`, Worktrees, `bash -c`, `eval`). Ein Push ohne Refspec liest HEAD, Upstream und `remote.<r>.push`/`mirror` per Dateizugriff. Ein direkter Push auf `git.integration_branch` (Default develop) fragt nach (`ask`).
+- `gh pr merge`, `gh api` auf `…/pulls/<n>/merge`, `…/merges`, `git/refs/heads/<geschuetzt>` und GraphQL `mergePullRequest`, `enablePullRequestAutoMerge`, `enqueuePullRequest`, `mergeBranch` werden verweigert.
+- Gemerged wird nur mit `monarch gate verdict` und `monarch gate merge` (beides nur der Main, Shadows werden verweigert). Der Merge ist nur nach `develop` und fuer Rank E-A moeglich; Clear-Evidence bleibt der Forge-Merge. Ein Merge ohne `GateMerged` meldet `quest clear` bzw. `ledger verify` als Hinweis.
+
 ### Ausdruecklich ausserhalb von Phase 0
 
 - **Code, den der Agent ausfuehrt** (Tests, Build, Git-Hooks, Repo-Skripte) wirkt mit vollen Rechten; der Hook sieht nur den Aufruf.
@@ -68,6 +74,7 @@ Grundlage ist ADR-0011 (Bedrohungsmodell Phase 0). Der Hook ist eine **Leitplank
 - **Sessions ohne erwecktes Projekt haben keine Policy.** Ohne `.monarch` im cwd oder darueber (und ohne Ziel in einem erweckten Projekt) tut der Hook nichts.
 - **`.mcp.json` im Projekt und `~/.claude/CLAUDE.md`** sind Konfiguration des Owners und nicht Teil der Hook-Konfiguration; der Hook schuetzt sie nicht.
 - **MCP-Tools mit Pfad-Argumenten**, Hooks Dritter mit `updatedInput` und Hooks im Frontmatter von `.claude/agents/**` und `.claude/skills/**` (vom Agenten schreibbar) sind nicht geschuetzt.
+- **Merge-Policy, Klasse 2 (ADR-0007):** Der Hook erkennt bekannte Schreibweisen. Nicht erkannt werden `curl`, `python` oder andere Skripte gegen die GitHub-API, `gh api graphql -F query=@datei` (die Mutation steht in einer Datei), Aliasse (`gh alias`, `git config alias.*`), `git -c`-Overrides, ein `GIT_DIR` aus der Umgebung des Agent-Prozesses sowie Schreibzugriffe ueber die Contents-API. Dagegen hilft nur eine Netzwerk-Policy ausserhalb des Agent-Prozesses (ADR-0011, G4) und das Review des Owners vor dem Merge nach main.
 - **Evidence-Integritaet:** Workflows, Tests und Bench-Grenzen schuetzt nur das Warden-Review des Diffs. Risk Tags pruefen heute nur den geplanten Quest-Scope, Scope Lock nur Datei-Tools. Follow-up: Risk Tags bei `quest submit` gegen den PR-Diff.
 - **Ledger, ungetrackt:** Datei und Anker gemeinsam gefaelscht sowie die Faelschung „frischer Klon“ (Anker und `writer-id` geloescht, Dateien auf HEAD) sind lokal nicht erkennbar (ADR-0010). Schutz sind committete und gepushte Ledger-Dateien.
 - **Bekannte, offene Follow-ups:**

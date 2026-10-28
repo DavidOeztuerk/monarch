@@ -17,7 +17,7 @@ public static class QuestAcceptancePolicy
 /// Tool-Call-Policy für den PreToolUse-Hook. Alle Regeln werden ausgewertet und mit der Rangfolge
 /// Deny vor Ask vor Allow kombiniert (wie in Claude Code); Signale aller Regeln bleiben erhalten.
 /// Reihenfolge der Regeln (bestimmt, welches Deny gemeldet wird): protect_paths, protect_secrets, deny_bash,
-/// shadow_read_only, refuse_high_rank_in_bypass_mode, scope_lock, rank_s_approval.
+/// shadow_read_only, protect_branches, refuse_high_rank_in_bypass_mode, scope_lock, rank_s_approval.
 /// Pfade werden kanonisiert (relativ zu <see cref="ToolCall.Cwd"/>, <c>.</c>/<c>..</c>/<c>//</c> normalisiert, Symlinks aufgelöst, Wurzel und Ziel gleich);
 /// der Vergleich gegen geschützte Pfade und Secret-Globs ist case-insensitiv.
 /// </summary>
@@ -62,6 +62,7 @@ public static partial class ToolCallPolicy
         Add(ProtectSecrets(call, context, segments, paths));
         Add(DenyBash(call, context, segments));
         Add(ShadowReadOnly(call, context, segments));
+        Add(ProtectBranches(call, context, segments, paths));
         Add(RefuseHighRank(call, context));
         Add(ScopeLock(call, context, paths));
         Add(RankS(call, context));
@@ -69,16 +70,17 @@ public static partial class ToolCallPolicy
     }
 
     /// <summary>
-    /// Nur protect_paths und protect_secrets, kombiniert (Deny vor Ask). Für Projekte, die nur als Ziel eines Tool-Calls vorkommen
+    /// Nur protect_paths, protect_secrets und protect_branches, kombiniert (Deny vor Ask). Für Projekte, die nur als Ziel eines Tool-Calls vorkommen
     /// (das cwd-Projekt wertet <see cref="Evaluate"/> vollständig aus).
     /// </summary>
     public static PolicyDecision EvaluateProtection(ToolCall call, PolicyContext context)
     {
         var segments = call.ToolName == "Bash" && call.Command is { } cmd ? BashAnalysis.Segments(cmd) : [];
         var paths = new Canon(call, context, segments);
-        var results = new List<PolicyDecision>(2);
+        var results = new List<PolicyDecision>(3);
         if (ProtectPaths(call, context, segments, paths) is { } a) results.Add(a);
         if (ProtectSecrets(call, context, segments, paths) is { } b) results.Add(b);
+        if (ProtectBranches(call, context, segments, paths) is { } c) results.Add(c);
         return Combine(results);
     }
 

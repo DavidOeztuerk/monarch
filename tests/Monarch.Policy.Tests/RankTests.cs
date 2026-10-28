@@ -71,8 +71,8 @@ public class RankTests
     [InlineData(Rank.E, MergeRule.AutoMergeWhenCiGreenAndWardenApproved, false)]
     [InlineData(Rank.D, MergeRule.AutoMergeWhenCiGreenAndWardenApproved, true)]
     [InlineData(Rank.C, MergeRule.AutoMergeWhenCiGreenAndWardenApproved, true)]
-    [InlineData(Rank.B, MergeRule.OwnerApprovalRequired, true)]
-    [InlineData(Rank.A, MergeRule.OwnerApprovalRequired, true)]
+    [InlineData(Rank.B, MergeRule.AutoMergeWhenCiGreenAndWardenApproved, true)]
+    [InlineData(Rank.A, MergeRule.AutoMergeWhenCiGreenAndWardenApproved, true)]
     [InlineData(Rank.S, MergeRule.EachMutationNeedsApproval, true)]
     public void Governance(Rank rank, MergeRule rule, bool warden)
     {

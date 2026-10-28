@@ -86,7 +86,7 @@ public class GateViewTests
         Assert.Equal(0, show.Code);
         Assert.Contains("Q-0001", show.Out);
         Assert.Contains("proposed", show.Out);
-        Assert.Contains("OwnerApprovalRequired", show.Out);
+        Assert.Contains("AutoMergeWhenCiGreenAndWardenApproved", show.Out);
         Assert.Equal(1, p.Run(["gate", "show", "G-9999"]).Code);
     }
 }
