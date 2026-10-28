@@ -71,13 +71,13 @@ Grundlage ist ADR-0011 (Bedrohungsmodell Phase 0). Der Hook ist eine **Leitplank
 - **Evidence-Integritaet:** Workflows, Tests und Bench-Grenzen schuetzt nur das Warden-Review des Diffs. Risk Tags pruefen heute nur den geplanten Quest-Scope, Scope Lock nur Datei-Tools. Follow-up: Risk Tags bei `quest submit` gegen den PR-Diff.
 - **Ledger, ungetrackt:** Datei und Anker gemeinsam gefaelscht sowie die Faelschung „frischer Klon“ (Anker und `writer-id` geloescht, Dateien auf HEAD) sind lokal nicht erkennbar (ADR-0010). Schutz sind committete und gepushte Ledger-Dateien.
 - **Bekannte, offene Follow-ups (Issue-Nummern setzt der Main nach):**
-  - N1: Array-Zuweisungen und `set --` mit Schutzpfad werden nicht als Zuweisung modelliert (Issue #?).
-  - N3: `#`-Kommentar innerhalb einzeiliger Backticks wird nicht als solcher erkannt (Issue #?).
-  - Datei-vor-Anker: fremd angehaengte Zeilen hinter dem verankerten Head werden uebernommen, wenn die Datei vor dem Anker liegt (Issue #?).
-  - Eine fehlende Session-Datei wird leer angelegt (Issue #?).
-  - `awk -v` mit Schutzpfad im Wert (Issue #?).
-  - `cd ~-`, `cpio -D`, `7z -o` werden als Zielverzeichnis nicht modelliert (Issue #?).
-  - Eine per Branchwechsel entfernte, auf dem anderen Branch committete Ledger-Datei bleibt als „missing but anchored“ Befund (ADR-0010, Q-0125; Issue #?).
+  - N1: Array-Zuweisungen und `set --` mit Schutzpfad werden nicht als Zuweisung modelliert (#2).
+  - N3: `#`-Kommentar innerhalb einzeiliger Backticks wird nicht als solcher erkannt (#3).
+  - Datei-vor-Anker: fremd angehaengte Zeilen hinter dem verankerten Head werden uebernommen, wenn die Datei vor dem Anker liegt (#4).
+  - Eine fehlende Session-Datei wird leer angelegt (#5).
+  - `awk -v` mit Schutzpfad im Wert (#6).
+  - `cd ~-`, `cpio -D`, `7z -o` werden als Zielverzeichnis nicht modelliert (#7).
+  - Eine per Branchwechsel entfernte, auf dem anderen Branch committete Ledger-Datei bleibt als „missing but anchored“ Befund (ADR-0010, Q-0125; #10).
 - **Verschachtelte Projekte:** Jedes erweckte Vorfahr-Projekt wird vollstaendig ausgewertet (Scope Lock eingeschlossen); ein eigenstaendiges Projekt in einem anderen unterliegt damit dem Scope der Eltern-Quest. Eine Registrierung verschachtelter Projekte ist ein Follow-up.
 - **Wrapper:** `awakened()` im Wrapper (nur im Fehlerpfad, wenn das Binary fehlt) nutzt das cwd aus dem Hook-Input und `$PWD`, das strengere gilt. Das cwd wird ohne Fork aus der ersten Zeile der Eingabe gelesen; ein Pfad mit JSON-Escape oder eine mehrzeilige Eingabe faellt auf `$PWD` zurueck.
 

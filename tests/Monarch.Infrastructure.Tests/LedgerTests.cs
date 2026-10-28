@@ -220,7 +220,7 @@ public sealed class LedgerTests : IDisposable
         Assert.Equal(Enumerable.Range(1, 100).Select(x => (long)x), entries.Select(e => e.Seq));
     }
 
-    [Fact(Skip = "Quarantäne (Q-0125): timing-abhängig; im vollen, parallelen Testlauf bei Load ~20 median 12 ms gemessen, isoliert 0,34 ms (Q-0121). Wieder aktiv mit separatem Perf-Lauf (Follow-up).")]
+    [Fact(Skip = "Quarantäne (Q-0125): timing-abhängig; im vollen, parallelen Testlauf bei Load ~20 median 12 ms gemessen, isoliert 0,34 ms (Q-0121). Wieder aktiv mit separatem Perf-Lauf (Issue #9).")]
     public void Single_append_latency_median_is_small()
     {
         var store = NewStore();
