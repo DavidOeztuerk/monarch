@@ -34,7 +34,10 @@ public static partial class ToolCallPolicy
         _ => null,
     };
 
-    /// <summary><c>monarch gate merge|verdict</c> führt nur der Main aus, nie ein Shadow.</summary>
+    /// <summary>
+    /// <c>monarch gate merge|verdict</c> (ADR-0007) und <c>monarch wake schedule|cancel</c> (ADR-0008, persistenter Weckjob)
+    /// führt nur der Main aus, nie ein Shadow.
+    /// </summary>
     private static PolicyDecision? GateOnlyMain(BashAnalysis.Segment seg)
     {
         var t = seg.Tokens;
@@ -45,6 +48,8 @@ public static partial class ToolCallPolicy
             for (var j = i + 1; j < t.Length && sub.Count < 2; j++) if (!t[j].StartsWith('-')) sub.Add(t[j]);
             if (sub.Count > 1 && sub[0] == "gate" && sub[1] is "merge" or "verdict")
                 return BranchDeny($"'monarch gate {sub[1]}' führt nur der Main aus, kein Shadow (ADR-0007).");
+            if (sub.Count > 1 && sub[0] == "wake" && sub[1] is "schedule" or "cancel")
+                return BranchDeny($"'monarch wake {sub[1]}' führt nur der Main aus, kein Shadow (ADR-0008).");
         }
 
         return null;

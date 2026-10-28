@@ -91,9 +91,10 @@ ist damit Sache des Owners, nicht des Agenten. Erst danach darf der Main
   unter launchd, der absolute `claude`-Pfad kommt als `MONARCH_CLAUDE_BIN`);
   `WorkingDirectory` ist das Projekt.
 - **Höchstens ein Job je Session** (Record unter `.monarch/local/wake/`).
-- **Shadows** (`agent_type` gesetzt) werden verweigert. Das Binary erkennt das an
-  `MONARCH_AGENT_TYPE`; die zugehörige Hook-Regel (wie bei `gate merge`) liegt
-  in `src/Monarch.Policy` und ist eine eigene Folge-Quest.
+- **Shadows** (`agent_type` gesetzt) werden verweigert: die Hook-Regel
+  `protect_branches` sperrt `monarch wake schedule|cancel` für Shadows wie
+  `gate merge|verdict` (Q-0129); zusätzlich verweigert das Binary bei gesetztem
+  `MONARCH_AGENT_TYPE`.
 
 ## Folgen
 

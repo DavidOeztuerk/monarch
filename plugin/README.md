@@ -74,7 +74,7 @@ Grundlage ist ADR-0011 (Bedrohungsmodell Phase 0). Der Hook ist eine **Leitplank
 - **Grenze systemd:** `systemd-run --user` legt einen transienten Timer an. Er ueberlebt keinen Reboot und kein Ende der User-Session.
 - **Grenze launchd:** Eine Plist kennt kein Jahr. Der Job hat `RunAtLoad`, `fire` prueft die Zeit selbst und verwirft ein `--at`, das aelter als 24 h ist. Ob launchd einen verpassten Termin nach dem Login nachholt, ist nicht belegt; belegt ist nur der Lauf bei `RunAtLoad`.
 - **Grenze Rest-Race:** Wacht die Session zwischen Statuspruefung und `--resume` selbst auf, entsteht eine Kopie.
-- **Grenze Shadow-Verweigerung:** Das Binary verweigert `wake schedule|cancel`, wenn `MONARCH_AGENT_TYPE` gesetzt ist. Eine Hook-Regel, die Shadows diese Befehle sperrt (wie bei `gate merge`), liegt in `src/Monarch.Policy` und ist offen.
+- **Shadow-Verweigerung:** Die Hook-Regel `protect_branches` sperrt `monarch wake schedule|cancel` für Shadows wie `gate merge|verdict` (Q-0129); zusätzlich verweigert das Binary bei gesetztem `MONARCH_AGENT_TYPE`. Grenze wie überall: ein Shadow, der das Binary über ein Skript oder einen anderen Namen aufruft, fällt unter ADR-0011 Klasse 2.
 
 ### Ausdruecklich ausserhalb von Phase 0
 
