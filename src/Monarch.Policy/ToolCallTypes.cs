@@ -122,6 +122,12 @@ public sealed record PolicyContext(string ProjectRoot, ActiveQuest? ActiveQuest,
     /// <summary>Kontext mit Default-Optionen.</summary>
     public PolicyContext(string projectRoot, ActiveQuest? activeQuest = null)
         : this(projectRoot, activeQuest, false, new PolicyOptions()) { }
+
+    /// <summary>Home-Verzeichnis für die globalen Schutzpfade und die Binary-Erkennung; null: <c>$HOME</c> des Hook-Prozesses.</summary>
+    public string? HomeDir { get; init; }
+
+    /// <summary>Wert von <c>PATH</c> für die Auflösung eines nackten <c>monarch</c>; null: <c>$PATH</c> des Hook-Prozesses.</summary>
+    public string? PathEnv { get; init; }
 }
 
 /// <summary>Modus der Penalty Zone.</summary>

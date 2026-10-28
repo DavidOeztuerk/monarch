@@ -21,6 +21,12 @@ internal sealed class RawSegment
     /// <summary>True, wenn das Segment mit <c>|</c> in das nächste mündet.</summary>
     public bool PipesToNext { get; set; }
 
+    /// <summary>
+    /// Subshell-Grenzen vor diesem Segment in der Reihenfolge des Auftretens: <c>(</c> öffnet eine Subshell (auch Befehlsersetzung, Backticks, Prozesssubstitution),
+    /// <c>)</c> schließt sie. Innerhalb einer Subshell wechseln <c>cd</c> und <c>pushd</c> das Arbeitsverzeichnis nur bis zum Ende der Subshell.
+    /// </summary>
+    public string Events { get; set; } = "";
+
     public bool IsEmpty => Words.Count == 0 && OutRedirects.Count == 0 && InRedirects.Count == 0 && Heredoc is null;
 }
 
@@ -50,6 +56,7 @@ internal static class ShellLexer
         public RawSegment Cur = new();
         public List<RawSegment> Subs = [];
         public List<Pending> Pend = [];
+        public string Events = "";
     }
 
     private readonly record struct Word(string Text, string Quoted);
@@ -73,7 +80,9 @@ internal static class ShellLexer
         st.Pend = [];
         st.Close = close;
         st.Depth++;
+        st.Events += "(";
         Run(st, close);
+        st.Events += ")";
         st.Depth--;
         var result = st.Done;
         (st.Done, st.Cur, st.Subs, st.Pend, st.Close) = (done, cur, subs, pend, c);
@@ -108,12 +117,13 @@ internal static class ShellLexer
                     parens++;
                     st.I++;
                     EndSegment(st, false);
+                    st.Events += "(";
                     break;
                 case ')':
                     st.I++;
                     if (close == ')' && parens == 0) { Finish(st); return; }
-                    parens = Math.Max(0, parens - 1);
                     EndSegment(st, false);
+                    if (parens > 0) { parens--; st.Events += ")"; }
                     break;
                 case '`' when close == '`':
                     st.I++;
@@ -121,6 +131,10 @@ internal static class ShellLexer
                     return;
                 case '<' or '>':
                     Redirect(st);
+                    break;
+                case '#':
+                    // Kommentar: ein # am Wortanfang außerhalb von Quotes beendet das Wort bis zum Zeilenende (der Zeilenumbruch bleibt Trenner).
+                    while (st.I < s.Length && s[st.I] != '\n') st.I++;
                     break;
                 default:
                     var w = LexWord(st);
@@ -153,6 +167,8 @@ internal static class ShellLexer
             st.Cur.PipesToNext = pipe;
             st.Done.AddRange(st.Subs);
             st.Subs.Clear();
+            st.Cur.Events = st.Events;
+            st.Events = "";
             st.Done.Add(st.Cur);
         }
         else if (st.Subs.Count > 0)
@@ -368,7 +384,17 @@ internal static class ShellLexer
             }
 
             if (peek == '&') { st.I++; SkipDescriptor(st); return; }
-            if (peek == '>') st.I++;
+            if (peek == '>')
+            {
+                // <> öffnet zum Lesen und Schreiben: das Ziel zählt als Eingabe und als Ausgabe.
+                st.I++;
+                var both = new List<string>();
+                ReadTarget(st, both);
+                st.Cur.InRedirects.AddRange(both);
+                st.Cur.OutRedirects.AddRange(both);
+                return;
+            }
+
             ReadTarget(st, st.Cur.InRedirects);
             return;
         }
@@ -439,18 +465,23 @@ internal static class ShellLexer
             p.Owner.Heredoc!.Append(body);
             // Ein unquotiertes Heredoc führt $(…) und Backticks im Body aus.
             if (!p.Quoted && st.Depth < MaxDepth && (body.ToString().Contains("$(", StringComparison.Ordinal) || body.ToString().Contains('`', StringComparison.Ordinal)))
-                st.Subs.AddRange(BodySubstitutions(body.ToString(), st.Depth + 1));
+                AddBodySubstitutions(st, body.ToString());
         }
 
         st.Pend.Clear();
     }
 
-    private static List<RawSegment> BodySubstitutions(string body, int depth)
+    private static void AddBodySubstitutions(State st, string body)
     {
         var escaped = body.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
-        var segs = Lex("echo \"" + escaped + "\"", depth);
-        if (segs.Count > 0) segs.RemoveAt(segs.Count - 1); // das umgebende echo
-        return segs;
+        var segs = Lex("echo \"" + escaped + "\"", st.Depth + 1);
+        if (segs.Count == 0) return;
+        var echo = segs[^1]; // das umgebende echo
+        segs.RemoveAt(segs.Count - 1);
+        if (segs.Count == 0) return;
+        segs[0].Events = "(" + segs[0].Events;
+        st.Subs.AddRange(segs);
+        st.Events += echo.Events + ")";
     }
 
     // ---- Brace-Expansion (nur unquotierte Klammern)

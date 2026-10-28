@@ -1,3 +1,7 @@
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("Monarch.Policy.Tests")]
+
 namespace Monarch.Policy;
 
 /// <summary>Marker type that identifies the Monarch policy assembly.</summary>

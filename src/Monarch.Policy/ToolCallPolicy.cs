@@ -23,6 +23,9 @@ public static class QuestAcceptancePolicy
 /// </summary>
 public static partial class ToolCallPolicy
 {
+    /// <summary>Home-Verzeichnis des Kontexts (<see cref="PolicyContext.HomeDir"/>) oder <c>$HOME</c> des Prozesses.</summary>
+    private static string? HomeOf(PolicyContext ctx) => ctx.HomeDir ?? Environment.GetEnvironmentVariable("HOME");
+
     private static readonly string[] FileMutators = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
     private static readonly string[] AlwaysWritable = [".monarch/recap/**", ".monarch/knowledge/**"];
     private static readonly string[] KnownModes = ["default", "plan", "acceptEdits", "auto", "dontAsk", "bypassPermissions"];
@@ -89,38 +92,137 @@ public static partial class ToolCallPolicy
         private readonly PathResolver _rs;
         private readonly List<string> _bases;
         private readonly string[][] _cwdAt;
+        private readonly PolicyContext _ctx;
+        private bool? _bareMonarch;
 
         public Canon(ToolCall call, PolicyContext ctx, List<BashAnalysis.Segment> segments)
         {
+            _ctx = ctx;
             _rs = new PathResolver(ctx.ProjectRoot, call.Cwd);
-            var cur = new List<string> { _rs.Cwd };
-            if (call.Cwd.StartsWith('/') && PathResolver.Lexical(call.Cwd, "/") is var lex && !cur.Contains(lex)) cur.Add(lex);
-            _bases = [.. cur];
+            var start = new List<string> { _rs.Cwd };
+            if (call.Cwd.StartsWith('/') && PathResolver.Lexical(call.Cwd, "/") is var lex && !start.Contains(lex)) start.Add(lex);
+            _bases = [.. start];
             _cwdAt = new string[segments.Count][];
+
+            // cwd-Modell: aktuelle Kandidaten, OLDPWD (cd -), Verzeichnisstapel (pushd/popd) und die Zustände vor offenen Subshells.
+            // Wo das Modell unsicher ist, gilt die Vereinigung aller möglichen Verzeichnisse.
+            var cur = start;
+            var prev = start;
+            var stack = new List<List<string>>();
+            var saved = new Stack<(List<string> Cur, List<string> Prev, List<List<string>> Stack)>();
             for (var i = 0; i < segments.Count; i++)
             {
                 var seg = segments[i];
-                _cwdAt[i] = [.. cur];
-                if (seg.Word is "cd" or "pushd")
+                foreach (var ev in seg.Events)
                 {
-                    var target = BashAnalysis.CdTarget(seg);
-                    if (target == "-") continue;
-                    var next = new List<string>();
-                    foreach (var c in cur)
-                        foreach (var v in AbsFrom(target, c))
-                            if (!next.Contains(v) && next.Count < MaxCandidates) next.Add(v);
-                    foreach (var v in next) if (!_bases.Contains(v)) _bases.Add(v);
-                    if (next.Count > 0) cur = next;
+                    if (ev == '(') saved.Push((cur, prev, [.. stack]));
+                    else if (saved.Count > 0) (cur, prev, stack) = saved.Pop();
                 }
-                else
+
+                _cwdAt[i] = [.. cur];
+                switch (seg.Word)
                 {
-                    foreach (var (dir, changes) in BashAnalysis.DirectoryTargets([seg]))
-                        if (!changes)
-                            foreach (var c in cur)
-                                foreach (var v in AbsFrom(dir, c))
-                                    if (!_bases.Contains(v)) _bases.Add(v);
+                    case "cd":
+                    {
+                        var target = BashAnalysis.CdTarget(seg);
+                        var next = target == "-" ? prev : Resolve(target, cur);
+                        (prev, cur) = (cur, next);
+                        break;
+                    }
+
+                    case "pushd":
+                    {
+                        var operands = seg.Tokens.Skip(1).Count(t => !t.StartsWith('-') || t.Length == 1);
+                        List<string> next;
+                        if (operands == 0) next = Union(cur, stack.Count > 0 ? stack[^1] : cur); // vertauscht die obersten Einträge
+                        else next = Resolve(BashAnalysis.CdTarget(seg), cur);
+                        stack.Add(cur);
+                        (prev, cur) = (cur, next);
+                        break;
+                    }
+
+                    case "popd":
+                    {
+                        if (stack.Count == 0) break;
+                        List<string> next;
+                        if (seg.Tokens.Length > 1)
+                        {
+                            next = cur; // popd +N/-N: unklar, welcher Eintrag zählt
+                            foreach (var e in stack) next = Union(next, e);
+                        }
+                        else
+                        {
+                            next = stack[^1];
+                            stack.RemoveAt(stack.Count - 1);
+                        }
+
+                        (prev, cur) = (cur, next);
+                        break;
+                    }
+
+                    default:
+                        foreach (var (dir, changes) in BashAnalysis.DirectoryTargets([seg]))
+                            if (!changes)
+                                foreach (var c in cur)
+                                    foreach (var v in AbsFrom(dir, c))
+                                        if (!_bases.Contains(v)) _bases.Add(v);
+                        break;
+                }
+
+                foreach (var v in cur) if (!_bases.Contains(v)) _bases.Add(v);
+            }
+        }
+
+        private List<string> Resolve(string target, List<string> from)
+        {
+            var next = new List<string>();
+            foreach (var c in from)
+                foreach (var v in AbsFrom(target, c))
+                    if (!next.Contains(v) && next.Count < MaxCandidates) next.Add(v);
+            return next.Count > 0 ? next : from;
+        }
+
+        private static List<string> Union(List<string> a, List<string> b)
+        {
+            var r = new List<string>(a);
+            foreach (var v in b) if (!r.Contains(v) && r.Count < MaxCandidates) r.Add(v);
+            return r;
+        }
+
+        /// <summary>
+        /// True, wenn ein nacktes <c>monarch</c> über PATH (<see cref="PolicyContext.PathEnv"/> oder <c>$PATH</c>, ohne Fork) auf das installierte Binary
+        /// <c>~/.monarch/bin/monarch</c> bzw. <c>~/.monarch/bin/&lt;version&gt;/monarch</c> auflöst. Der erste Treffer zählt (wie in der Shell); ohne PATH,
+        /// ohne Treffer oder bei einem anderen Treffer ist es nicht das Binary (fail-closed).
+        /// </summary>
+        public bool BareMonarchIsBinary()
+        {
+            if (_bareMonarch is { } known) return known;
+            var result = false;
+            var path = _ctx.PathEnv ?? Environment.GetEnvironmentVariable("PATH");
+            if (!string.IsNullOrEmpty(path) && Home is not null)
+            {
+                foreach (var entry in path.Split(':'))
+                {
+                    var candidate = _rs.Resolve((entry.Length == 0 ? "." : entry) + "/monarch", _rs.Cwd);
+                    if (!File.Exists(candidate)) continue;
+                    result = IsInstalledBinary(candidate);
+                    break;
                 }
             }
+
+            _bareMonarch = result;
+            return result;
+        }
+
+        /// <summary>True, wenn der (kanonische) absolute Pfad <c>~/.monarch/bin/[&lt;version&gt;/]monarch</c> ist.</summary>
+        public bool IsInstalledBinary(string abs)
+        {
+            if (Home is not { } home) return false;
+            var prefix = PathFold.Fold(home).TrimEnd('/') + "/.monarch/bin/";
+            var folded = PathFold.Fold(abs);
+            if (!folded.StartsWith(prefix, StringComparison.Ordinal)) return false;
+            var rest = folded[prefix.Length..].Split('/');
+            return rest is ["monarch"] or [_, "monarch"];
         }
 
         /// <summary>Kanonische Projektwurzel.</summary>
@@ -128,7 +230,7 @@ public static partial class ToolCallPolicy
 
         /// <summary>Kanonisches Home-Verzeichnis oder null.</summary>
         public string? Home =>
-            Environment.GetEnvironmentVariable("HOME") is { Length: > 1 } home && home.StartsWith('/') ? Canonical(home) : null;
+            HomeOf(_ctx) is { Length: > 1 } home && home.StartsWith('/') ? Canonical(home) : null;
 
         /// <summary>Wirksame Arbeitsverzeichnisse (logisch und physisch) vor dem Segment <paramref name="index"/>.</summary>
         public string[] CwdAt(int index) => _cwdAt[index];
@@ -215,6 +317,8 @@ public static partial class ToolCallPolicy
         var segments = BashAnalysis.Segments(call.Command);
         foreach (var seg in segments)
         {
+            if (seg.Tokens.Length == 0) continue; // reine Zuweisung oder Umleitung (Umleitungen prüft HasOutputRedirect)
+            if (HiddenWriter(seg.Word, seg.Tokens)) return true;
             if (seg.Word == "git")
             {
                 var sub = BashAnalysis.GitSubcommand(seg.Tokens, out _);

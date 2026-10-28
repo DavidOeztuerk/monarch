@@ -114,7 +114,7 @@ public static partial class ToolCallPolicy
     {
         var zones = new List<Zone>(3);
         if (ctx.Options.ProtectPaths.Count > 0) zones.Add(new Zone(paths.Root, ctx.Options.ProtectPaths, ""));
-        if (Environment.GetEnvironmentVariable("HOME") is { Length: > 1 } home && home.StartsWith('/'))
+        if (HomeOf(ctx) is { Length: > 1 } home && home.StartsWith('/'))
             zones.Add(new Zone(paths.Canonical(home), GlobalProtectGlobs, "~/"));
         if (Environment.GetEnvironmentVariable("MONARCH_HOME") is { Length: > 1 } mh && mh.StartsWith('/'))
             zones.Add(new Zone(paths.Canonical(mh), ["**"], "$MONARCH_HOME/"));
@@ -172,9 +172,13 @@ public static partial class ToolCallPolicy
         }
 
         var zones = Zones(ctx, paths);
+        var assignment = FirstAssignmentHit(zones, paths, segments);
         for (var si = 0; si < segments.Count; si++)
         {
             var seg = segments[si];
+            if (assignment is { } a && a.Index <= si && SegmentMutates(seg, segments, paths))
+                return PolicyDecision.Deny(PolicyRules.ProtectPaths,
+                    $"Regel 2 (ADR-0011): Die Zuweisung '{a.Value}' nennt den geschützten Pfad '{a.Path}' (protect_paths: {a.Pattern}) und ein Kommando im selben Aufruf mutiert; Variablen löst Monarch nicht auf. Nenne den Pfad nicht oder trenne Zuweisung und Mutation.");
             foreach (var t in seg.OutRedirects)
             {
                 if (t == "/dev/null") continue;
@@ -192,6 +196,13 @@ public static partial class ToolCallPolicy
                 return PolicyDecision.Deny(PolicyRules.ProtectPaths,
                     $"Regel 3 (ADR-0011): '{writer}' schreibt ohne Zielpfad in das Arbeitsverzeichnis '{cwdHit.Cwd}', das in einer Schutzzone liegt oder sie enthält (protect_paths: {cwdHit.Pattern}); gib ein Zielverzeichnis an.");
 
+            if (TargetDirectoryHit(zones, paths, word, tokens, si) is { } target)
+                return PolicyDecision.Deny(PolicyRules.ProtectPaths,
+                    $"Regel 3 (ADR-0011): '{word}' schreibt in das Zielverzeichnis '{target.Dir}' ('{target.Abs}'), das in einer Schutzzone liegt oder sie enthält (protect_paths: {target.Pattern}); wähle ein Verzeichnis außerhalb.");
+            if (ScriptWriterHit(zones, paths, word, tokens) is { } script)
+                return PolicyDecision.Deny(PolicyRules.ProtectPaths,
+                    $"Regel 2 (ADR-0011): Das Skript von '{word}' schreibt in den geschützten Pfad '{script.Path}' (protect_paths: {script.Pattern}).");
+
             var (mutating, destructive) = Classify(word, tokens);
             if (!mutating && IsReading(word, tokens)) continue;
             if (IsPositive(seg, paths)) continue;
@@ -199,7 +210,7 @@ public static partial class ToolCallPolicy
             for (var i = 1; i < tokens.Length; i++)
             {
                 var isDestructive = destructive.Contains(tokens[i]);
-                foreach (var t in BashAnalysis.PathTokens(tokens[i]))
+                foreach (var t in PathCandidates(tokens[i]))
                 {
                     if (Find(zones, paths, t, isDestructive) is { } pattern)
                         return PolicyDecision.Deny(PolicyRules.ProtectPaths,
@@ -212,6 +223,43 @@ public static partial class ToolCallPolicy
         }
 
         return null;
+    }
+
+    /// <summary>Pfad-Tokens eines Arguments; bei <c>-oWERT</c> (Kurzoption mit angehängtem Wert) zusätzlich der Wert.</summary>
+    private static IEnumerable<string> PathCandidates(string arg)
+    {
+        foreach (var t in BashAnalysis.PathTokens(arg)) yield return t;
+        if (arg.Length > 2 && arg[0] == '-' && arg[1] != '-')
+        {
+            foreach (var t in BashAnalysis.PathTokens(arg[2..])) yield return t;
+            var dot = arg.AsSpan().IndexOfAny('.', '/', '~');
+            if (dot > 2) foreach (var t in BashAnalysis.PathTokens(arg[dot..])) yield return t;
+        }
+    }
+
+    // ---- Zuweisungen (Regel 2): ein Schutzpfad in einem Zuweisungswert plus eine spätere Mutation im selben Aufruf
+    private static (int Index, string Value, string Path, string Pattern)? FirstAssignmentHit(List<Zone> zones, Canon paths, List<BashAnalysis.Segment> segments)
+    {
+        for (var i = 0; i < segments.Count; i++)
+            foreach (var value in segments[i].Assignments)
+                foreach (var part in value.Split(':'))
+                    foreach (var t in BashAnalysis.PathTokens(part))
+                    {
+                        if (Find(zones, paths, t, destructive: false) is { } pattern) return (i, value, t, pattern);
+                        if (IsDecoyMonarch(paths, t)) return (i, value, t, ".monarch");
+                    }
+        return null;
+    }
+
+    /// <summary>True, wenn das Segment nicht als lesend bekannt ist (Umleitung in eine Datei, mutierendes oder unbekanntes Kommando); Monarch-Binary und git add/commit/push zählen nicht.</summary>
+    private static bool SegmentMutates(BashAnalysis.Segment seg, List<BashAnalysis.Segment> all, Canon paths)
+    {
+        if (seg.OutRedirects.Any(t => t != "/dev/null")) return true;
+        if (seg.Tokens.Length == 0) return false;
+        var (word, tokens) = Effective(seg, all);
+        var (mutating, _) = Classify(word, tokens);
+        if (!mutating && IsReading(word, tokens)) return false;
+        return !IsPositive(seg, paths);
     }
 
     // ---- Regel 5: pfadlose Arbeitsbaum-Mutationen -> ask
@@ -267,6 +315,178 @@ public static partial class ToolCallPolicy
                 return !Cluster('O') && !Cluster('P') && !Long("--output-document") && !Long("--directory-prefix") ? "wget ohne -O/-P" : null;
             default:
                 return null;
+        }
+    }
+
+    private const string TarValueLetters = "fCTXIbLNHMFVgKRSZ";
+    private const string WgetValueLetters = "OoaeiBtTwUQlARDIXPb";
+
+    /// <summary>Werte der Kurzoption <paramref name="target"/> (gebündelt, angehängt oder als nächstes Wort); ein anderer wertnehmender Buchstabe vorher beendet das Bündel.</summary>
+    private static IEnumerable<string> ShortValues(string[] args, char target, string valueLetters)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            var a = args[i];
+            if (a.Length < 2 || a[0] != '-' || a[1] == '-') continue;
+            for (var k = 1; k < a.Length; k++)
+            {
+                if (a[k] == target)
+                {
+                    if (k + 1 < a.Length) yield return a[(k + 1)..];
+                    else if (i + 1 < args.Length) yield return args[i + 1];
+                    break;
+                }
+
+                if (valueLetters.Contains(a[k], StringComparison.Ordinal)) break;
+            }
+        }
+    }
+
+    /// <summary>Werte der Langoption <paramref name="name"/> (<c>--name=wert</c> oder <c>--name wert</c>).</summary>
+    private static IEnumerable<string> LongValues(string[] args, string name)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == name) { if (i + 1 < args.Length) yield return args[i + 1]; }
+            else if (args[i].StartsWith(name + "=", StringComparison.Ordinal)) yield return args[i][(name.Length + 1)..];
+        }
+    }
+
+    /// <summary>Zielverzeichnisse, in die ein Kommando schreibt: <c>tar -x -C</c>/<c>--directory</c>, <c>unzip -d</c>, <c>wget -P</c>/<c>--directory-prefix</c>, <c>curl --output-dir</c>.</summary>
+    private static List<string> TargetDirectories(string word, string[] tokens)
+    {
+        var args = tokens.Skip(1).ToArray();
+        var dirs = new List<string>();
+        bool Cluster(char c) => args.Any(a => a.Length > 1 && a[0] == '-' && a[1] != '-' && a.AsSpan(1).Contains(c));
+        switch (word)
+        {
+            case "tar" or "bsdtar" or "gtar":
+                var old = args.Length > 0 && args[0].Length > 0 && args[0][0] != '-' ? args[0] : "";
+                var extract = Cluster('x') || args.Contains("--extract") || args.Contains("--get") || old.Contains('x', StringComparison.Ordinal);
+                if (!extract) break;
+                dirs.AddRange(ShortValues(args, 'C', TarValueLetters));
+                dirs.AddRange(LongValues(args, "--directory"));
+                var next = 1; // Altform: die Werte folgen in der Reihenfolge der wertnehmenden Buchstaben
+                foreach (var ch in old)
+                    if (TarValueLetters.Contains(ch, StringComparison.Ordinal))
+                    {
+                        if (ch == 'C' && next < args.Length) dirs.Add(args[next]);
+                        next++;
+                    }
+
+                break;
+            case "unzip":
+                if (Cluster('l') || Cluster('t') || Cluster('p') || Cluster('v') || Cluster('Z')) break;
+                dirs.AddRange(ShortValues(args, 'd', "dx"));
+                break;
+            case "wget":
+                dirs.AddRange(ShortValues(args, 'P', WgetValueLetters));
+                dirs.AddRange(LongValues(args, "--directory-prefix"));
+                break;
+            case "curl":
+                dirs.AddRange(LongValues(args, "--output-dir"));
+                break;
+        }
+
+        return dirs;
+    }
+
+    private static (string Dir, string Abs, string Pattern)? TargetDirectoryHit(List<Zone> zones, Canon paths, string word, string[] tokens, int segmentIndex)
+    {
+        foreach (var dir in TargetDirectories(word, tokens))
+        {
+            if (dir.Length == 0) continue;
+            foreach (var cwd in paths.CwdAt(segmentIndex))
+                foreach (var abs in paths.AbsFrom(dir, cwd))
+                    foreach (var z in zones)
+                        if (z.Hit(abs, destructive: true, exact: false) is { } pattern) return (dir, abs, pattern);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Schreibende Programme hinter Kommandos, die sonst als lesend gelten: <c>awk</c>-Programme mit Umleitung oder <c>system()</c> und <c>sed</c>-Skripte mit
+    /// <c>w</c>/<c>W</c>/<c>e</c>, die einen Schutzpfad nennen.
+    /// </summary>
+    private static (string Path, string Pattern)? ScriptWriterHit(List<Zone> zones, Canon paths, string word, string[] tokens)
+    {
+        var scripts = new List<string>();
+        var args = tokens.Skip(1).ToArray();
+        if (word == "awk")
+        {
+            var hasFile = false;
+            string? program = null;
+            for (var i = 0; i < args.Length; i++)
+            {
+                var a = args[i];
+                if (a is "-f" or "--file") { hasFile = true; i++; }
+                else if (a is "-v" or "-F" or "--assign" or "--field-separator") i++;
+                else if (a is "-e" or "--source") { if (i + 1 < args.Length) scripts.Add(args[++i]); }
+                else if (a.StartsWith('-') && a.Length > 1) continue;
+                else { program = a; break; }
+            }
+
+            if (program is not null && !hasFile && scripts.Count == 0) scripts.Add(program);
+            scripts.RemoveAll(sc => !(sc.Contains('>', StringComparison.Ordinal) || sc.Contains('|', StringComparison.Ordinal) || sc.Contains("system", StringComparison.Ordinal)));
+        }
+        else if (word == "sed")
+        {
+            var expressions = new List<string>();
+            var hasFile = false;
+            string? first = null;
+            for (var i = 0; i < args.Length; i++)
+            {
+                var a = args[i];
+                if (a is "-e" or "--expression") { if (i + 1 < args.Length) expressions.Add(args[++i]); }
+                else if (a.StartsWith("--expression=", StringComparison.Ordinal)) expressions.Add(a["--expression=".Length..]);
+                else if (a is "-f" or "--file") { hasFile = true; i++; }
+                else if (a.StartsWith('-') && a.Length > 1) continue;
+                else if (first is null) first = a;
+            }
+
+            if (expressions.Count == 0 && !hasFile && first is not null) expressions.Add(first);
+            scripts.AddRange(expressions.Where(sc => sc.AsSpan().IndexOfAny('w', 'W', 'e') >= 0));
+        }
+
+        foreach (var script in scripts)
+            foreach (var t in BashAnalysis.PathTokens(script))
+            {
+                if (Find(zones, paths, t, destructive: false) is { } pattern) return (t, pattern);
+                if (IsDecoyMonarch(paths, t)) return (t, ".monarch");
+            }
+
+        return null;
+    }
+
+    /// <summary>Schreibende Aufrufe von Kommandos, die sonst als lesend gelten: <c>sort -o</c>, <c>uniq</c> mit Ausgabedatei (zweites Argument), <c>git diff/log/show --output</c>.</summary>
+    private static bool HiddenWriter(string word, string[] tokens)
+    {
+        var args = tokens.Skip(1).ToArray();
+        switch (word)
+        {
+            case "sort":
+                return args.Any(a => a == "-o" || a.StartsWith("--output", StringComparison.Ordinal) || a.StartsWith("-o", StringComparison.Ordinal)
+                                     || (a.Length > 2 && a[0] == '-' && a[1] != '-' && a[^1] == 'o')
+                                     || (a.Length > 2 && a[0] == '-' && a[1] != '-' && a.AsSpan(1).Contains('o')));
+            case "uniq":
+                var positional = 0;
+                for (var i = 0; i < args.Length; i++)
+                {
+                    var a = args[i];
+                    if (a is "-f" or "-s" or "-w" or "--skip-fields" or "--skip-chars" or "--check-chars") i++;
+                    else if (a == "--") positional += args.Length - i - 1;
+                    else if (a.Length > 1 && a[0] == '-') continue;
+                    else positional++;
+                    if (a == "--") break;
+                }
+
+                return positional >= 2;
+            case "git":
+                if (BashAnalysis.GitSubcommand(tokens, out var gi) is not { } sub || Array.IndexOf(ReadOnlyGit, sub) < 0) return false;
+                return tokens.Skip(gi + 1).Any(t => t.StartsWith("--out", StringComparison.Ordinal));
+            default:
+                return false;
         }
     }
 
@@ -326,11 +546,10 @@ public static partial class ToolCallPolicy
     // ---- Regel 2: bekannte lesende Kommandos, Positivliste, Daten-Werte
     private static bool IsReading(string word, string[] tokens)
     {
+        if (HiddenWriter(word, tokens)) return false;
         if (word == "git") return BashAnalysis.GitSubcommand(tokens, out _) is { } sub && Array.IndexOf(ReadOnlyGit, sub) >= 0;
         var args = tokens.Skip(1);
         if (word is "awk" && args.Any(a => a == "-i" || a.StartsWith("--in-place", StringComparison.Ordinal) || a.StartsWith("-i", StringComparison.Ordinal))) return false;
-        if (word is "sort" && args.Any(a => a == "-o" || a.StartsWith("--output", StringComparison.Ordinal) || a.StartsWith("-o", StringComparison.Ordinal)
-                                            || (a.Length > 2 && a[0] == '-' && a[1] != '-' && a[^1] == 'o'))) return false;
         return Array.IndexOf(ReadOnlyWords, word) >= 0 || Array.IndexOf(ShellInert, word) >= 0;
     }
 
@@ -341,17 +560,12 @@ public static partial class ToolCallPolicy
         return BashAnalysis.GitSubcommand(seg.Tokens, out _) is "add" or "commit" or "push";
     }
 
-    /// <summary>Das Binary gilt über den kanonischen Pfad <c>~/.monarch/bin/[&lt;version&gt;/]monarch</c> oder als <c>monarch</c> über PATH; ein lokales <c>./monarch</c> nicht.</summary>
+    /// <summary>Das Binary gilt über den kanonischen Pfad <c>~/.monarch/bin/[&lt;version&gt;/]monarch</c> oder als nacktes <c>monarch</c>, wenn PATH darauf auflöst (<see cref="Canon.BareMonarchIsBinary"/>); ein lokales <c>./monarch</c> nicht.</summary>
     private static bool IsMonarchBinary(string token, Canon paths)
     {
         if (Path.GetFileName(token) != "monarch") return false;
-        if (!token.Contains('/', StringComparison.Ordinal)) return true;
-        if (paths.Home is not { } home) return false;
-        var abs = PathFold.Fold(paths.Abs(token));
-        var prefix = PathFold.Fold(home).TrimEnd('/') + "/.monarch/bin/";
-        if (!abs.StartsWith(prefix, StringComparison.Ordinal)) return false;
-        var rest = abs[prefix.Length..].Split('/');
-        return rest is ["monarch"] or [_, "monarch"];
+        if (!token.Contains('/', StringComparison.Ordinal)) return paths.BareMonarchIsBinary();
+        return paths.IsInstalledBinary(paths.Abs(token));
     }
 
     /// <summary>Entfernt Werte, die Text statt Pfade sind: <c>-m/-F/--message/--file</c> bei git tag|merge|stash, <c>--body/--title/-b/-t</c> bei gh.</summary>

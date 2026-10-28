@@ -12,6 +12,7 @@ internal static class BashAnalysis
     private static readonly string[] EnvOptionsWithValue = ["-u", "-C", "-S", "-P"];
     private static readonly string[] Shells = ["bash", "sh", "zsh", "dash"];
     private static readonly string[] StdinCodeSinks = ["bash", "sh", "zsh", "dash", "source", ".", "eval"];
+    private static readonly string[] DeclareWords = ["export", "declare", "local", "readonly", "typeset"];
     private const string PathSeparators = " \t\r\n;|&()<>\"'`=,{}";
 
     /// <summary>Ein analysiertes Kommando-Segment.</summary>
@@ -31,6 +32,15 @@ internal static class BashAnalysis
 
         /// <summary>Heredoc-Bodies und Here-Strings (Daten, außer das Segment führt sie als Code aus).</summary>
         public string? Heredoc { get; init; }
+
+        /// <summary>Subshell-Grenzen vor dem Segment (<c>(</c> öffnet, <c>)</c> schließt), siehe <see cref="RawSegment.Events"/>.</summary>
+        public string Events { get; init; } = "";
+
+        /// <summary>
+        /// Werte der Zuweisungen dieses Segments: vorangestellte <c>NAME=wert</c>, Zuweisungen hinter <c>env</c> und die Argumente von
+        /// <c>export</c>, <c>declare</c>, <c>local</c>, <c>readonly</c> und <c>typeset</c>.
+        /// </summary>
+        public IReadOnlyList<string> Assignments { get; init; } = [];
     }
 
     /// <summary>
@@ -41,34 +51,55 @@ internal static class BashAnalysis
     {
         var result = new List<Segment>();
         var raws = ShellLexer.Lex(command);
+        var pendingClose = ""; // Ende eines als Subshell ausgeführten Strings (bash -c, Heredoc an eine Shell), gilt vor dem nächsten Segment
         for (var k = 0; k < raws.Count; k++)
         {
             var raw = raws[k];
-            var tokens = Strip([.. raw.Words.Where(w => w.Length > 0)]);
-            if (tokens.Length == 0 && raw.OutRedirects.Count == 0 && raw.InRedirects.Count == 0) continue;
+            var assignments = new List<string>();
+            var tokens = Strip([.. raw.Words.Where(w => w.Length > 0)], assignments);
+            if (tokens.Length > 0 && Array.IndexOf(DeclareWords, tokens[0]) >= 0)
+                foreach (var t in tokens.Skip(1))
+                    if (IsAssignment(t)) assignments.Add(AssignmentValue(t));
+            if (tokens.Length == 0 && raw.OutRedirects.Count == 0 && raw.InRedirects.Count == 0 && assignments.Count == 0)
+            {
+                pendingClose += raw.Events;
+                continue;
+            }
+
             var text = string.Join(' ', tokens);
             result.Add(new Segment(text, tokens, Canonicalize(tokens, text))
             {
                 OutRedirects = raw.OutRedirects,
                 InRedirects = raw.InRedirects,
                 Heredoc = raw.Heredoc?.ToString(),
+                Events = pendingClose + raw.Events,
+                Assignments = assignments,
             });
+            pendingClose = "";
             if (tokens.Length == 0) continue;
             if (depth < 3 && tokens[0] == "eval" && tokens.Length > 1)
-                result.AddRange(Segments(string.Join(' ', tokens[1..]), depth + 1));
+                result.AddRange(Segments(string.Join(' ', tokens[1..]), depth + 1)); // eval läuft in der aktuellen Shell
             if (depth < 3 && Array.IndexOf(Shells, Path.GetFileName(tokens[0])) >= 0)
             {
                 var c = Array.IndexOf(tokens, "-c");
-                if (c >= 0 && c + 1 < tokens.Length) result.AddRange(Segments(string.Join(' ', tokens[(c + 1)..]), depth + 1));
+                if (c >= 0 && c + 1 < tokens.Length) AddSubshell(result, Segments(string.Join(' ', tokens[(c + 1)..]), depth + 1), ref pendingClose);
             }
 
             // Heredoc-Bodies sind Daten, außer sie gehen an eine Shell (direkt oder per Pipe).
             if (depth < 3 && raw.Heredoc is { Length: > 0 } hd
                 && (ReadsCodeFromStdin(tokens) || (raw.PipesToNext && k + 1 < raws.Count && ReadsCodeFromStdin(Strip([.. raws[k + 1].Words])))))
-                result.AddRange(Segments(hd.ToString(), depth + 1));
+                AddSubshell(result, Segments(hd.ToString(), depth + 1), ref pendingClose);
         }
 
         return result;
+    }
+
+    private static void AddSubshell(List<Segment> result, List<Segment> nested, ref string pendingClose)
+    {
+        if (nested.Count == 0) return;
+        nested[0] = nested[0] with { Events = pendingClose + "(" + nested[0].Events };
+        result.AddRange(nested);
+        pendingClose = ")";
     }
 
     private static bool ReadsCodeFromStdin(string[] tokens) =>
@@ -240,13 +271,14 @@ internal static class BashAnalysis
         return tokens[i];
     }
 
-    private static string[] Strip(string[] tokens)
+    private static string[] Strip(string[] tokens, List<string>? assignments = null)
     {
         var i = 0;
         while (i < tokens.Length)
         {
             var t = tokens[i];
-            if (IsAssignment(t) || Array.IndexOf(Keywords, t) >= 0) { i++; continue; }
+            if (IsAssignment(t)) { assignments?.Add(AssignmentValue(t)); i++; continue; }
+            if (Array.IndexOf(Keywords, t) >= 0) { i++; continue; }
             if (Array.IndexOf(Wrappers, t) < 0) break;
             i++;
             while (i < tokens.Length && tokens[i].StartsWith('-'))
@@ -266,10 +298,13 @@ internal static class BashAnalysis
     private static bool IsAssignment(string t)
     {
         var eq = t.IndexOf('=', StringComparison.Ordinal);
+        if (eq > 0 && t[eq - 1] == '+') eq--; // NAME+=wert
         if (eq <= 0) return false;
         for (var i = 0; i < eq; i++) if (!(char.IsAsciiLetterOrDigit(t[i]) || t[i] == '_')) return false;
         return !char.IsAsciiDigit(t[0]);
     }
+
+    private static string AssignmentValue(string t) => t[(t.IndexOf('=', StringComparison.Ordinal) + 1)..];
 
     private static string Canonicalize(string[] tokens, string text)
     {
