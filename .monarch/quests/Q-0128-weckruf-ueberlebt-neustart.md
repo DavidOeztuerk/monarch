@@ -5,7 +5,7 @@ kind: main
 rank: B
 severity: medium
 risk_tags: []
-state: proposed
+state: in_review
 scope:
   repo: monarch
   include: ["src/Monarch.Cli/**", "src/Monarch.Domain/**", "tests/**", "docs/adr/0008-*", "plugin/skills/rest/**", "plugin/README.md"]
@@ -17,6 +17,7 @@ dod:
   - wake schedule nur bei Opt-in in system.yaml (Binary prüft selbst), festes Prompt-Template (kein Agent-Freitext im persistenten Job), Session-ID als UUID geprüft, ProgramArguments ohne Shell, absolute Pfade, WorkingDirectory = Projekt, höchstens ein Job je Session, Shadows verweigert
   - Tests nur mit HOME im Temp-Verzeichnis (nie ~/Library/LaunchAgents), Plattform injizierbar, Fake-launchctl/Fake-claude; rot → grün; bestehende Tests nicht abgeschwächt
 boss: "Hermetischer Test: bg-Session idle ohne Aktivität seit resets_at → fire ruft claude stop und claude --bg --resume <id> mit festem Prompt; laufende Session mit Aktivität → keine Kopie; interaktive Session → WakeSkipped"
+board: { pr: 15 }
 ---
 # Weckruf, der einen Session-Neustart überlebt
 
