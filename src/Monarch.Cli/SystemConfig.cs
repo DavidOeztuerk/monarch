@@ -75,7 +75,7 @@ internal static class SystemConfigReader
         var limits = mana?.Get("limits") as YamlMap;
         var five = Num((limits?.Get("five_hour") as YamlMap)?.GetString("work_until_pct")) ?? d.Limits.FiveHourPct;
         var seven = Num((limits?.Get("seven_day") as YamlMap)?.GetString("work_until_pct")) ?? d.Limits.SevenDayPct;
-        return d with
+        var config = d with
         {
             Theme = root.GetString("theme") is { Length: > 0 } t ? t : d.Theme,
             Limits = new ManaLimits(five, seven),
@@ -91,7 +91,20 @@ internal static class SystemConfigReader
             ProtectedBranches = Strings(git, "protected_branches", d.ProtectedBranches),
             IntegrationBranch = git?.GetString("integration_branch") is { Length: > 0 } ib ? ib : d.IntegrationBranch,
         };
+
+        // ADR-0007: the integration branch is never a protected branch (built-ins or file, case-insensitive).
+        if (IsProtectedBranch(config, config.IntegrationBranch))
+        {
+            throw new FormatException($"git.integration_branch '{config.IntegrationBranch}' is a protected branch; main/master merges only the owner (ADR-0007).");
+        }
+
+        return config;
     }
+
+    /// <summary>True if <paramref name="branch"/> is protected by the built-in defaults or the file (case-insensitive).</summary>
+    public static bool IsProtectedBranch(SystemConfig config, string branch) =>
+        SystemConfig.Default.ProtectedBranches.Concat(config.ProtectedBranches)
+            .Any(p => string.Equals(p, branch, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Parses <c>name: { min_rank, paths }</c> entries.</summary>
     public static IReadOnlyList<RiskTagRule> ParseRiskTags(YamlMap tags) =>

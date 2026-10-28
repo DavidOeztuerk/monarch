@@ -103,8 +103,22 @@ internal static class GateMergeCommands
             return Refuse(env, $"pull request #{t.Pr} is already merged.");
         }
 
-        // 3. base = integration branch
-        var config = SystemConfigReader.Load(paths.Root);
+        // 3. base = integration branch, never a protected branch (Q-0130: a misconfigured integration_branch must not lead into main)
+        SystemConfig config;
+        try
+        {
+            config = SystemConfigReader.Load(paths.Root);
+        }
+        catch (FormatException ex)
+        {
+            return Refuse(env, $"system.yaml is invalid: {ex.Message}");
+        }
+
+        if (SystemConfigReader.IsProtectedBranch(config, pull.BaseRef))
+        {
+            return Refuse(env, $"pull request #{t.Pr} targets the protected branch '{pull.BaseRef}', not the integration branch '{config.IntegrationBranch}'. main/master merges only the owner (ADR-0007).");
+        }
+
         if (!string.Equals(pull.BaseRef, config.IntegrationBranch, StringComparison.OrdinalIgnoreCase))
         {
             return Refuse(env, $"pull request #{t.Pr} targets '{pull.BaseRef}', not the integration branch '{config.IntegrationBranch}'. main/master merges only the owner.");
@@ -143,7 +157,7 @@ internal static class GateMergeCommands
             return Refuse(env, $"GitHub accepted the merge, but pull request #{t.Pr} does not read as merged; check it on the forge.");
         }
 
-        if (!string.Equals(after.BaseRef, config.IntegrationBranch, StringComparison.OrdinalIgnoreCase))
+        if (SystemConfigReader.IsProtectedBranch(config, after.BaseRef) || !string.Equals(after.BaseRef, config.IntegrationBranch, StringComparison.OrdinalIgnoreCase))
         {
             return Refuse(env, $"pull request #{t.Pr} was merged into '{after.BaseRef}', not the integration branch '{config.IntegrationBranch}'. Tell the guild master; GateMerged records the base.");
         }

@@ -21,7 +21,9 @@ muss also in Monarch liegen.
 1. **Konfiguration** in `system.yaml` unter `git:`
    - `protected_branches`: Default `[main, master]`. Die Datei kann nur
      ergänzen, nicht entfernen (wie bei `deny_bash`).
-   - `integration_branch`: Default `develop`.
+   - `integration_branch`: Default `develop`. Liegt er in `protected_branches`
+     (Defaults oder Datei, ohne Groß-/Kleinschreibung), ist die Config ungültig
+     (Q-0130); `gate merge` verweigert dann mit Begründung.
 2. **Neue Regel `protect_branches` im PreToolUse-Hook** (Bash). Sie gilt für
    jeden Akteur, Main und Shadows. Sie verweigert (`deny`):
    - `git push`, dessen Ziel ein geschützter Branch ist, in jeder Schreibweise:
@@ -63,7 +65,8 @@ muss also in Monarch liegen.
    0. Vorher läuft `ledger verify`; Befunde brechen ab.
    1. Das Gate ist offen und hat genau einen verlinkten PR (aus `quest pr` der
       Quests des Gates). Kein PR oder mehrere verschiedene PRs verweigern.
-   2. Die Base des PR ist `integration_branch`, nie ein geschützter Branch.
+   2. Die Base des PR ist `integration_branch`, nie ein geschützter Branch
+      (geprüft vor dem Merge und nach dem Merge gegen die frisch gelesene Base).
    3. Rank-Regel: Rank = Maximum aus Gate und seinen Quests. Rank S verweigert
       immer (Owner-Aktion). Rank E–A ist erlaubt (T2).
    4. Die CI ist grün (B2). Die Prüfung nutzt dieselbe Funktion wie

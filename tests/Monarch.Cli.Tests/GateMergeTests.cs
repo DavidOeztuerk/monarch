@@ -157,6 +157,34 @@ public class GateMergeTests
         }
     }
 
+    // Q-0130 (Blocker Code-Phase Warden G-0101): ein integration_branch aus protected_branches darf gate merge nie nach main führen.
+    [Theory]
+    [InlineData("main", "main")]
+    [InlineData("Main", "main")]
+    [InlineData("master", "master")]
+    public void Refuses_when_the_integration_branch_is_configured_as_a_protected_branch(string configured, string baseBranch)
+    {
+        var (p, f) = Setup(yaml: Seed.ForgeYaml + $"git:\n  integration_branch: {configured}\n");
+        using (p)
+        {
+            f.Bases[7] = baseBranch;
+            Approved(p);
+            Refused(p, f, Merge(p), "protected");
+        }
+    }
+
+    [Fact]
+    public void Refuses_a_protected_base_added_in_system_yaml_even_if_it_is_the_integration_branch()
+    {
+        var (p, f) = Setup(yaml: Seed.ForgeYaml + "git:\n  protected_branches: [release]\n  integration_branch: release\n");
+        using (p)
+        {
+            f.Bases[7] = "release";
+            Approved(p);
+            Refused(p, f, Merge(p), "protected");
+        }
+    }
+
     [Fact]
     public void Integration_branch_comes_from_system_yaml()
     {

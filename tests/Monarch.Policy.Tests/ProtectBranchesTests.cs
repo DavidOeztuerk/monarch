@@ -283,6 +283,7 @@ public sealed class ProtectBranchesTests : IDisposable
     [InlineData("monarch wake schedule --session 2f1c7a0e-8a4b-4c55-9d3e-1b2c3d4e5f60 --at 2026-10-28T19:33:00Z")]
     [InlineData("~/.monarch/bin/monarch wake schedule --session 2f1c7a0e-8a4b-4c55-9d3e-1b2c3d4e5f60 --at 2026-10-28T19:33:00Z")]
     [InlineData("monarch wake cancel 2f1c7a0e-8a4b-4c55-9d3e-1b2c3d4e5f60")]
+    [InlineData("monarch wake fire 2f1c7a0e-8a4b-4c55-9d3e-1b2c3d4e5f60 --at 2026-10-28T19:33:00Z")]
     [InlineData("bash -c 'monarch wake schedule --session 2f1c7a0e-8a4b-4c55-9d3e-1b2c3d4e5f60 --at 2026-10-28T19:33:00Z'")]
     public void Wake_schedule_and_cancel_are_main_only(string cmd)
     {
