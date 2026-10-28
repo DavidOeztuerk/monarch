@@ -47,11 +47,11 @@ internal sealed class TempProject : IDisposable
 
     public string LocalPath(string name) => Path.Combine(Root, ".monarch", "local", name);
 
-    public RunResult Run(string[] args, string? stdin = null, string? cwd = null)
+    public RunResult Run(string[] args, string? stdin = null, string? cwd = null, bool tty = false)
     {
         var o = new StringWriter();
         var e = new StringWriter();
-        var code = MonarchApp.Run(args, new CliEnv(cwd ?? Root, Home, new StringReader(stdin ?? string.Empty), o, e, Clock, Http, new GitHubTokenProvider(_ => "tok-test", () => null)));
+        var code = MonarchApp.Run(args, new CliEnv(cwd ?? Root, Home, new StringReader(stdin ?? string.Empty), o, e, Clock, Http, new GitHubTokenProvider(_ => "tok-test", () => null), tty));
         return new RunResult(code, o.ToString(), e.ToString());
     }
 

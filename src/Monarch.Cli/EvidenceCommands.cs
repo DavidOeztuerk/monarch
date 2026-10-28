@@ -246,6 +246,11 @@ internal static class EvidenceCommands
             return new StepResult(StepKind.Pending, $"PR #{pr} is not merged yet.");
         }
 
+        if (ManaCommands.VerifyBeforeClear(env, paths, bq.Id.Value) is { } invalid)
+        {
+            return new StepResult(StepKind.Refused, invalid);
+        }
+
         var quest = QuestCommands.Reconstitute(bq, EstimateOf(paths.Root, bq.Id), new Evidence(EvidenceKind.CiRun, vSource, vDigest, verified.At));
         quest.Clear(merge);
         var submissions = rows.Count(r => r.Type == "QuestSubmitted" && r.Str("quest") == bq.Id.Value);

@@ -41,3 +41,13 @@ erwartetes „nicht erkennbar“ fest. Ebenso nicht erkennbar: Fälschung zusamm
 Rewrite der Git-Historie. Ohne Git (kein Repository, kein `git` im Pfad) entfällt die zweite
 Quelle still. Schutz dagegen sind nur externe Anker: committete Ledger-Dateien (Q-0108),
 Branch-Schutz/Review und später die Forge.
+
+**Fälschung „frischer Klon“ (ADR-0011, Q-0122):** Anker `.monarch/local/ledger-heads.json` und
+`.monarch/local/writer-id` werden gelöscht, die Ledger-Dateien werden auf `HEAD` zurückgesetzt
+(`git checkout`, ungetrackte Dateien entfernt). Das Ergebnis ist von einem echten frischen Klon
+nicht zu unterscheiden. Es entsteht kein `LedgerAnchorReset`, `ledger verify` meldet „ok“, und
+Ereignisse, die nicht committet waren, sind spurlos weg. Das ist **nicht erkennbar** (siehe
+`GitAnchoredLedgerTests.Fresh_clone_forgery_is_not_detectable_locally_and_creates_no_reset`).
+Erkennbar sind nur gepushte Commits auf einem geschützten Branch und die Forge-Evidence;
+deshalb sind Ledger-Dateien zu committen und zu pushen (Q-0108), und der Owner trägt dieses
+Restrisiko gemäß ADR-0011 (G3) bewusst.

@@ -32,11 +32,21 @@ internal sealed record ProjectPaths(string Root)
     /// <param name="start">Directory to start at.</param>
     /// <param name="monarchHome">The account-global directory, which is never a project's <c>.monarch</c>.</param>
     /// <returns>The paths or null when the directory is not awakened.</returns>
-    public static ProjectPaths? Locate(string start, string monarchHome)
+    public static ProjectPaths? Locate(string start, string monarchHome) => LocateAll(start, monarchHome).FirstOrDefault();
+
+    /// <summary>
+    /// Every awakened project from <paramref name="start"/> upwards, nearest first (ADR-0011 rule 6): a nested <c>.monarch</c> directory never hides
+    /// the project around it. No process is started.
+    /// </summary>
+    /// <param name="start">Directory to start at.</param>
+    /// <param name="monarchHome">The account-global directory, which is never a project's <c>.monarch</c>.</param>
+    /// <returns>The projects, possibly empty.</returns>
+    public static List<ProjectPaths> LocateAll(string start, string monarchHome)
     {
+        var found = new List<ProjectPaths>();
         if (string.IsNullOrEmpty(start))
         {
-            return null;
+            return found;
         }
 
         var home = Path.TrimEndingDirectorySeparator(Path.GetFullPath(monarchHome));
@@ -46,10 +56,10 @@ internal sealed record ProjectPaths(string Root)
             var candidate = Path.Combine(dir.FullName, ".monarch");
             if (Directory.Exists(candidate) && !string.Equals(Path.TrimEndingDirectorySeparator(candidate), home, StringComparison.Ordinal))
             {
-                return new ProjectPaths(dir.FullName);
+                found.Add(new ProjectPaths(dir.FullName));
             }
         }
 
-        return null;
+        return found;
     }
 }
