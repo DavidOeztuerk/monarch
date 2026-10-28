@@ -78,6 +78,8 @@ Die Policy prueft Bash heuristisch und lieber zu streng. Quotes, `\`-Escapes, Br
 
 - **Homoglyphen:** Monarch faltet selbst (ASCII-Lowercase plus Tabelle aus Unicode `CaseFolding.txt`, Status C und F, nur rein ASCII-Ergebnisse, z. B. `ſ`, Kelvin-Zeichen, `ß`, Ligaturen). Homoglyphen ausserhalb dieser Tabelle (z. B. Fullwidth `ｓ`) werden nicht gefaltet; auf APFS sind sie auch nicht dieselbe Datei, ein Treffer ist also nur ueber andere Wege denkbar.
 - **Interpreter-Skripte und zur Laufzeit gebaute Pfade:** Steht ein Schutzpfad nur in einer Skriptdatei (`python x.py`, `sh x.sh`, `make`) oder entsteht er erst durch Kodierung, String-Arithmetik oder Umgebungsvariablen zur Laufzeit, sieht der Hook ihn nicht. Folge fuer G3: Aenderungen am Ledger bleiben ueber Anker, Git und Forge erkennbar.
+- **Shell-Code aus einer Pipe:** Heredocs und Here-Strings an eine Shell werden als Code analysiert, `echo "..." | bash` oder `printf ... | sh` dagegen nicht (Klasse 2 nach ADR-0011). Der Hook sieht ausserdem keine Dateiinhalte.
+- **Fail-closed bei Nennung (Regel 2):** Jedes Kommando, das `.monarch` oder einen anderen Schutzpfad nennt und nicht als lesend bekannt ist, wird verweigert, auch wenn es harmlos waere (z. B. `python3 tool.py .monarch/x`). Ausnahmen: das Monarch-Binary ueber seinen kanonischen Pfad, `git add`/`commit`/`push` ohne Force, Commit-/PR-Texte (`-m`, `-F`, `--body`) und Heredocs, die nicht an eine Shell gehen. `install-local.sh` ist nur zum Ausfuehren gesperrt; `git add`/`diff`/`cat` darauf bleiben erlaubt.
 
 ### Bekannte Fehlalarme und Ausweg
 
