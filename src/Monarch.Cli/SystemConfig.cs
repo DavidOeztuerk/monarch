@@ -12,6 +12,9 @@ internal sealed record SystemConfig(
     IReadOnlyList<string> ProtectSecretsExtra, IReadOnlyList<string> ReadOnlyShadows,
     IReadOnlyList<string> ProtectedBranches, string IntegrationBranch)
 {
+    /// <summary>Opt-in of the out-of-session wake call (ADR-0008): <c>launchd</c>, <c>systemd</c> or <c>off</c> (default). Owner decision in the protected system.yaml.</summary>
+    public string Wake { get; init; } = "off";
+
     /// <summary>Built-in risk tags (from the concept).</summary>
     public static IReadOnlyList<RiskTagRule> DefaultRiskTags { get; } =
     [
@@ -76,6 +79,7 @@ internal static class SystemConfigReader
         {
             Theme = root.GetString("theme") is { Length: > 0 } t ? t : d.Theme,
             Limits = new ManaLimits(five, seven),
+            Wake = ParseWake(mana?.GetString("wake")),
             PenaltyZone = string.Equals(policy?.GetString("penalty_zone"), "warn", StringComparison.OrdinalIgnoreCase) ? PenaltyMode.Warn : PenaltyMode.Block,
             ScopeLock = Bool(policy?.GetString("scope_lock"), d.ScopeLock),
             RefuseHighRankInBypassMode = Bool(policy?.GetString("refuse_high_rank_in_bypass_mode"), d.RefuseHighRankInBypassMode),
@@ -106,6 +110,14 @@ internal static class SystemConfigReader
         "max20" => PlanKind.Max20,
         "api-key" or "apikey" => PlanKind.ApiKey,
         _ => PlanKind.Pro,
+    };
+
+    /// <summary>Parses <c>mana.wake</c>; anything but <c>launchd</c> or <c>systemd</c> is <c>off</c>.</summary>
+    public static string ParseWake(string? text) => text?.Trim().ToLowerInvariant() switch
+    {
+        "launchd" => "launchd",
+        "systemd" => "systemd",
+        _ => "off",
     };
 
     private static double? Num(string? t) => double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null;

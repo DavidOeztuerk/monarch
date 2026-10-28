@@ -67,6 +67,15 @@ Grundlage ist ADR-0011 (Bedrohungsmodell Phase 0). Der Hook ist eine **Leitplank
 - `gh pr merge`, `gh api` auf `…/pulls/<n>/merge`, `…/merges`, `git/refs/heads/<geschuetzt>` und GraphQL `mergePullRequest`, `enablePullRequestAutoMerge`, `enqueuePullRequest`, `mergeBranch` werden verweigert.
 - Gemerged wird nur mit `monarch gate verdict` und `monarch gate merge` (beides nur der Main, Shadows werden verweigert). Der Merge ist nur nach `develop` und fuer Rank E-A moeglich; Clear-Evidence bleibt der Forge-Merge. Ein Merge ohne `GateMerged` meldet `quest clear` bzw. `ledger verify` als Hinweis.
 
+### Weckruf nach dem Mana-Limit (ADR-0008, Q-0128)
+
+- `monarch rest` gibt die Weckzeit (`resets_at` + 3 min, Minute nie :00/:30; lokal und UTC), den CronCreate-Ausdruck und den festen Prompt aus. Der CronCreate-One-Shot ist Pflicht, liegt aber nur im Speicher der Session und geht bei Neustart oder `claude stop` verloren.
+- Fallback ausserhalb der Session, nur mit Opt-in des Owners (`system.yaml`: `mana.wake: launchd|systemd`, Default `off`): `monarch wake schedule --session <uuid> --at <iso>`, `wake fire`, `wake cancel`. Der Job startet nach Weckzeit plus 3 min Grace und setzt eine **Hintergrund-Session** (`claude agents --json`: `kind: background`) nur dann per `claude stop` und `claude --bg --resume` fort, wenn sie idle ist und es seit `resets_at` keine Ledger-Aktivitaet gab. Interaktive Sessions und jeder Fehler von `claude agents` fuehren zu `WakeSkipped`, nie zu einer Kopie. Das Prompt ist ein festes Template; Freitext des Agenten gelangt nie in den Job.
+- **Grenze systemd:** `systemd-run --user` legt einen transienten Timer an. Er ueberlebt keinen Reboot und kein Ende der User-Session.
+- **Grenze launchd:** Eine Plist kennt kein Jahr. Der Job hat `RunAtLoad`, `fire` prueft die Zeit selbst und verwirft ein `--at`, das aelter als 24 h ist. Ob launchd einen verpassten Termin nach dem Login nachholt, ist nicht belegt; belegt ist nur der Lauf bei `RunAtLoad`.
+- **Grenze Rest-Race:** Wacht die Session zwischen Statuspruefung und `--resume` selbst auf, entsteht eine Kopie.
+- **Grenze Shadow-Verweigerung:** Das Binary verweigert `wake schedule|cancel`, wenn `MONARCH_AGENT_TYPE` gesetzt ist. Eine Hook-Regel, die Shadows diese Befehle sperrt (wie bei `gate merge`), liegt in `src/Monarch.Policy` und ist offen.
+
 ### Ausdruecklich ausserhalb von Phase 0
 
 - **Code, den der Agent ausfuehrt** (Tests, Build, Git-Hooks, Repo-Skripte) wirkt mit vollen Rechten; der Hook sieht nur den Aufruf.

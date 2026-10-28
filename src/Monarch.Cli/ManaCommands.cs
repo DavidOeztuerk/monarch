@@ -13,7 +13,6 @@ internal static class ManaCommands
 {
     private const string NoNext = "(noch nicht festgelegt)";
     private const string NoDecisions = "keine";
-    private static readonly TimeSpan ResumeSlack = TimeSpan.FromMinutes(2);
 
     private static string Pct(double v) => v.ToString("0.#", CultureInfo.InvariantCulture) + "%";
 
@@ -183,13 +182,23 @@ internal static class ManaCommands
         var decision = ManaGuard.Decide(snap, ManaSupport.Step5h, ManaSupport.Step7d, QuestCommands.RecapReservePct, limits, now);
         var blocked5 = snap.Effective5h + ManaSupport.Step5h + QuestCommands.RecapReservePct > limits.FiveHourPct;
         var blocked7 = snap.Effective7d + ManaSupport.Step7d > limits.SevenDayPct;
-        var resume = blocked7 && (!blocked5 || snap.SevenDayResetsAt > snap.FiveHourResetsAt) ? snap.SevenDayResetsAt : snap.FiveHourResetsAt;
-        resume += ResumeSlack;
+        var reset = blocked7 && (!blocked5 || snap.SevenDayResetsAt > snap.FiveHourResetsAt) ? snap.SevenDayResetsAt : snap.FiveHourResetsAt;
+        var zone = TimeZoneInfo.Local;
+        var wake = WakePlan.WakeTime(reset, zone);
+        var recap = paths.RecapFile;
         env.Out.WriteLine($"5h window resets at {ManaSupport.Iso(snap.FiveHourResetsAt)} (used {Pct(snap.Effective5h)}, limit {Pct(limits.FiveHourPct)})");
         env.Out.WriteLine($"7d window resets at {ManaSupport.Iso(snap.SevenDayResetsAt)} (used {Pct(snap.Effective7d)}, limit {Pct(limits.SevenDayPct)})");
         env.Out.WriteLine($"Mana-Guard for the next default step ({Pct(ManaSupport.Step5h)}): {decision}");
-        env.Out.WriteLine($"Resume at {ManaSupport.Iso(resume)} (reset + {ResumeSlack.TotalMinutes:0} min)");
-        ledger.Append(ledger.SessionId(), "cli", "RestStarted", ("known", true), ("decision", decision.ToString()), ("resumeAt", ManaSupport.Iso(resume)));
+        env.Out.WriteLine($"Wake at {ManaSupport.Iso(wake)} (reset + {WakePlan.Slack.TotalMinutes:0} min, minute not :00/:30), local {TimeZoneInfo.ConvertTime(wake, zone).ToString("yyyy-MM-dd HH:mm zzz", CultureInfo.InvariantCulture)}");
+        env.Out.WriteLine($"Cron: {WakePlan.Cron(wake, zone)}");
+        env.Out.WriteLine($"Prompt: {WakePlan.Prompt(recap)}");
+        env.Out.WriteLine("CronCreate (one-shot) with this cron and prompt is mandatory (session wake call).");
+        if (config.Wake != "off")
+        {
+            env.Out.WriteLine($"Opt-in {config.Wake}: monarch wake schedule --session <session-uuid> --at {ManaSupport.Iso(wake)}");
+        }
+
+        ledger.Append(ledger.SessionId(), "cli", "RestStarted", ("known", true), ("decision", decision.ToString()), ("resumeAt", ManaSupport.Iso(wake)));
         return 0;
     }
 

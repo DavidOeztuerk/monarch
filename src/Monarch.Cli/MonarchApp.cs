@@ -158,6 +158,28 @@ internal static class MonarchApp
         rest.SetAction(_ => ManaCommands.Rest(env));
         root.Subcommands.Add(rest);
 
+        var wake = new Command("wake", "Out-of-session wake call (opt-in via mana.wake): schedule, fire, cancel.");
+        var wakeSession = new Option<string>("--session") { Description = "Session UUID.", Required = true };
+        var wakeAt = new Option<string>("--at") { Description = "Wake time, ISO-8601 (resets_at + 3 min, from 'monarch rest').", Required = true };
+        var wakeSchedule = new Command("schedule", "Install the one-shot job (launchd or systemd; owner opt-in).");
+        wakeSchedule.Options.Add(wakeSession);
+        wakeSchedule.Options.Add(wakeAt);
+        wakeSchedule.SetAction(r => WakeCommands.Schedule(env, r.GetValue(wakeSession)!, r.GetValue(wakeAt)!));
+        wake.Subcommands.Add(wakeSchedule);
+        var fireSession = new Argument<string>("session") { Description = "Session UUID." };
+        var fireAt = new Option<string>("--at") { Description = "Wake time as scheduled.", Required = true };
+        var wakeFire = new Command("fire", "Job entry point: resume the background session if it did not wake up by itself.");
+        wakeFire.Arguments.Add(fireSession);
+        wakeFire.Options.Add(fireAt);
+        wakeFire.SetAction(r => WakeCommands.Fire(env, r.GetValue(fireSession)!, r.GetValue(fireAt)!));
+        wake.Subcommands.Add(wakeFire);
+        var cancelSession = new Argument<string>("session") { Description = "Session UUID." };
+        var wakeCancel = new Command("cancel", "Remove the job of a session.");
+        wakeCancel.Arguments.Add(cancelSession);
+        wakeCancel.SetAction(r => WakeCommands.Cancel(env, r.GetValue(cancelSession)!));
+        wake.Subcommands.Add(wakeCancel);
+        root.Subcommands.Add(wake);
+
         var estimate = new Option<double?>("--estimate") { Description = "Estimated step cost in percentage points of the 5h window." };
         var mana = new Command("mana", "Mana snapshot, limits and affordability.");
         mana.Options.Add(estimate);
