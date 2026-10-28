@@ -86,7 +86,7 @@ public class GateViewTests
         Assert.Equal(0, show.Code);
         Assert.Contains("Q-0001", show.Out);
         Assert.Contains("proposed", show.Out);
-        Assert.Contains("OwnerApprovalRequired", show.Out);
+        Assert.Contains("AutoMergeWhenCiGreenAndWardenApproved", show.Out);
         Assert.Equal(1, p.Run(["gate", "show", "G-9999"]).Code);
     }
 }
@@ -339,7 +339,7 @@ public class ManaCommandsTests
         var r = p.Run(["rest"]);
         Assert.Equal(0, r.Code);
         Assert.Contains("RecapAndStop", r.Out, StringComparison.Ordinal);
-        Assert.Contains(reset.AddMinutes(2).UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm", System.Globalization.CultureInfo.InvariantCulture), r.Out, StringComparison.Ordinal);
+        Assert.Contains(reset.AddMinutes(3).UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm", System.Globalization.CultureInfo.InvariantCulture), r.Out, StringComparison.Ordinal);
         Assert.Single(p.Events(), e => e.Type == "RestStarted");
     }
 

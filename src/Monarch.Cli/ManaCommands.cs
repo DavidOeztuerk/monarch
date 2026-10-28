@@ -13,7 +13,6 @@ internal static class ManaCommands
 {
     private const string NoNext = "(noch nicht festgelegt)";
     private const string NoDecisions = "keine";
-    private static readonly TimeSpan ResumeSlack = TimeSpan.FromMinutes(2);
 
     private static string Pct(double v) => v.ToString("0.#", CultureInfo.InvariantCulture) + "%";
 
@@ -183,13 +182,23 @@ internal static class ManaCommands
         var decision = ManaGuard.Decide(snap, ManaSupport.Step5h, ManaSupport.Step7d, QuestCommands.RecapReservePct, limits, now);
         var blocked5 = snap.Effective5h + ManaSupport.Step5h + QuestCommands.RecapReservePct > limits.FiveHourPct;
         var blocked7 = snap.Effective7d + ManaSupport.Step7d > limits.SevenDayPct;
-        var resume = blocked7 && (!blocked5 || snap.SevenDayResetsAt > snap.FiveHourResetsAt) ? snap.SevenDayResetsAt : snap.FiveHourResetsAt;
-        resume += ResumeSlack;
+        var reset = blocked7 && (!blocked5 || snap.SevenDayResetsAt > snap.FiveHourResetsAt) ? snap.SevenDayResetsAt : snap.FiveHourResetsAt;
+        var zone = TimeZoneInfo.Local;
+        var wake = WakePlan.WakeTime(reset, zone);
+        var recap = paths.RecapFile;
         env.Out.WriteLine($"5h window resets at {ManaSupport.Iso(snap.FiveHourResetsAt)} (used {Pct(snap.Effective5h)}, limit {Pct(limits.FiveHourPct)})");
         env.Out.WriteLine($"7d window resets at {ManaSupport.Iso(snap.SevenDayResetsAt)} (used {Pct(snap.Effective7d)}, limit {Pct(limits.SevenDayPct)})");
         env.Out.WriteLine($"Mana-Guard for the next default step ({Pct(ManaSupport.Step5h)}): {decision}");
-        env.Out.WriteLine($"Resume at {ManaSupport.Iso(resume)} (reset + {ResumeSlack.TotalMinutes:0} min)");
-        ledger.Append(ledger.SessionId(), "cli", "RestStarted", ("known", true), ("decision", decision.ToString()), ("resumeAt", ManaSupport.Iso(resume)));
+        env.Out.WriteLine($"Wake at {ManaSupport.Iso(wake)} (reset + {WakePlan.Slack.TotalMinutes:0} min, minute not :00/:30), local {TimeZoneInfo.ConvertTime(wake, zone).ToString("yyyy-MM-dd HH:mm zzz", CultureInfo.InvariantCulture)}");
+        env.Out.WriteLine($"Cron: {WakePlan.Cron(wake, zone)}");
+        env.Out.WriteLine($"Prompt: {WakePlan.Prompt(recap)}");
+        env.Out.WriteLine("CronCreate (one-shot) with this cron and prompt is mandatory (session wake call).");
+        if (config.Wake != "off")
+        {
+            env.Out.WriteLine($"Opt-in {config.Wake}: monarch wake schedule --session <session-uuid> --at {ManaSupport.Iso(wake)}");
+        }
+
+        ledger.Append(ledger.SessionId(), "cli", "RestStarted", ("known", true), ("decision", decision.ToString()), ("resumeAt", ManaSupport.Iso(wake)));
         return 0;
     }
 
@@ -217,8 +226,16 @@ internal static class ManaCommands
         ManaSupport.Snapshot(ledger, ledger.SessionId(), snap, "mana");
         env.Out.WriteLine($"5h: {Pct(snap.Effective5h)} used, resets {ManaSupport.Iso(snap.FiveHourResetsAt)}{(snap.IsStale ? " (stale)" : string.Empty)}");
         env.Out.WriteLine($"7d: {Pct(snap.Effective7d)} used, resets {ManaSupport.Iso(snap.SevenDayResetsAt)}");
-        var step5 = estimate ?? ManaSupport.Step5h;
-        var step7 = estimate is null ? ManaSupport.Step7d : estimate.Value * (ManaSupport.Step7d / ManaSupport.Step5h);
+        var (pair, factor) = ManaCalibration.Current(env, paths);
+        var raw5 = estimate ?? ManaSupport.Step5h;
+        var step5 = raw5 * factor.Factor;
+        var step7 = (estimate is null ? ManaSupport.Step7d : estimate.Value * (ManaSupport.Step7d / ManaSupport.Step5h)) * factor.Factor;
+        env.Out.WriteLine(ManaCalibrator.Display(pair, factor));
+        if (Math.Abs(factor.Factor - 1) > 1e-9)
+        {
+            env.Out.WriteLine(FormattableString.Invariant($"Estimate {Pct(raw5)} x {factor.Factor:0.00} = {Pct(step5)}"));
+        }
+
         var decision = ManaGuard.Decide(snap, step5, step7, QuestCommands.RecapReservePct, resolved.Limits, env.Clock.UtcNow);
         var can5 = snap.Effective5h + step5 + QuestCommands.RecapReservePct <= resolved.Limits.FiveHourPct;
         env.Out.WriteLine($"Step {Pct(step5)} (7d {Pct(step7)}) + recap {Pct(QuestCommands.RecapReservePct)}: {decision} (5h {(can5 ? "fits" : "does not fit")})");
@@ -238,6 +255,26 @@ internal static class ManaCommands
         foreach (var file in result.Restorable ?? [])
         {
             env.Out.WriteLine($"{file}: original content is back (git stash pop / branch switch); the next ledger append anchors it again and writes LedgerAnchorRestored.");
+        }
+
+        // ADR-0007 T3: a cleared quest whose pull request has no GateMerged was not merged by 'monarch gate merge'. A hint, never a finding.
+        List<LedgerRow> rows;
+        try
+        {
+            rows = LedgerScan.All(paths.Root);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            rows = []; // a corrupt line is a verify finding below, not a reason to crash
+        }
+
+        foreach (var cleared in rows.Where(r => r.Type == "QuestCleared" && r.Num("pr") is not null))
+        {
+            var pr = (int)cleared.Num("pr")!;
+            if (!rows.Exists(r => r.Type == "GateMerged" && (int?)r.Num("pr") == pr))
+            {
+                env.Out.WriteLine($"note: {cleared.Str("quest")} was cleared via PR #{pr} without GateMerged in the ledger (not merged by 'monarch gate merge').");
+            }
         }
 
         if (result.Ok)
@@ -317,8 +354,11 @@ internal static class ManaCommands
     }
 
     /// <summary>MCP <c>mana_forecast</c>: asks the Mana-Guard about the summed estimates.</summary>
-    public static string Forecast(CliEnv env, ProjectPaths paths, double session, double weekly)
+    public static string Forecast(CliEnv env, ProjectPaths paths, double rawSession, double rawWeekly)
     {
+        var (pair, factor) = ManaCalibration.Current(env, paths);
+        var session = rawSession * factor.Factor;
+        var weekly = rawWeekly * factor.Factor;
         var config = SystemConfigReader.Load(paths.Root);
         var resolved = ManaSupport.Resolve(paths.Root, config);
         var snap = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
@@ -326,8 +366,18 @@ internal static class ManaCommands
         using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
         {
             w.WriteStartObject();
+            w.WriteNumber("estimateSessionPct", rawSession);
+            w.WriteNumber("estimateWeeklyPct", rawWeekly);
             w.WriteNumber("stepSessionPct", session);
             w.WriteNumber("stepWeeklyPct", weekly);
+            w.WriteStartObject("pair");
+            w.WriteString("model", pair.Model);
+            w.WriteString("effort", pair.Effort);
+            w.WriteNumber("factor", factor.Factor);
+            w.WriteNumber("n", factor.N);
+            w.WriteString("status", factor.IsCalibrated ? "kalibriert" : "unkalibriert");
+            w.WriteString("display", ManaCalibrator.Display(pair, factor));
+            w.WriteEndObject();
             w.WriteNumber("recapReservePct", QuestCommands.RecapReservePct);
             w.WriteStartObject("limits");
             w.WriteNumber("fiveHourPct", resolved.Limits.FiveHourPct);

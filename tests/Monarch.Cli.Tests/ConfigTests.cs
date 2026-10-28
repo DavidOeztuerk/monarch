@@ -82,4 +82,12 @@ public class ConfigTests
         Assert.Contains("warden", added);
         Assert.Contains("scout", added);
     }
+
+    // Q-0130: der Integrations-Branch darf kein geschützter Branch sein (Defaults oder Datei, ohne Groß-/Kleinschreibung).
+    [Theory]
+    [InlineData("git:\n  integration_branch: main\n")]
+    [InlineData("git:\n  integration_branch: MASTER\n")]
+    [InlineData("git:\n  protected_branches: [release]\n  integration_branch: release\n")]
+    public void Integration_branch_inside_protected_branches_is_a_config_error(string yaml) =>
+        Assert.ThrowsAny<Exception>(() => SystemConfigReader.Parse(yaml));
 }

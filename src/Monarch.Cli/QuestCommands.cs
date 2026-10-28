@@ -52,6 +52,8 @@ internal static class QuestCommands
         var quest = Reconstitute(bq, estimate);
         var config = SystemConfigReader.Load(paths.Root);
         var active = ActiveStore.Read(paths);
+        string? pairLine = null;
+        string? estimateLine = null;
 
         if (action == "accept")
         {
@@ -66,15 +68,20 @@ internal static class QuestCommands
             }
 
             var snapshot = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
+            var (pair, factor) = ManaCalibration.Current(env, paths);
+            var scaled = new ManaCost(estimate.SessionPct * factor.Factor, estimate.WeeklyPct * factor.Factor, estimate.GoldUsd);
+            pairLine = ManaCalibrator.Display(pair, factor);
             if (snapshot is not null)
             {
-                var decision = ManaGuard.Decide(snapshot, estimate.SessionPct, estimate.WeeklyPct, RecapReservePct, config.Limits, env.Clock.UtcNow);
+                var decision = ManaGuard.Decide(snapshot, scaled.SessionPct, scaled.WeeklyPct, RecapReservePct, config.Limits, env.Clock.UtcNow);
                 if (decision != ManaDecision.Proceed)
                 {
                     return Refuse(env, FormattableString.Invariant(
-                        $"Mana does not fit ({decision}): 5h {snapshot.Effective5h:0}% + step {estimate.SessionPct:0}% + recap {RecapReservePct:0}% exceeds limit {config.Limits.FiveHourPct:0}% (or 7d {snapshot.Effective7d:0}% + {estimate.WeeklyPct:0}% vs {config.Limits.SevenDayPct:0}%)."));
+                        $"Mana does not fit ({decision}): 5h {snapshot.Effective5h:0}% + step {scaled.SessionPct:0.#}% + recap {RecapReservePct:0}% exceeds limit {config.Limits.FiveHourPct:0}% (or 7d {snapshot.Effective7d:0}% + {scaled.WeeklyPct:0.#}% vs {config.Limits.SevenDayPct:0}%). {pairLine}"));
                 }
             }
+
+            estimateLine = FormattableString.Invariant($"Schätzung 5h {estimate.SessionPct:0.#}% x {factor.Factor:0.00} = {scaled.SessionPct:0.#}%");
         }
 
         string eventType;
@@ -110,7 +117,22 @@ internal static class QuestCommands
 
         var ledger = new ProjectLedger(paths, env.Clock);
         ledger.Append(ledger.SessionId(), "cli", eventType, ("quest", bq.Id.Value), ("gate", bq.Gate.Value), ("rank", bq.Rank.ToString()), ("state", stateName));
+        if (action == "accept")
+        {
+            ManaCalibration.Begin(env, paths, bq.Id.Value, estimate.SessionPct);
+        }
+        else if (action == "submit")
+        {
+            ManaCalibration.Finish(env, paths, ledger, bq.Id.Value);
+        }
+
         env.Out.WriteLine($"{bq.Id.Value}: {action} ok -> {stateName}");
+        if (pairLine is not null)
+        {
+            env.Out.WriteLine(estimateLine);
+            env.Out.WriteLine(pairLine);
+        }
+
         return 0;
     }
 

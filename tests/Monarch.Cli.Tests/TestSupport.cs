@@ -20,6 +20,9 @@ internal sealed class TempProject : IDisposable
     public string Home { get; } = Path.Combine(Path.GetTempPath(), "monarch-h-" + Guid.NewGuid().ToString("N"));
     public FakeClock Clock { get; } = new(Now);
 
+    /// <summary>Hermetic default: the calling process environment is empty, so CLAUDE_EFFORT and CLAUDE_CODE_SESSION_ID of the runner never leak in.</summary>
+    public static readonly IReadOnlyDictionary<string, string?> NoVars = new Dictionary<string, string?>();
+
     public HttpMessageHandler? Http { get; set; }
 
     public TempProject(bool awakened = true, string? activeRank = null, string include = "src/**", string? systemYaml = null)
@@ -47,11 +50,11 @@ internal sealed class TempProject : IDisposable
 
     public string LocalPath(string name) => Path.Combine(Root, ".monarch", "local", name);
 
-    public RunResult Run(string[] args, string? stdin = null, string? cwd = null, bool tty = false)
+    public RunResult Run(string[] args, string? stdin = null, string? cwd = null, bool tty = false, IReadOnlyDictionary<string, string?>? vars = null)
     {
         var o = new StringWriter();
         var e = new StringWriter();
-        var code = MonarchApp.Run(args, new CliEnv(cwd ?? Root, Home, new StringReader(stdin ?? string.Empty), o, e, Clock, Http, new GitHubTokenProvider(_ => "tok-test", () => null), tty));
+        var code = MonarchApp.Run(args, new CliEnv(cwd ?? Root, Home, new StringReader(stdin ?? string.Empty), o, e, Clock, Http, new GitHubTokenProvider(_ => "tok-test", () => null), tty, vars ?? NoVars));
         return new RunResult(code, o.ToString(), e.ToString());
     }
 

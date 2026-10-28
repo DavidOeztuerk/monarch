@@ -170,6 +170,9 @@ internal static partial class Forge
     /// <summary>GitHub checks evidence source.</summary>
     public static GitHubChecksEvidence Evidence(CliEnv env) => new(Http(env), env.Tokens ?? new GitHubTokenProvider());
 
+    /// <summary>GitHub pull request client (reads and the squash merge of <c>gate merge</c>).</summary>
+    public static GitHubPulls Pulls(CliEnv env) => new(Http(env), env.Tokens ?? new GitHubTokenProvider());
+
     private static HttpClient Http(CliEnv env) => new(env.Http ?? new HttpClientHandler(), false) { BaseAddress = new Uri("https://api.github.com/") };
 
     [GeneratedRegex(@"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")]

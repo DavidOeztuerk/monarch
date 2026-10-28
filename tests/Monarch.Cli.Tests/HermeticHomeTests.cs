@@ -13,14 +13,25 @@ public sealed class HermeticHome : IDisposable
     /// <summary>Creates the temp home and exports it as <c>MONARCH_HOME</c>.</summary>
     public HermeticHome()
     {
+        // Captured before HOME is redirected, so the guard test still knows the real home.
+        RealHome = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".monarch");
+        _oldHome = Environment.GetEnvironmentVariable("HOME");
         Directory.CreateDirectory(Root);
+        Directory.CreateDirectory(Path.Combine(Root, "home"));
         Environment.SetEnvironmentVariable("MONARCH_HOME", Root);
+        Environment.SetEnvironmentVariable("HOME", Path.Combine(Root, "home"));
     }
+
+    private readonly string? _oldHome;
+
+    /// <summary>The real <c>~/.monarch</c>, captured before HOME is redirected to a temp directory.</summary>
+    public static string RealHome { get; private set; } = string.Empty;
 
     /// <summary>Removes the temp home.</summary>
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("MONARCH_HOME", null);
+        Environment.SetEnvironmentVariable("HOME", _oldHome);
         Directory.Delete(Root, true);
     }
 }
@@ -31,9 +42,10 @@ public class HermeticHomeTests
     [Fact]
     public void Process_environment_never_resolves_to_the_real_monarch_home()
     {
-        var real = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".monarch");
+        var real = HermeticHome.RealHome;
         var home = CliEnv.FromProcess().Home;
         Assert.NotEqual(Path.GetFullPath(real), home);
+        Assert.NotEqual(Path.GetFullPath(real), Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".monarch")));
         Assert.StartsWith(Path.GetFullPath(Path.GetTempPath()), home, StringComparison.Ordinal);
     }
 }

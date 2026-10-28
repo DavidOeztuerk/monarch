@@ -9,8 +9,12 @@ namespace Monarch.Cli;
 internal sealed record SystemConfig(
     string Theme, PlanKind Plan, ManaLimits Limits, PenaltyMode PenaltyZone, bool ScopeLock, bool RefuseHighRankInBypassMode,
     IReadOnlyList<RiskTagRule> RiskTags, IReadOnlyList<string> DenyBash, IReadOnlyList<string> ProtectPaths,
-    IReadOnlyList<string> ProtectSecretsExtra, IReadOnlyList<string> ReadOnlyShadows)
+    IReadOnlyList<string> ProtectSecretsExtra, IReadOnlyList<string> ReadOnlyShadows,
+    IReadOnlyList<string> ProtectedBranches, string IntegrationBranch)
 {
+    /// <summary>Opt-in of the out-of-session wake call (ADR-0008): <c>launchd</c>, <c>systemd</c> or <c>off</c> (default). Owner decision in the protected system.yaml.</summary>
+    public string Wake { get; init; } = "off";
+
     /// <summary>Built-in risk tags (from the concept).</summary>
     public static IReadOnlyList<RiskTagRule> DefaultRiskTags { get; } =
     [
@@ -28,7 +32,7 @@ internal sealed record SystemConfig(
     {
         var p = new PolicyOptions();
         return new SystemConfig("monarch", plan, ManaLimits.ForPlan(plan), PenaltyMode.Block, true, true, DefaultRiskTags,
-            p.DenyBash, p.ProtectPaths, [], p.ReadOnlyShadowTypes);
+            p.DenyBash, p.ProtectPaths, [], p.ReadOnlyShadowTypes, p.ProtectedBranches, p.IntegrationBranch);
     }
 
     /// <summary>Policy options; built-in protections and bans are always kept, the file can only add.</summary>
@@ -41,6 +45,8 @@ internal sealed record SystemConfig(
             DenyBash = [.. d.DenyBash.Concat(DenyBash).Distinct(StringComparer.Ordinal)],
             ExtraSecretGlobs = ProtectSecretsExtra,
             ReadOnlyShadowTypes = [.. d.ReadOnlyShadowTypes.Concat(ReadOnlyShadows).Distinct(StringComparer.Ordinal)],
+            ProtectedBranches = [.. d.ProtectedBranches.Concat(ProtectedBranches).Distinct(StringComparer.Ordinal)],
+            IntegrationBranch = IntegrationBranch,
             ScopeLock = ScopeLock,
             RefuseHighRankInBypassMode = RefuseHighRankInBypassMode,
         };
@@ -63,15 +69,17 @@ internal static class SystemConfigReader
         var root = YamlDocument.Parse(yaml);
         var mana = root.Get("mana") as YamlMap;
         var policy = root.Get("policy") as YamlMap;
+        var git = root.Get("git") as YamlMap;
         var plan = ParsePlan(mana?.GetString("plan"));
         var d = SystemConfig.Create(plan);
         var limits = mana?.Get("limits") as YamlMap;
         var five = Num((limits?.Get("five_hour") as YamlMap)?.GetString("work_until_pct")) ?? d.Limits.FiveHourPct;
         var seven = Num((limits?.Get("seven_day") as YamlMap)?.GetString("work_until_pct")) ?? d.Limits.SevenDayPct;
-        return d with
+        var config = d with
         {
             Theme = root.GetString("theme") is { Length: > 0 } t ? t : d.Theme,
             Limits = new ManaLimits(five, seven),
+            Wake = ParseWake(mana?.GetString("wake")),
             PenaltyZone = string.Equals(policy?.GetString("penalty_zone"), "warn", StringComparison.OrdinalIgnoreCase) ? PenaltyMode.Warn : PenaltyMode.Block,
             ScopeLock = Bool(policy?.GetString("scope_lock"), d.ScopeLock),
             RefuseHighRankInBypassMode = Bool(policy?.GetString("refuse_high_rank_in_bypass_mode"), d.RefuseHighRankInBypassMode),
@@ -80,8 +88,23 @@ internal static class SystemConfigReader
             ProtectPaths = Strings(policy, "protect_paths", d.ProtectPaths),
             ProtectSecretsExtra = Strings(policy, "protect_secrets_extra", d.ProtectSecretsExtra),
             ReadOnlyShadows = Strings(policy, "read_only_shadows", d.ReadOnlyShadows),
+            ProtectedBranches = Strings(git, "protected_branches", d.ProtectedBranches),
+            IntegrationBranch = git?.GetString("integration_branch") is { Length: > 0 } ib ? ib : d.IntegrationBranch,
         };
+
+        // ADR-0007: the integration branch is never a protected branch (built-ins or file, case-insensitive).
+        if (IsProtectedBranch(config, config.IntegrationBranch))
+        {
+            throw new FormatException($"git.integration_branch '{config.IntegrationBranch}' is a protected branch; main/master merges only the owner (ADR-0007).");
+        }
+
+        return config;
     }
+
+    /// <summary>True if <paramref name="branch"/> is protected by the built-in defaults or the file (case-insensitive).</summary>
+    public static bool IsProtectedBranch(SystemConfig config, string branch) =>
+        SystemConfig.Default.ProtectedBranches.Concat(config.ProtectedBranches)
+            .Any(p => string.Equals(p, branch, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Parses <c>name: { min_rank, paths }</c> entries.</summary>
     public static IReadOnlyList<RiskTagRule> ParseRiskTags(YamlMap tags) =>
@@ -100,6 +123,14 @@ internal static class SystemConfigReader
         "max20" => PlanKind.Max20,
         "api-key" or "apikey" => PlanKind.ApiKey,
         _ => PlanKind.Pro,
+    };
+
+    /// <summary>Parses <c>mana.wake</c>; anything but <c>launchd</c> or <c>systemd</c> is <c>off</c>.</summary>
+    public static string ParseWake(string? text) => text?.Trim().ToLowerInvariant() switch
+    {
+        "launchd" => "launchd",
+        "systemd" => "systemd",
+        _ => "off",
     };
 
     private static double? Num(string? t) => double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null;

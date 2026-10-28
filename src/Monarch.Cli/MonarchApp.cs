@@ -105,7 +105,7 @@ internal static class MonarchApp
         evidence.Subcommands.Add(evSync);
         root.Subcommands.Add(evidence);
 
-        var gate = new Command("gate", "Gates: import, list, show, sync.");
+        var gate = new Command("gate", "Gates: import, list, show, sync, verdict, merge.");
         var importDir = new Argument<string>("dir") { Description = "Backlog directory with G-*.md and Q-*.md." };
         var importRepo = new Option<string?>("--repo") { Description = "Only quests whose scope.repo equals this name (case-insensitive) and their gates." };
         var import = new Command("import", "Import backlog files into .monarch/gates and .monarch/quests.");
@@ -130,6 +130,20 @@ internal static class MonarchApp
         gateSync.Options.Add(syncRepo);
         gateSync.SetAction(r => GateCommands.Sync(env, r.GetValue(github), r.GetValue(owner), r.GetValue(syncRepo)));
         gate.Subcommands.Add(gateSync);
+        var verdictGate = new Argument<string>("id") { Description = "Gate id." };
+        var verdictValue = new Option<string>("--verdict") { Description = "approve or changes.", Required = true };
+        var verdictSource = new Option<string>("--source") { Description = "URL of the warden review.", Required = true };
+        var gateVerdict = new Command("verdict", "Record the warden verdict for the current head of the gate's pull request (main only).");
+        gateVerdict.Arguments.Add(verdictGate);
+        gateVerdict.Options.Add(verdictValue);
+        gateVerdict.Options.Add(verdictSource);
+        gateVerdict.SetAction(r => GateMergeCommands.Verdict(env, r.GetValue(verdictGate)!, r.GetValue(verdictValue)!, r.GetValue(verdictSource)!));
+        gate.Subcommands.Add(gateVerdict);
+        var mergeGate = new Argument<string>("id") { Description = "Gate id." };
+        var gateMerge = new Command("merge", "Squash-merge the gate's pull request into the integration branch after base, rank, CI, verdict and warden run check out (main only).");
+        gateMerge.Arguments.Add(mergeGate);
+        gateMerge.SetAction(r => GateMergeCommands.Merge(env, r.GetValue(mergeGate)!));
+        gate.Subcommands.Add(gateMerge);
         root.Subcommands.Add(gate);
 
         var next = new Option<string?>("--next") { Description = "The next concrete step." };
@@ -143,6 +157,28 @@ internal static class MonarchApp
         var rest = new Command("rest", "Show reset times, the guard decision and the resume time.");
         rest.SetAction(_ => ManaCommands.Rest(env));
         root.Subcommands.Add(rest);
+
+        var wake = new Command("wake", "Out-of-session wake call (opt-in via mana.wake): schedule, fire, cancel.");
+        var wakeSession = new Option<string>("--session") { Description = "Session UUID.", Required = true };
+        var wakeAt = new Option<string>("--at") { Description = "Wake time, ISO-8601 (resets_at + 3 min, from 'monarch rest').", Required = true };
+        var wakeSchedule = new Command("schedule", "Install the one-shot job (launchd or systemd; owner opt-in).");
+        wakeSchedule.Options.Add(wakeSession);
+        wakeSchedule.Options.Add(wakeAt);
+        wakeSchedule.SetAction(r => WakeCommands.Schedule(env, r.GetValue(wakeSession)!, r.GetValue(wakeAt)!));
+        wake.Subcommands.Add(wakeSchedule);
+        var fireSession = new Argument<string>("session") { Description = "Session UUID." };
+        var fireAt = new Option<string>("--at") { Description = "Wake time as scheduled.", Required = true };
+        var wakeFire = new Command("fire", "Job entry point: resume the background session if it did not wake up by itself.");
+        wakeFire.Arguments.Add(fireSession);
+        wakeFire.Options.Add(fireAt);
+        wakeFire.SetAction(r => WakeCommands.Fire(env, r.GetValue(fireSession)!, r.GetValue(fireAt)!));
+        wake.Subcommands.Add(wakeFire);
+        var cancelSession = new Argument<string>("session") { Description = "Session UUID." };
+        var wakeCancel = new Command("cancel", "Remove the job of a session.");
+        wakeCancel.Arguments.Add(cancelSession);
+        wakeCancel.SetAction(r => WakeCommands.Cancel(env, r.GetValue(cancelSession)!));
+        wake.Subcommands.Add(wakeCancel);
+        root.Subcommands.Add(wake);
 
         var estimate = new Option<double?>("--estimate") { Description = "Estimated step cost in percentage points of the 5h window." };
         var mana = new Command("mana", "Mana snapshot, limits and affordability.");

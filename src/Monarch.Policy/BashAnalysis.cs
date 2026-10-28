@@ -41,6 +41,9 @@ internal static class BashAnalysis
         /// <c>export</c>, <c>declare</c>, <c>local</c>, <c>readonly</c> und <c>typeset</c>.
         /// </summary>
         public IReadOnlyList<string> Assignments { get; init; } = [];
+
+        /// <summary>Namen der Zuweisungen, parallel zu <see cref="Assignments"/> (ohne <c>+</c> bei <c>NAME+=wert</c>).</summary>
+        public IReadOnlyList<string> AssignmentNames { get; init; } = [];
     }
 
     /// <summary>
@@ -56,10 +59,11 @@ internal static class BashAnalysis
         {
             var raw = raws[k];
             var assignments = new List<string>();
-            var tokens = Strip([.. raw.Words.Where(w => w.Length > 0)], assignments);
+            var names = new List<string>();
+            var tokens = Strip([.. raw.Words.Where(w => w.Length > 0)], assignments, names);
             if (tokens.Length > 0 && Array.IndexOf(DeclareWords, tokens[0]) >= 0)
                 foreach (var t in tokens.Skip(1))
-                    if (IsAssignment(t)) assignments.Add(AssignmentValue(t));
+                    if (IsAssignment(t)) { assignments.Add(AssignmentValue(t)); names.Add(AssignmentName(t)); }
             if (tokens.Length == 0 && raw.OutRedirects.Count == 0 && raw.InRedirects.Count == 0 && assignments.Count == 0)
             {
                 pendingClose += raw.Events;
@@ -74,6 +78,7 @@ internal static class BashAnalysis
                 Heredoc = raw.Heredoc?.ToString(),
                 Events = pendingClose + raw.Events,
                 Assignments = assignments,
+                AssignmentNames = names,
             });
             pendingClose = "";
             if (tokens.Length == 0) continue;
@@ -271,13 +276,13 @@ internal static class BashAnalysis
         return tokens[i];
     }
 
-    private static string[] Strip(string[] tokens, List<string>? assignments = null)
+    private static string[] Strip(string[] tokens, List<string>? assignments = null, List<string>? names = null)
     {
         var i = 0;
         while (i < tokens.Length)
         {
             var t = tokens[i];
-            if (IsAssignment(t)) { assignments?.Add(AssignmentValue(t)); i++; continue; }
+            if (IsAssignment(t)) { assignments?.Add(AssignmentValue(t)); names?.Add(AssignmentName(t)); i++; continue; }
             if (Array.IndexOf(Keywords, t) >= 0) { i++; continue; }
             if (Array.IndexOf(Wrappers, t) < 0) break;
             i++;
@@ -302,6 +307,13 @@ internal static class BashAnalysis
         if (eq <= 0) return false;
         for (var i = 0; i < eq; i++) if (!(char.IsAsciiLetterOrDigit(t[i]) || t[i] == '_')) return false;
         return !char.IsAsciiDigit(t[0]);
+    }
+
+    private static string AssignmentName(string t)
+    {
+        var eq = t.IndexOf('=', StringComparison.Ordinal);
+        if (eq > 0 && t[eq - 1] == '+') eq--;
+        return t[..eq];
     }
 
     private static string AssignmentValue(string t) => t[(t.IndexOf('=', StringComparison.Ordinal) + 1)..];
