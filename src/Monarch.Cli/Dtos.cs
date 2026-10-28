@@ -107,12 +107,14 @@ internal sealed class ManaFile
     [JsonPropertyName("sessions")] public Dictionary<string, SessionEntry>? Sessions { get; set; }
 }
 
-/// <summary>Per-session context usage (HP is session-local, not account-global).</summary>
+/// <summary>Per-session context usage (HP is session-local, not account-global) and the session's model.</summary>
 internal sealed class SessionEntry
 {
     [JsonPropertyName("used_percentage")] public double? UsedPercentage { get; set; }
 
     [JsonPropertyName("written_at")] public string? WrittenAt { get; set; }
+
+    [JsonPropertyName("model")] public string? Model { get; set; }
 }
 
 /// <summary>Context usage.</summary>

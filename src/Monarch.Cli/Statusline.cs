@@ -204,7 +204,7 @@ internal static class Statusline
 
         if (input.SessionId is { } sid && input.ContextWindow?.UsedPercentage is { } used)
         {
-            result[sid] = new SessionEntry { UsedPercentage = used, WrittenAt = ManaStore.Stamp(now) };
+            result[sid] = new SessionEntry { UsedPercentage = used, WrittenAt = ManaStore.Stamp(now), Model = input.Model?.Id ?? (prev?.Sessions is { } ps && ps.TryGetValue(sid, out var old) ? old.Model : null) };
         }
 
         return result;

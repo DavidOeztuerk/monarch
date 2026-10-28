@@ -217,8 +217,16 @@ internal static class ManaCommands
         ManaSupport.Snapshot(ledger, ledger.SessionId(), snap, "mana");
         env.Out.WriteLine($"5h: {Pct(snap.Effective5h)} used, resets {ManaSupport.Iso(snap.FiveHourResetsAt)}{(snap.IsStale ? " (stale)" : string.Empty)}");
         env.Out.WriteLine($"7d: {Pct(snap.Effective7d)} used, resets {ManaSupport.Iso(snap.SevenDayResetsAt)}");
-        var step5 = estimate ?? ManaSupport.Step5h;
-        var step7 = estimate is null ? ManaSupport.Step7d : estimate.Value * (ManaSupport.Step7d / ManaSupport.Step5h);
+        var (pair, factor) = ManaCalibration.Current(env, paths);
+        var raw5 = estimate ?? ManaSupport.Step5h;
+        var step5 = raw5 * factor.Factor;
+        var step7 = (estimate is null ? ManaSupport.Step7d : estimate.Value * (ManaSupport.Step7d / ManaSupport.Step5h)) * factor.Factor;
+        env.Out.WriteLine(ManaCalibrator.Display(pair, factor));
+        if (Math.Abs(factor.Factor - 1) > 1e-9)
+        {
+            env.Out.WriteLine(FormattableString.Invariant($"Estimate {Pct(raw5)} x {factor.Factor:0.00} = {Pct(step5)}"));
+        }
+
         var decision = ManaGuard.Decide(snap, step5, step7, QuestCommands.RecapReservePct, resolved.Limits, env.Clock.UtcNow);
         var can5 = snap.Effective5h + step5 + QuestCommands.RecapReservePct <= resolved.Limits.FiveHourPct;
         env.Out.WriteLine($"Step {Pct(step5)} (7d {Pct(step7)}) + recap {Pct(QuestCommands.RecapReservePct)}: {decision} (5h {(can5 ? "fits" : "does not fit")})");
@@ -337,8 +345,11 @@ internal static class ManaCommands
     }
 
     /// <summary>MCP <c>mana_forecast</c>: asks the Mana-Guard about the summed estimates.</summary>
-    public static string Forecast(CliEnv env, ProjectPaths paths, double session, double weekly)
+    public static string Forecast(CliEnv env, ProjectPaths paths, double rawSession, double rawWeekly)
     {
+        var (pair, factor) = ManaCalibration.Current(env, paths);
+        var session = rawSession * factor.Factor;
+        var weekly = rawWeekly * factor.Factor;
         var config = SystemConfigReader.Load(paths.Root);
         var resolved = ManaSupport.Resolve(paths.Root, config);
         var snap = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
@@ -346,8 +357,18 @@ internal static class ManaCommands
         using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
         {
             w.WriteStartObject();
+            w.WriteNumber("estimateSessionPct", rawSession);
+            w.WriteNumber("estimateWeeklyPct", rawWeekly);
             w.WriteNumber("stepSessionPct", session);
             w.WriteNumber("stepWeeklyPct", weekly);
+            w.WriteStartObject("pair");
+            w.WriteString("model", pair.Model);
+            w.WriteString("effort", pair.Effort);
+            w.WriteNumber("factor", factor.Factor);
+            w.WriteNumber("n", factor.N);
+            w.WriteString("status", factor.IsCalibrated ? "kalibriert" : "unkalibriert");
+            w.WriteString("display", ManaCalibrator.Display(pair, factor));
+            w.WriteEndObject();
             w.WriteNumber("recapReservePct", QuestCommands.RecapReservePct);
             w.WriteStartObject("limits");
             w.WriteNumber("fiveHourPct", resolved.Limits.FiveHourPct);

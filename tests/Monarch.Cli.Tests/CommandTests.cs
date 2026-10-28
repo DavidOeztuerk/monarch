@@ -94,7 +94,7 @@ public class QuestCommandTests
         Assert.Equal("state: in_review", State(p));
         Assert.False(File.Exists(p.LocalPath("active.json")));
 
-        Assert.Equal(["QuestAccepted", "QuestStarted", "QuestSubmitted"], p.Events().Select(e => e.Type).ToArray());
+        Assert.Equal(["QuestAccepted", "QuestStarted", "QuestSubmitted", "ManaStepRecorded"], p.Events().Select(e => e.Type).ToArray());
         Assert.True(LedgerVerifier.Verify(p.Root).Ok);
         Assert.Contains("Demo quest", File.ReadAllText(Path.Combine(p.Root, ".monarch", "quests", "Q-0003-demo.md")), StringComparison.Ordinal);
     }
