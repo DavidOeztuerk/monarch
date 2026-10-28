@@ -59,6 +59,15 @@ cat >"$proj/.monarch/local/active.json" <<JSON
 {"questId":"Q-0003","gateId":"G-0001","rank":"B","kind":"main","scope":{"include":["src/**"],"exclude":[]},"acceptedAt":"2026-10-27T10:00:00Z"}
 JSON
 
+# nested-projects (ADR-0011 rule 9): the cwd project sits inside another awakened project; both are evaluated in full.
+nest="$work/outer"
+mkdir -p "$nest/.monarch/local" "$nest/.monarch/ledger" "$nest/src/inner/.monarch/local" "$nest/src/inner/.monarch/ledger"
+cat >"$nest/.monarch/local/active.json" <<JSON
+{"questId":"Q-0004","gateId":"G-0001","rank":"B","kind":"main","scope":{"include":["src/**"],"exclude":[]},"acceptedAt":"2026-10-27T10:00:00Z"}
+JSON
+sed 's#"src/\*\*"#"**"#' "$nest/.monarch/local/active.json" >"$nest/src/inner/.monarch/local/active.json"
+inner="$nest/src/inner"
+
 input() { # tool, tool_input-json, cwd
   printf '{"session_id":"bench","cwd":"%s","hook_event_name":"PreToolUse","permission_mode":"default","tool_name":"%s","tool_input":%s}' "$3" "$1" "$2" >"$work/$4.json"
 }
@@ -68,7 +77,19 @@ input Bash '{"command":"git push --force origin main"}' "$proj" denied-bash
 input Edit '{"file_path":"src/a.cs"}' "$work/plain" non-awakened
 input Bash '{"command":"cd /usr/local && git -C /usr/local status && ls /usr/bin/../lib"}' "$proj" bash-targets
 input Edit '{"file_path":"'"$proj"'/src/deep/er/a.cs"}' "$proj" abs-target
+input Edit '{"file_path":"a.cs"}' "$inner" nested-projects
+# long-heredoc: Bash writing ~200 lines of notes via a quoted heredoc, no protected path (the body is data).
+body="$(for i in $(seq 1 200); do printf 'Zeile %d: Notizen zum Entwurf, ohne Pfade, Kommandos wie rm oder git push nur als Prosa.\n' "$i"; done)"
+heredoc_cmd="$(printf "cat <<'EOF' > notes.md\n%s\nEOF" "$body")"
+input Bash "$(jq -cn --arg c "$heredoc_cmd" '{command:$c}')" "$proj" long-heredoc
 
+if [[ -n "${BENCH_SHOW:-}" ]]; then # debug: print the decision of each scenario
+  for f in "$work"/*.json; do
+    case "$f" in *.result.json) continue ;; esac
+    n="$(basename "$f" .json)"; case "$n" in nested-projects) d="$inner" ;; non-awakened) d="$work/plain" ;; *) d="$proj" ;; esac
+    echo "$n: $(cd "$d" && MONARCH_HOME="$MONARCH_HOME" "$target" hook pre-tool-use <"$f" | cut -c1-120)"
+  done
+fi
 status=0
 printf '%-16s %10s %10s %10s   (gate: p%s <= %s ms)\n' scenario p50_ms p95_ms p99_ms "$gate_pct" "$limit_ms"
 measure() { # name, dir -> prints "p50 p95 p99"
@@ -97,5 +118,7 @@ run denied-bash "$proj"
 run non-awakened "$work/plain"
 run bash-targets "$proj"
 run abs-target "$proj"
+run nested-projects "$inner"
+run long-heredoc "$proj"
 [[ $status -eq 0 ]] && echo "OK: all p${gate_pct} <= ${limit_ms} ms" || echo "FAIL: p${gate_pct} > ${limit_ms} ms" >&2
 exit $status

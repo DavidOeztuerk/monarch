@@ -50,3 +50,44 @@ Aufloesung: `$MONARCH_BIN` (Entwickler-Override, ohne Pruefsumme) -> `~/.monarch
 - `.mcp.json`: Server `monarch`. Tools heissen in Claude Code `mcp__plugin_monarch_monarch__<tool>` (system_status, gate_plan, quest_transition, evidence_sync, mana_forecast, knowledge_write).
 - `skills/`: awaken, status, gate, quest, recap, mana, rest.
 - `agents/`: scout, strategist, knight, warden. Plugin-Agents ignorieren `hooks`, `mcpServers`, `permissionMode` (ADR-0005); Rechte setzt allein der PreToolUse-Hook.
+
+## Grenzen
+
+Grundlage ist ADR-0011 (Bedrohungsmodell Phase 0). Der Hook ist eine **Leitplanke gegen plausible Fehlgriffe**, keine Sandbox. Gezielte Umgehung durch einen Agenten oder durch Inhalte, die er kopiert (Injection), verhindert Phase 0 **nicht** (G4). Erkennbar sind solche Versuche nur ueber Ledger-Anker, Git und Forge-Evidence (G3); echte Durchsetzung ausserhalb des Agent-Prozesses folgt mit ADR-0009.
+
+### Was Phase 0 garantiert
+
+- G1: plausible Fehlgriffe gegen Schutzpfade in Sessions mit erwecktem Projekt (Bash, Write, Edit, MultiEdit, NotebookEdit).
+- G2: die Policy ist auf plausiblen Wegen nicht still abschaltbar (`.monarch/system.yaml`, `quests/`, `gates/`, `local/`, `~/.monarch/**`, `~/.claude/settings*.json`, `~/.claude/plugins/**`, `<projekt>/.claude/settings*.json`).
+- G3: Ledger-Manipulation ist gegen plausible Fehlgriffe erkennbar. `ledger verify` laeuft vor `quest clear` und `evidence sync`; bei Befunden wird nicht geclear't (Event `ClearRefusedLedgerInvalid`). Anker-Resets quittiert nur der Owner im Terminal (`monarch ledger ack-reset <hash>` verlangt ein TTY auf stdin).
+
+### Ausdruecklich ausserhalb von Phase 0
+
+- **Code, den der Agent ausfuehrt** (Tests, Build, Git-Hooks, Repo-Skripte) wirkt mit vollen Rechten; der Hook sieht nur den Aufruf.
+- **`install-local.sh` ist eine Owner-Aktion.** Es ersetzt Binary und `SHA256SUMS` still und ist fuer den Agenten deny. Das Gleiche gilt fuer `monarch ledger ack-reset`, `permit` und `promote`. Ein Agent, der ein Pseudo-Terminal erzeugt (`script`), faellt unter G4.
+- **Sessions ohne erwecktes Projekt haben keine Policy.** Ohne `.monarch` im cwd oder darueber (und ohne Ziel in einem erweckten Projekt) tut der Hook nichts.
+- **MCP-Tools mit Pfad-Argumenten**, Hooks Dritter mit `updatedInput` und Hooks im Frontmatter von `.claude/agents/**` und `.claude/skills/**` (vom Agenten schreibbar) sind nicht geschuetzt.
+- **Evidence-Integritaet:** Workflows, Tests und Bench-Grenzen schuetzt nur das Warden-Review des Diffs. Risk Tags pruefen heute nur den geplanten Quest-Scope, Scope Lock nur Datei-Tools. Follow-up: Risk Tags bei `quest submit` gegen den PR-Diff.
+- **Ledger, ungetrackt:** Datei und Anker gemeinsam gefaelscht sowie die Faelschung „frischer Klon“ (Anker und `writer-id` geloescht, Dateien auf HEAD) sind lokal nicht erkennbar (ADR-0010). Schutz sind committete und gepushte Ledger-Dateien.
+- **Verschachtelte Projekte:** Jedes erweckte Vorfahr-Projekt wird vollstaendig ausgewertet (Scope Lock eingeschlossen); ein eigenstaendiges Projekt in einem anderen unterliegt damit dem Scope der Eltern-Quest. Eine Registrierung verschachtelter Projekte ist ein Follow-up.
+- **Wrapper:** `awakened()` im Wrapper (nur im Fehlerpfad, wenn das Binary fehlt) nutzt das cwd aus dem Hook-Input und `$PWD`, das strengere gilt. Das cwd wird ohne Fork aus der ersten Zeile der Eingabe gelesen; ein Pfad mit JSON-Escape oder eine mehrzeilige Eingabe faellt auf `$PWD` zurueck.
+
+### Bash: Heuristik, nicht Sandbox
+
+Die Policy prueft Bash heuristisch und lieber zu streng. Quotes, `\`-Escapes, Brace-Expansion, `$'...'`, `~`, `$HOME`, `$PWD` und Shell-Schluesselwoerter werden bereinigt, Globs gegen Schutzpfade geprueft, Ziele, die einen Schutzpfad enthalten, verweigert. Nicht erkennbar sind Interpreter-Skriptdateien, zur Laufzeit entstehende Pfade und Netzwerkzugriffe. Der Schutz ist eine Leitplanke, keine Sandbox.
+
+- **Homoglyphen:** Monarch faltet selbst (ASCII-Lowercase plus Tabelle aus Unicode `CaseFolding.txt`, Status C und F, nur rein ASCII-Ergebnisse, z. B. `ſ`, Kelvin-Zeichen, `ß`, Ligaturen). Homoglyphen ausserhalb dieser Tabelle (z. B. Fullwidth `ｓ`) werden nicht gefaltet; auf APFS sind sie auch nicht dieselbe Datei, ein Treffer ist also nur ueber andere Wege denkbar.
+- **Interpreter-Skripte und zur Laufzeit gebaute Pfade:** Steht ein Schutzpfad nur in einer Skriptdatei (`python x.py`, `sh x.sh`, `make`) oder entsteht er erst durch Kodierung, String-Arithmetik oder Umgebungsvariablen zur Laufzeit, sieht der Hook ihn nicht. Folge fuer G3: Aenderungen am Ledger bleiben ueber Anker, Git und Forge erkennbar.
+
+### Bekannte Fehlalarme und Ausweg
+
+Die Heuristik ist fail-closed bei Nennung eines Schutzpfads. Legitime Faelle, die davon getroffen werden:
+
+| Kommando | Ausweg |
+|---|---|
+| `find ... -prune -exec rm ...` (Pfad im Kommando, Schreiber vorhanden) | Pfad ohne `.monarch` im Kommando, oder die Aktion als Owner im Terminal ausfuehren |
+| `cp .monarch/system.yaml /tmp/x` (Lesen ueber einen Schreiber) | `cat .monarch/system.yaml` bzw. das Read-Tool verwenden, oder im Terminal kopieren |
+| `git checkout .` | konkrete Pfade angeben (`git checkout -- src/`); pfadlos verwirft es ungetrackte/nicht committete Ledger-Dateien |
+| `git restore .` | wie oben: `git restore src/` |
+
+Reicht der Ausweg nicht, fuehrt der Owner die Aktion selbst im Terminal aus oder erteilt eine Freigabe (`ask`).

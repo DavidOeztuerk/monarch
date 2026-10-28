@@ -119,4 +119,31 @@ public sealed class GitAnchoredLedgerTests : IDisposable
         Assert.NotEqual(first.File, next.File);
         Assert.Equal(before, File.ReadAllBytes(Path.Combine(_t.Path, first.File)));
     }
+
+    [Fact]
+    public void Fresh_clone_forgery_is_not_detectable_locally_and_creates_no_reset()
+    {
+        // ADR-0010: anchor and writer-id are deleted and the ledger files are put back to HEAD. Nothing local says that events were
+        // there; only the forge (pushed commits) and the owner's memory of the work would.
+        var committed = CommittedLedger();
+        var store = new JsonlLedgerStore(new JsonlLedgerOptions { Root = _t.Path }, new FixedClock());
+        var extra = store.Append("s1", "knight", "Note", P.Json("""{"secret":"event the forger wants gone"}"""));
+        Assert.True(File.Exists(Path.Combine(_t.Path, extra.File)));
+
+        Directory.Delete(Path.Combine(_t.Path, ".monarch", "local"), true);
+        Git(_t.Path, "clean", "-fdq", "--", ".monarch/ledger");
+        Git(_t.Path, "checkout", "--", ".monarch/ledger");
+        Assert.False(File.Exists(Path.Combine(_t.Path, extra.File)));
+
+        var v = LedgerVerifier.Verify(_t.Path);
+        Assert.True(v.Ok, string.Join("; ", v.Violations));
+        Assert.Equal(1, v.AnchoredByGit);
+
+        store.Append("s1", "knight", "Note", P.Json("{}"));
+        var all = Directory.GetFiles(Path.Combine(_t.Path, ".monarch", "ledger"), "*.jsonl", SearchOption.AllDirectories).SelectMany(File.ReadAllLines).ToList();
+        Assert.DoesNotContain(all, l => l.Contains("LedgerAnchorReset", StringComparison.Ordinal));
+        Assert.DoesNotContain(all, l => l.Contains("event the forger wants gone", StringComparison.Ordinal));
+        Assert.True(LedgerVerifier.Verify(_t.Path).Ok);
+        Assert.True(File.Exists(committed));
+    }
 }

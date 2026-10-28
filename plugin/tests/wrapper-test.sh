@@ -45,6 +45,21 @@ run "$proj" "$H" hook post-tool-use; [ "$CODE" = 0 ] && [ -z "$OUT" ]; check "mi
 run "$proj" "$H" hook stop; [ "$CODE" = 0 ] && [ -z "$OUT" ]; check "missing binary, stop: fail-open" $?
 run "$proj" "$H" status; [ "$CODE" = 1 ]; check "missing binary, other mode: exit 1" $?
 
+# 2b. the cwd of the hook input counts, not only $PWD (ADR-0011 follow-up: awakened() used $PWD)
+runin() { # dir, home, stdin, args...
+  d=$1; h=$2; in=$3; shift 3
+  OUT=$(cd "$d" && printf '%s\n' "$in" | env -u MONARCH_BIN HOME="$h" sh "$wrapper" "$@" 2>/dev/null); CODE=$?
+}
+mkhome; rm "$D/monarch"
+runin "$work/plain" "$H" '{"session_id":"s","cwd":"'"$proj"'/sub","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}' hook pre-tool-use
+isask; check "hook cwd in an awakened project, \$PWD plain: ask" $?
+runin "$proj" "$H" '{"session_id":"s","cwd":"'"$work"'/plain","tool_name":"Bash"}' hook pre-tool-use
+isask; check "hook cwd plain, \$PWD awakened: ask (stricter of both)" $?
+runin "$work/plain" "$H" '{"session_id":"s","cwd":"'"$work"'/plain","tool_name":"Bash","tool_input":{"command":"echo \"cwd\":\"'"$proj"'\""}}' hook pre-tool-use
+[ "$CODE" = 0 ] && [ -z "$OUT" ]; check "a quoted cwd inside a command string is not mistaken for the hook cwd: fail-open" $?
+runin "$work/plain" "$H" '{"cwd":"relative/dir"}' hook pre-tool-use
+[ "$CODE" = 0 ] && [ -z "$OUT" ]; check "relative hook cwd is ignored" $?
+
 # 3. missing SHA256SUMS
 mkhome; rm "$D/SHA256SUMS"
 run "$proj" "$H" hook pre-tool-use; isask; check "missing SUMS, awakened: ask" $?

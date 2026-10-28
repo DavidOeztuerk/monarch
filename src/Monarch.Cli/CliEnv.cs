@@ -13,7 +13,8 @@ namespace Monarch.Cli;
 /// <param name="Clock">Time source.</param>
 /// <param name="Http">HTTP handler for GitHub calls; null uses the system handler (tests inject a fake).</param>
 /// <param name="Tokens">GitHub token source; null resolves from the environment.</param>
-internal sealed record CliEnv(string Cwd, string Home, TextReader In, TextWriter Out, TextWriter Err, IClock Clock, HttpMessageHandler? Http = null, GitHubTokenProvider? Tokens = null)
+/// <param name="StdinIsTty">True when stdin is an interactive terminal; owner-only commands (ADR-0011 rule 7) need it. Tests inject it.</param>
+internal sealed record CliEnv(string Cwd, string Home, TextReader In, TextWriter Out, TextWriter Err, IClock Clock, HttpMessageHandler? Http = null, GitHubTokenProvider? Tokens = null, bool StdinIsTty = false)
 {
     /// <summary>Builds the environment of the running process.</summary>
     public static CliEnv FromProcess()
@@ -31,6 +32,7 @@ internal sealed record CliEnv(string Cwd, string Home, TextReader In, TextWriter
             new StreamReader(Console.OpenStandardInput(), utf8),
             new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = false },
             new StreamWriter(Console.OpenStandardError(), utf8) { AutoFlush = true },
-            new SystemClock());
+            new SystemClock(),
+            StdinIsTty: !Console.IsInputRedirected);
     }
 }

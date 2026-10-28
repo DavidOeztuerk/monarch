@@ -157,7 +157,7 @@ public static class LedgerVerifier
                 if (!reset.Acknowledged)
                 {
                     violations.Add(new LedgerViolation(file, reset.Line, LedgerViolationKind.AnchorReset,
-                        $"Ledger anchor was reset ({reset.Reason}); not acknowledged. Event {reset.Hash}; run 'monarch ledger ack-reset {reset.Hash}'."));
+                        $"Ledger anchor was reset ({reset.Reason}); not acknowledged. Event {reset.Hash}. Owner: im Terminal `monarch ledger ack-reset {reset.Hash}` ausführen."));
                 }
             }
         }

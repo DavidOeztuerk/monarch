@@ -250,9 +250,42 @@ internal static class ManaCommands
         return 1;
     }
 
+    /// <summary>
+    /// G3 (ADR-0011): runs the ledger verification before a clear. On findings it appends <c>ClearRefusedLedgerInvalid</c> and returns the refusal text;
+    /// null means the ledger is clean.
+    /// </summary>
+    public static string? VerifyBeforeClear(CliEnv env, ProjectPaths paths, string questId)
+    {
+        var result = LedgerVerifier.Verify(paths.Root);
+        if (result.Ok)
+        {
+            return null;
+        }
+
+        var findings = string.Join("; ", result.Violations.Take(5).Select(v => $"{v.File}:{v.Line} {v.Kind}"));
+        try
+        {
+            var ledger = new ProjectLedger(paths, env.Clock);
+            ledger.Append(ledger.SessionId(), "cli", "ClearRefusedLedgerInvalid", ("quest", questId), ("violations", (long)result.Violations.Count), ("first", findings));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            // A ledger too broken to append to still refuses the clear.
+        }
+
+        return $"ledger verify reports {result.Violations.Count} finding(s) ({findings}); clear refused until the ledger is clean (monarch ledger verify).";
+    }
+
     /// <summary>Acknowledges a <c>LedgerAnchorReset</c> event; the only way to clear that finding. Not a tool path: runs through the CLI as actor <c>cli</c>.</summary>
     public static int LedgerAckReset(CliEnv env, string eventHash)
     {
+        // Owner action (ADR-0011 rule 7): the agent runs without a terminal on stdin, so a pipe or /dev/null is refused before anything is read or written.
+        if (!env.StdinIsTty)
+        {
+            env.Err.WriteLine("refused: 'ledger ack-reset' is an owner action and needs an interactive terminal on stdin (Terminal erforderlich).");
+            return 1;
+        }
+
         if (ProjectPaths.Locate(env.Cwd, env.Home) is not { } paths)
         {
             env.Err.WriteLine("refused: not an awakened project.");

@@ -38,13 +38,20 @@ internal static class HookRunner
         }
 
         var cwd = !string.IsNullOrEmpty(input?.Cwd) && Path.IsPathRooted(input.Cwd) ? input.Cwd : env.Cwd;
-        var primary = ProjectPaths.Locate(cwd, env.Home) ?? ProjectPaths.Locate(env.Cwd, env.Home);
+        // Every awakened project around the cwd, nearest first: all of them are evaluated in full (ADR-0011 rule 6).
+        var chain = ProjectPaths.LocateAll(cwd, env.Home);
+        if (chain.Count == 0)
+        {
+            chain = ProjectPaths.LocateAll(env.Cwd, env.Home);
+        }
+
+        var primary = chain.FirstOrDefault();
         List<ProjectPaths> targets = [];
         if (evt == "pre-tool-use" && parseError is null && input is { ToolName: { Length: > 0 } })
         {
             try
             {
-                targets = TargetProjects(input, cwd, primary, env);
+                targets = TargetProjects(input, cwd, chain, env);
             }
             catch (Exception ex)
             {
@@ -74,7 +81,7 @@ internal static class HookRunner
 
             if (evt == "pre-tool-use")
             {
-                PreToolUse(input!, primary, targets, env);
+                PreToolUse(input!, cwd, chain, targets, env);
             }
             else
             {
@@ -132,44 +139,45 @@ internal static class HookRunner
     /// Awakened projects a tool call can reach besides the cwd project: found from the canonical target path (file tools) and from
     /// <c>cd</c>/<c>pushd</c>/<c>git -C</c>/<c>--git-dir</c>/<c>--work-tree</c> targets and absolute path tokens (Bash).
     /// </summary>
-    private static List<ProjectPaths> TargetProjects(HookInput input, string cwd, ProjectPaths? primary, CliEnv env)
+    private static List<ProjectPaths> TargetProjects(HookInput input, string cwd, List<ProjectPaths> chain, CliEnv env)
     {
         var result = new List<ProjectPaths>();
-        var seen = new List<string>();
-        if (primary is not null)
-        {
-            seen.Add(PathCanon.Resolve("/", primary.Root));
-        }
-
+        var seen = chain.Select(c => PathCanon.Resolve("/", c.Root)).ToList();
+        var searched = new HashSet<string>(StringComparer.Ordinal);
         foreach (var location in ProjectTargets.Locations(CallOf(input, cwd)))
         {
-            if (ProjectPaths.Locate(location, env.Home) is not { } found)
+            if (!searched.Add(location))
             {
                 continue;
             }
 
-            var canonical = PathCanon.Resolve("/", found.Root);
-            if (seen.Exists(r => string.Equals(r, canonical, StringComparison.OrdinalIgnoreCase)))
+            // All enclosing projects count: a decoy .monarch at the target must not hide the real project around it.
+            foreach (var found in ProjectPaths.LocateAll(location, env.Home))
             {
-                continue;
-            }
+                var canonical = PathCanon.Resolve("/", found.Root);
+                if (seen.Exists(r => string.Equals(r, canonical, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
 
-            seen.Add(canonical);
-            result.Add(found);
+                seen.Add(canonical);
+                result.Add(found);
+            }
         }
 
         return result;
     }
 
-    private static void PreToolUse(HookInput input, ProjectPaths? primary, List<ProjectPaths> targets, CliEnv env)
+    private static void PreToolUse(HookInput input, string cwd, List<ProjectPaths> chain, List<ProjectPaths> targets, CliEnv env)
     {
-        var call = CallOf(input, input.Cwd ?? env.Cwd);
+        var call = CallOf(input, cwd);
 
-        // The cwd project gets every rule; each further project reached by the call gets protect_paths and protect_secrets. The strictest result wins.
+        // Every awakened project around the cwd gets every rule (Scope Lock, rank, deny_bash, protection); each further project reached by the
+        // call gets protect_paths and protect_secrets. The strictest result wins and each project logs the decision of its own rules.
         var evaluated = new List<(ProjectPaths Paths, ActiveFile? Active, PolicyDecision Decision, bool Full)>();
-        if (primary is not null)
+        foreach (var project in chain)
         {
-            evaluated.Add(Evaluate(primary, call, env, full: true, input));
+            evaluated.Add(Evaluate(project, call, env, full: true, input));
         }
 
         foreach (var t in targets)

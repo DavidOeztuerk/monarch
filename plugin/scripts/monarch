@@ -4,9 +4,9 @@
 MONARCH_VERSION=0.1.0
 mode=${1:-}
 
-# Is the cwd (or a parent) an awakened project? Pure shell loop, no fork.
-awakened() {
-  d=${PWD:-}
+# Is a directory (or a parent) an awakened project? Pure shell loop, no fork.
+awakened_in() {
+  d=$1
   case $d in /*) ;; *) return 1 ;; esac
   while :; do
     [ -f "$d/.monarch/system.yaml" ] && return 0
@@ -14,6 +14,22 @@ awakened() {
     d=${d%/*}
     [ -n "$d" ] || d=/
   done
+}
+
+# Awakened if the cwd of the hook input (first line of stdin, `read` builtin, no fork) or $PWD is inside an awakened
+# project; the stricter of both counts. The input is read only in the fail path, which ends the wrapper anyway.
+# The first `"cwd":"` is the hook's own field (it precedes tool_input, and quotes inside strings are escaped as \").
+# A path with a JSON escape is not decoded and falls back to $PWD.
+awakened() {
+  line=
+  IFS= read -r line || :
+  case $line in
+    *'"cwd":"'*)
+      c=${line#*'"cwd":"'}
+      c=${c%%'"'*}
+      case $c in *\\*) ;; *) awakened_in "$c" && return 0 ;; esac ;;
+  esac
+  awakened_in "${PWD:-}"
 }
 
 ask() {
