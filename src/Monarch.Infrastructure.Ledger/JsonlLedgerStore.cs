@@ -24,6 +24,7 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
         ArgumentException.ThrowIfNullOrEmpty(type);
         lock (Gate)
         {
+            RestoreReturnedFiles(sessionId);
             var entry = AppendCore(sessionId, actor, type, payload, out var reset);
             if (reset is not null)
             {
@@ -32,6 +33,37 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
             }
 
             return entry;
+        }
+    }
+
+    /// <summary>
+    /// N2: a file that a stale-anchor reset moved away from may come back (git stash pop, branch round trip). If it carries exactly its old head,
+    /// with an intact chain and a recorded reset, its anchor goes back to that head and a visible <c>LedgerAnchorRestored</c> event is written.
+    /// The reset itself stays a finding until the owner acknowledges it.
+    /// </summary>
+    private void RestoreReturnedFiles(string sessionId)
+    {
+        var pending = LedgerAnchor.Read(options.Root).Heads.Restore;
+        foreach (var (file, old) in pending.OrderBy(p => p.Key, StringComparer.Ordinal).ToList())
+        {
+            if (LedgerVerifier.FindRestore(options.Root, file, old) is not { } resetHash)
+            {
+                continue;
+            }
+
+            using var ms = new MemoryStream();
+            using (var w = new Utf8JsonWriter(ms))
+            {
+                w.WriteStartObject();
+                w.WriteString("file", file);
+                w.WriteNumber("seq", old.Seq);
+                w.WriteString("hash", old.Hash);
+                w.WriteString("reset", resetHash);
+                w.WriteEndObject();
+            }
+
+            AppendCore(sessionId, "ledger", "LedgerAnchorRestored", JsonDocument.Parse(ms.ToArray()).RootElement.Clone(), out _);
+            LedgerHeadStore.ApplyRestore(options.Root, file, old);
         }
     }
 
@@ -55,6 +87,15 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
             }
 
             w.WriteEndArray();
+            if (reset.OldFile is not null && reset.OldHead is not null)
+            {
+                w.WriteStartObject("oldHead");
+                w.WriteString("file", reset.OldFile);
+                w.WriteNumber("seq", reset.OldHead.Seq);
+                w.WriteString("hash", reset.OldHead.Hash);
+                w.WriteEndObject();
+            }
+
             w.WriteEndObject();
         }
 

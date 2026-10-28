@@ -97,6 +97,17 @@ internal static class LedgerAnchor
             }
         }
 
+        if (root.TryGetProperty("restore", out var restore) && restore.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var entry in restore.EnumerateObject())
+            {
+                if (Validate(entry.Value, out var old) is null)
+                {
+                    heads.Restore[entry.Name] = old!;
+                }
+            }
+        }
+
         return new AnchorState(problems.Count == 0 ? AnchorStatus.Ok : AnchorStatus.Invalid, heads, problems);
     }
 

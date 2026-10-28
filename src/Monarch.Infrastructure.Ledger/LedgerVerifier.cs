@@ -33,6 +33,8 @@ public static class LedgerVerifier
         }
 
         var known = anchor.Heads.Files;
+        var restorable = new List<string>();
+        var allResets = scanned.SelectMany(s => s.Value.Resets.Select(r => r with { File = s.Key })).ToList();
         var anchorBroken = anchor.Problems.Any(p => p.File == LedgerFiles.HeadsPath);
         var invalidEntries = anchor.Problems.Select(p => p.File).ToHashSet(StringComparer.Ordinal);
         var byGit = 0;
@@ -40,6 +42,12 @@ public static class LedgerVerifier
         {
             if (known.ContainsKey(file) || anchorBroken || invalidEntries.Contains(file))
             {
+                continue;
+            }
+
+            if (IsRestored(file, scanned[file], allResets))
+            {
+                restorable.Add(file);
                 continue;
             }
 
@@ -70,6 +78,11 @@ public static class LedgerVerifier
             {
                 violations.Add(new LedgerViolation(file, (int)head.Seq, LedgerViolationKind.HeadMismatch, "Hash at the anchored sequence differs from the anchor."));
             }
+            else if (scan.Hashes.Count > head.Seq && IsRestored(file, scan, allResets))
+            {
+                // N2: the content that a stale-anchor reset moved away from is back; the next append anchors it and writes LedgerAnchorRestored.
+                restorable.Add(file);
+            }
             else if (scan.Hashes.Count > head.Seq)
             {
                 violations.Add(new LedgerViolation(file, (int)head.Seq + 1, LedgerViolationKind.HeadMismatch, "Lines exist beyond the anchored head."));
@@ -79,7 +92,51 @@ public static class LedgerVerifier
         CheckAgainstGit(root, scanned, violations);
         CheckGenerations(scanned.Keys, violations);
         var resets = CollectResets(scanned, violations);
-        return new LedgerVerification(violations, known.Keys.Count(scanned.ContainsKey), byGit, resets);
+        return new LedgerVerification(violations, known.Keys.Count(scanned.ContainsKey), byGit, resets, restorable);
+    }
+
+    /// <summary>
+    /// N2: whether <paramref name="file"/> holds exactly the head that a recorded <c>LedgerAnchorReset</c> moved away from (same sequence, same hash,
+    /// intact chain, no lines beyond it). Anything else stays a finding.
+    /// </summary>
+    private static bool IsRestored(string file, FileScan scan, IEnumerable<LedgerReset> resets) =>
+        scan.Clean && resets.Any(r => r.OldFile == file && r.OldSeq >= 1 && scan.Hashes.Count == r.OldSeq && scan.Hashes[(int)r.OldSeq - 1] == r.OldHash);
+
+    /// <summary>The hash of the reset event that makes <paramref name="file"/> restorable on <paramref name="old"/>, or null.</summary>
+    internal static string? FindRestore(string root, string file, LedgerHead old)
+    {
+        var full = LedgerFiles.Full(root, file);
+        try
+        {
+            if (!File.Exists(full) || LedgerFiles.ReadAllShared(full).Count(b => b == (byte)'\n') != old.Seq)
+            {
+                return null;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        var throwaway = new List<LedgerViolation>();
+        var scans = new Dictionary<string, FileScan>(StringComparer.Ordinal);
+        foreach (var relative in LedgerFiles.EnumerateRelative(root))
+        {
+            if (TryScanFile(root, relative, throwaway) is { } scan)
+            {
+                scans[relative] = scan;
+            }
+        }
+
+        if (!scans.TryGetValue(file, out var target))
+        {
+            return null;
+        }
+
+        var resets = scans.SelectMany(s => s.Value.Resets.Select(r => r with { File = s.Key })).ToList();
+        return IsRestored(file, target, resets.Where(r => r.OldSeq == old.Seq && r.OldHash == old.Hash))
+            ? resets.First(r => r.OldFile == file && r.OldSeq == old.Seq && r.OldHash == old.Hash).Hash
+            : null;
     }
 
     /// <summary>
@@ -181,6 +238,7 @@ public static class LedgerVerifier
     private static FileScan ScanFile(string root, string relative, List<LedgerViolation> violations)
     {
         var session = Path.GetFileNameWithoutExtension(relative);
+        var violationsBefore = violations.Count;
         var text = Encoding.UTF8.GetString(LedgerFiles.ReadAllShared(LedgerFiles.Full(root, relative)));
         var lines = text.Split('\n');
         var complete = lines.Length - 1;
@@ -228,7 +286,8 @@ public static class LedgerVerifier
 
             if (parsed.Type == "LedgerAnchorReset")
             {
-                resets.Add(new LedgerReset(relative, i, hash, StringProperty(parsed.Payload, "reason") ?? "no reason recorded", false));
+                var (oldFile, oldSeq, oldHash) = OldHead(parsed.Payload);
+                resets.Add(new LedgerReset(relative, i, hash, StringProperty(parsed.Payload, "reason") ?? "no reason recorded", false, oldFile, oldSeq, oldHash));
             }
             else if (parsed.Type == "LedgerAnchorResetAcknowledged" && parsed.Actor == "cli" && StringProperty(parsed.Payload, "reset") is { } target)
             {
@@ -248,11 +307,23 @@ public static class LedgerVerifier
             previous = hash;
         }
 
-        return new FileScan(hashes, resets, acks);
+        return new FileScan(hashes, resets, acks, violations.Count == violationsBefore);
     }
 
-    private static string? StringProperty(System.Text.Json.JsonElement payload, string name) =>
+    private static string? StringProperty(JsonElement payload, string name) =>
         payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
 
-    private sealed record FileScan(List<string> Hashes, List<LedgerReset> Resets, List<string> Acks);
+    private static (string? File, long Seq, string? Hash) OldHead(JsonElement payload)
+    {
+        if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("oldHead", out var o) && o.ValueKind == JsonValueKind.Object
+            && StringProperty(o, "file") is { } file && StringProperty(o, "hash") is { } hash
+            && o.TryGetProperty("seq", out var seq) && seq.ValueKind == JsonValueKind.Number && seq.TryGetInt64(out var n))
+        {
+            return (file, n, hash);
+        }
+
+        return (null, 0, null);
+    }
+
+    private sealed record FileScan(List<string> Hashes, List<LedgerReset> Resets, List<string> Acks, bool Clean);
 }

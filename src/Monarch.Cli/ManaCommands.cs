@@ -235,6 +235,11 @@ internal static class ManaCommands
         }
 
         var result = LedgerVerifier.Verify(paths.Root);
+        foreach (var file in result.Restorable ?? [])
+        {
+            env.Out.WriteLine($"{file}: original content is back (git stash pop / branch switch); the next ledger append anchors it again and writes LedgerAnchorRestored.");
+        }
+
         if (result.Ok)
         {
             env.Out.WriteLine($"ledger ok ({result.AnchoredLocally} anchored locally, {result.AnchoredByGit} anchored by git)");

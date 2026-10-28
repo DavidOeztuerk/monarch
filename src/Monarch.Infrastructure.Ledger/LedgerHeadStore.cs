@@ -7,7 +7,9 @@ namespace Monarch.Infrastructure.Ledger;
 /// <param name="Reason">What was wrong with the anchor.</param>
 /// <param name="ArchivedTo">File name the old anchor was moved to, or null when there was none.</param>
 /// <param name="Reanchored">Ledger files that were re-anchored from their current tail.</param>
-internal sealed record AnchorReset(string Reason, string? ArchivedTo, IReadOnlyList<string> Reanchored);
+/// <param name="OldFile">File whose anchor lay ahead of its content, or null.</param>
+/// <param name="OldHead">The anchored head of <paramref name="OldFile"/> before the reset; the file is accepted again if exactly this content returns (N2).</param>
+internal sealed record AnchorReset(string Reason, string? ArchivedTo, IReadOnlyList<string> Reanchored, string? OldFile = null, LedgerHead? OldHead = null);
 
 /// <summary>Maintains <c>ledger-heads.json</c>, the tamper anchor for truncation and deletion. Never rebuilds it silently.</summary>
 internal static class LedgerHeadStore
@@ -63,6 +65,12 @@ internal static class LedgerHeadStore
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using var guard = LedgerFiles.OpenExclusive(path + ".lock");
         var heads = LedgerAnchor.Read(root).Heads;
+        LedgerHead? oldHead = heads.Files.TryGetValue(staleRelative, out var previous) ? new LedgerHead { Seq = previous.Seq, Hash = previous.Hash } : null;
+        if (oldHead is not null)
+        {
+            heads.Restore[staleRelative] = oldHead;
+        }
+
         if (staleTail is null)
         {
             heads.Files.Remove(staleRelative);
@@ -74,7 +82,18 @@ internal static class LedgerHeadStore
 
         heads.Files[relative] = new LedgerHead { Seq = seq, Hash = hash };
         Write(path, heads);
-        return new AnchorReset($"Anchor ahead of file: {staleRelative} is shorter than, or differs from, its anchored head; a new writer generation was started.", null, [staleRelative]);
+        return new AnchorReset($"Anchor ahead of file: {staleRelative} is shorter than, or differs from, its anchored head; a new writer generation was started.", null, [staleRelative], oldHead is null ? null : staleRelative, oldHead);
+    }
+
+    /// <summary>The original content of <paramref name="relative"/> is back: anchors it on <paramref name="old"/> again and forgets the pending restore.</summary>
+    public static void ApplyRestore(string root, string relative, LedgerHead old)
+    {
+        var path = LedgerFiles.Full(root, LedgerFiles.HeadsPath);
+        using var guard = LedgerFiles.OpenExclusive(path + ".lock");
+        var heads = LedgerAnchor.Read(root).Heads;
+        heads.Files[relative] = new LedgerHead { Seq = old.Seq, Hash = old.Hash };
+        heads.Restore.Remove(relative);
+        Write(path, heads);
     }
 
     private static void Write(string path, LedgerHeads heads)

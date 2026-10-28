@@ -37,7 +37,8 @@ public sealed record LedgerViolation(string File, int Line, LedgerViolationKind 
 /// <param name="AnchoredLocally">Number of ledger files covered by the local head anchor.</param>
 /// <param name="AnchoredByGit">Number of ledger files without a local anchor entry that are committed and unmodified in git.</param>
 /// <param name="Resets">All <c>LedgerAnchorReset</c> events found, acknowledged or not.</param>
-public sealed record LedgerVerification(IReadOnlyList<LedgerViolation> Violations, int AnchoredLocally = 0, int AnchoredByGit = 0, IReadOnlyList<LedgerReset>? Resets = null)
+/// <param name="Restorable">Files that carry exactly their pre-reset head again; the next append anchors them and writes <c>LedgerAnchorRestored</c>.</param>
+public sealed record LedgerVerification(IReadOnlyList<LedgerViolation> Violations, int AnchoredLocally = 0, int AnchoredByGit = 0, IReadOnlyList<LedgerReset>? Resets = null, IReadOnlyList<string>? Restorable = null)
 {
     /// <summary>Gets a value indicating whether no violation was found.</summary>
     public bool Ok => Violations.Count == 0;
@@ -49,4 +50,7 @@ public sealed record LedgerVerification(IReadOnlyList<LedgerViolation> Violation
 /// <param name="Hash">Event hash; the argument of <c>ledger ack-reset</c>.</param>
 /// <param name="Reason">Recorded reason.</param>
 /// <param name="Acknowledged">Whether a <c>LedgerAnchorResetAcknowledged</c> event by actor <c>cli</c> refers to it.</param>
-public sealed record LedgerReset(string File, int Line, string Hash, string Reason, bool Acknowledged);
+/// <param name="OldFile">File whose anchor lay ahead of its content when this reset was written, or null.</param>
+/// <param name="OldSeq">Anchored sequence of <paramref name="OldFile"/> before the reset.</param>
+/// <param name="OldHash">Anchored hash of <paramref name="OldFile"/> before the reset.</param>
+public sealed record LedgerReset(string File, int Line, string Hash, string Reason, bool Acknowledged, string? OldFile = null, long OldSeq = 0, string? OldHash = null);

@@ -24,6 +24,17 @@ dass ein korrupter Anker beim nächsten Append still neu aufgebaut wurde.
    Anker nicht fort, sondern beginnt eine neue Datei (neue writerId-Generation) und
    hinterlässt ein `LedgerAnchorReset` („Anchor ahead of file“) als klebenden Befund bis zur
    Quittierung; die alte Datei wird dabei auf ihren Rest verankert.
+   **Rückkehr des Originalinhalts (Q-0125, N2):** Das `LedgerAnchorReset` führt den alten Head
+   (`oldHead`: Datei, seq, hash). Steht in dieser Datei danach genau dieser Hash an dieser `seq`
+   (z. B. nach `git stash pop` oder einer Branch-Rundreise), die Kette ist intakt und es gibt
+   keine Zeilen dahinter, gilt der Stand wieder als verankert: `verify` meldet für die Datei
+   keinen Befund, und der nächste Append setzt den Anker auf den alten Head zurück und schreibt
+   das sichtbare Event `LedgerAnchorRestored` (kein stilles Heilen). Jeder andere Inhalt (anderer
+   Hash, zusätzliche Zeilen, gebrochene Kette) bleibt ein Befund. **Das Restore quittiert den Reset
+   nicht:** das `LedgerAnchorReset` bleibt Befund, bis der Owner es per `ack-reset` quittiert, auch
+   wenn der Originalinhalt zurück ist (der Owner soll wissen, dass der Anker zwischenzeitlich vor der
+   Datei lag). Offen: wird die Reset-Datei selbst durch einen Branchwechsel entfernt (auf dem anderen Branch
+   committet), bleibt sie als „missing but anchored“ ein Befund.
 2. **`verify` stürzt bei keinem Anker-Inhalt ab.** Jeder defekte Anker oder Eintrag ist ein
    Befund `AnchorInvalid`.
 3. **Zweite, unabhängige Quelle: Git.** `verify` gleicht die Ledger-Dateien mit

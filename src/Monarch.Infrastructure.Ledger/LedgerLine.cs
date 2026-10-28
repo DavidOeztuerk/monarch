@@ -33,6 +33,9 @@ internal sealed class LedgerHead
 internal sealed class LedgerHeads
 {
     public Dictionary<string, LedgerHead> Files { get; set; } = [];
+
+    /// <summary>Old heads of files that a stale-anchor reset moved away from (N2): the file may come back with exactly this head (git stash pop, branch round trip).</summary>
+    public Dictionary<string, LedgerHead> Restore { get; set; } = [];
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
