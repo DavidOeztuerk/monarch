@@ -5,7 +5,7 @@ kind: main
 rank: C
 severity: medium
 risk_tags: []
-state: proposed
+state: in_review
 scope:
   repo: monarch
   include: ["src/Monarch.Domain/**", "src/Monarch.Cli/**", "src/Monarch.Mcp/**", "tests/**", "docs/adr/0012-*", "plugin/skills/**", "plugin/README.md"]
@@ -17,6 +17,7 @@ dod:
   - Test: Resolve()-Limits mit und ohne Kalibrierdatei identisch
   - Tests rot → grün; keine abgeschwächten Tests
 boss: "monarch mana zeigt für (opus, xhigh) und (sonnet, default) getrennte Faktoren mit Kalibrierstatus; Deny-Listen-Test am Limit grün"
+board: { pr: 15 }
 ---
 # Mana-Schätzung je (Modell, Effort)
 
