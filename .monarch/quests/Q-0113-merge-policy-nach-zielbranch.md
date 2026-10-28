@@ -5,7 +5,7 @@ kind: main
 rank: A
 severity: high
 risk_tags: [policy]
-state: proposed
+state: in_review
 scope:
   repo: monarch
   include: ["src/Monarch.Policy/**", "src/Monarch.Cli/**", "src/Monarch.Infrastructure.Evidence/**", "src/Monarch.Domain/**", "tests/**", "docs/adr/0007-*", "plugin/README.md", "plugin/skills/**"]
@@ -18,6 +18,7 @@ dod:
   - monarch gate verdict <G> und monarch gate merge <G> prüfen Base = Integrations-Branch, Rank (S verweigert), CI grün am Head-SHA, Warden-Verdict zum Head-SHA plus ShadowRunCompleted eines Wardens; Merge mit sha-Bindung, GateMerged mit Merge-Commit
   - Tests rot → grün je Form; Latenz p99 ≤ 20 ms lokal
 boss: "PreToolUse verweigert git push origin HEAD:main und gh pr merge; monarch gate merge verweigert ohne Warden-Verdict zum Head-SHA"
+board: { pr: 15 }
 ---
 # Merge-Policy nach Zielbranch
 
