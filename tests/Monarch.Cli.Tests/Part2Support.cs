@@ -18,6 +18,23 @@ internal sealed partial class FakeForge : HttpMessageHandler
 
     public List<string> Paths { get; } = [];
 
+    /// <summary>Base branch per PR (default <c>develop</c>).</summary>
+    public Dictionary<int, string> Bases { get; } = [];
+
+    /// <summary>Committer date of every commit (default before the test clock).</summary>
+    public string CommitDate { get; set; } = "2026-10-27T11:00:00Z";
+
+    /// <summary>When set, <c>PUT …/merge</c> fails with this status.</summary>
+    public int MergeFailsWith { get; set; }
+
+    /// <summary>When set, the PR base changes to this branch while the merge happens (simulates a retarget).</summary>
+    public string? BaseAfterMerge { get; set; }
+
+    /// <summary>Request bodies of merge calls.</summary>
+    public List<string> MergeBodies { get; } = [];
+
+    public const string MergeSha = "m3rge0000000000000000000000000000000000";
+
     public static string Run(int id, string name, string conclusion, string status = "completed") =>
         $$"""{"id":{{id}},"name":"{{name}}","head_sha":"{{Sha}}","status":"{{status}}","conclusion":{{(conclusion == "" ? "null" : $"\"{conclusion}\"")}},"completed_at":{{(status == "completed" ? "\"2026-10-27T09:05:00Z\"" : "null")}},"html_url":"https://github.com/o/r/runs/{{id}}"}""";
 
@@ -27,6 +44,26 @@ internal sealed partial class FakeForge : HttpMessageHandler
     {
         var path = request.RequestUri!.AbsolutePath;
         Paths.Add(request.Method.Method + " " + path);
+        if (request.Method == HttpMethod.Put && PullMergePath().Match(path) is { Success: true } mm)
+        {
+            var n = int.Parse(mm.Groups[1].Value);
+            MergeBodies.Add(request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken));
+            if (MergeFailsWith != 0 || !Pulls.TryGetValue(n, out var pr))
+            {
+                return new HttpResponseMessage(MergeFailsWith != 0 ? (HttpStatusCode)MergeFailsWith : HttpStatusCode.NotFound) { Content = new StringContent("""{"message":"Head branch was modified"}""") };
+            }
+
+            Pulls[n] = (pr.Head, true);
+            if (BaseAfterMerge is not null) Bases[n] = BaseAfterMerge;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($$"""{"sha":"{{MergeSha}}","merged":true,"message":"Pull Request successfully merged"}""", Encoding.UTF8, "application/json") };
+        }
+
+        var cm = CommitPath().Match(path);
+        if (cm.Success)
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"sha\":\"" + cm.Groups[1].Value + "\",\"commit\":{\"committer\":{\"date\":\"" + CommitDate + "\"},\"author\":{\"date\":\"" + CommitDate + "\"}}}", Encoding.UTF8, "application/json") };
+        }
+
         var m = PullPath().Match(path);
         if (m.Success)
         {
@@ -36,7 +73,7 @@ internal sealed partial class FakeForge : HttpMessageHandler
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
             }
 
-            var json = $$$"""{"number":{{{n}}},"merged":{{{(pull.Merged ? "true" : "false")}}},"merged_at":"2026-10-27T11:00:00Z","merge_commit_sha":{{{(pull.Merged ? "\"m3rge0000000000000000000000000000000000\"" : "null")}}},"html_url":"https://github.com/o/r/pull/{{{n}}}","state":"{{{(pull.Merged ? "closed" : "open")}}}","head":{"sha":"{{{pull.Head}}}"}}""";
+            var json = $$$"""{"number":{{{n}}},"merged":{{{(pull.Merged ? "true" : "false")}}},"merged_at":"2026-10-27T11:00:00Z","merge_commit_sha":{{{(pull.Merged ? "\"m3rge0000000000000000000000000000000000\"" : "null")}}},"html_url":"https://github.com/o/r/pull/{{{n}}}","state":"{{{(pull.Merged ? "closed" : "open")}}}","head":{"sha":"{{{pull.Head}}}"},"base":{"ref":"{{{Bases.GetValueOrDefault(n, "develop")}}}"}}""";
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
         }
 
@@ -52,6 +89,12 @@ internal sealed partial class FakeForge : HttpMessageHandler
 
     [GeneratedRegex(@"/repos/o/r/pulls/(\d+)$")]
     private static partial Regex PullPath();
+
+    [GeneratedRegex(@"/repos/o/r/pulls/(\d+)/merge$")]
+    private static partial Regex PullMergePath();
+
+    [GeneratedRegex(@"/repos/o/r/commits/([^/]+)$")]
+    private static partial Regex CommitPath();
 
     [GeneratedRegex(@"/repos/o/r/commits/([^/]+)/check-runs$")]
     private static partial Regex ChecksPath();

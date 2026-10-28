@@ -41,6 +41,48 @@ internal sealed class PullDto
     public string? HtmlUrl { get; set; }
 
     public PullHeadDto? Head { get; set; }
+
+    public PullBaseDto? Base { get; set; }
+
+    public string? State { get; set; }
+}
+
+internal sealed class PullBaseDto
+{
+    public string? Ref { get; set; }
+}
+
+internal sealed class CommitDto
+{
+    public CommitDetailDto? Commit { get; set; }
+}
+
+internal sealed class CommitDetailDto
+{
+    public CommitPersonDto? Committer { get; set; }
+
+    public CommitPersonDto? Author { get; set; }
+}
+
+internal sealed class CommitPersonDto
+{
+    public DateTimeOffset? Date { get; set; }
+}
+
+internal sealed class MergeRequestDto
+{
+    public string MergeMethod { get; set; } = "squash";
+
+    public string Sha { get; set; } = string.Empty;
+}
+
+internal sealed class MergeResponseDto
+{
+    public string? Sha { get; set; }
+
+    public bool Merged { get; set; }
+
+    public string? Message { get; set; }
 }
 
 internal sealed class PullHeadDto
@@ -51,6 +93,9 @@ internal sealed class PullHeadDto
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(CheckRunsPage))]
 [JsonSerializable(typeof(PullDto))]
+[JsonSerializable(typeof(CommitDto))]
+[JsonSerializable(typeof(MergeRequestDto))]
+[JsonSerializable(typeof(MergeResponseDto))]
 internal sealed partial class EvidenceJsonContext : JsonSerializerContext
 {
 }

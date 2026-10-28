@@ -240,6 +240,26 @@ internal static class ManaCommands
             env.Out.WriteLine($"{file}: original content is back (git stash pop / branch switch); the next ledger append anchors it again and writes LedgerAnchorRestored.");
         }
 
+        // ADR-0007 T3: a cleared quest whose pull request has no GateMerged was not merged by 'monarch gate merge'. A hint, never a finding.
+        List<LedgerRow> rows;
+        try
+        {
+            rows = LedgerScan.All(paths.Root);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            rows = []; // a corrupt line is a verify finding below, not a reason to crash
+        }
+
+        foreach (var cleared in rows.Where(r => r.Type == "QuestCleared" && r.Num("pr") is not null))
+        {
+            var pr = (int)cleared.Num("pr")!;
+            if (!rows.Exists(r => r.Type == "GateMerged" && (int?)r.Num("pr") == pr))
+            {
+                env.Out.WriteLine($"note: {cleared.Str("quest")} was cleared via PR #{pr} without GateMerged in the ledger (not merged by 'monarch gate merge').");
+            }
+        }
+
         if (result.Ok)
         {
             env.Out.WriteLine($"ledger ok ({result.AnchoredLocally} anchored locally, {result.AnchoredByGit} anchored by git)");

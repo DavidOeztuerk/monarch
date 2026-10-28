@@ -9,7 +9,8 @@ namespace Monarch.Cli;
 internal sealed record SystemConfig(
     string Theme, PlanKind Plan, ManaLimits Limits, PenaltyMode PenaltyZone, bool ScopeLock, bool RefuseHighRankInBypassMode,
     IReadOnlyList<RiskTagRule> RiskTags, IReadOnlyList<string> DenyBash, IReadOnlyList<string> ProtectPaths,
-    IReadOnlyList<string> ProtectSecretsExtra, IReadOnlyList<string> ReadOnlyShadows)
+    IReadOnlyList<string> ProtectSecretsExtra, IReadOnlyList<string> ReadOnlyShadows,
+    IReadOnlyList<string> ProtectedBranches, string IntegrationBranch)
 {
     /// <summary>Built-in risk tags (from the concept).</summary>
     public static IReadOnlyList<RiskTagRule> DefaultRiskTags { get; } =
@@ -28,7 +29,7 @@ internal sealed record SystemConfig(
     {
         var p = new PolicyOptions();
         return new SystemConfig("monarch", plan, ManaLimits.ForPlan(plan), PenaltyMode.Block, true, true, DefaultRiskTags,
-            p.DenyBash, p.ProtectPaths, [], p.ReadOnlyShadowTypes);
+            p.DenyBash, p.ProtectPaths, [], p.ReadOnlyShadowTypes, p.ProtectedBranches, p.IntegrationBranch);
     }
 
     /// <summary>Policy options; built-in protections and bans are always kept, the file can only add.</summary>
@@ -41,6 +42,8 @@ internal sealed record SystemConfig(
             DenyBash = [.. d.DenyBash.Concat(DenyBash).Distinct(StringComparer.Ordinal)],
             ExtraSecretGlobs = ProtectSecretsExtra,
             ReadOnlyShadowTypes = [.. d.ReadOnlyShadowTypes.Concat(ReadOnlyShadows).Distinct(StringComparer.Ordinal)],
+            ProtectedBranches = [.. d.ProtectedBranches.Concat(ProtectedBranches).Distinct(StringComparer.Ordinal)],
+            IntegrationBranch = IntegrationBranch,
             ScopeLock = ScopeLock,
             RefuseHighRankInBypassMode = RefuseHighRankInBypassMode,
         };
@@ -63,6 +66,7 @@ internal static class SystemConfigReader
         var root = YamlDocument.Parse(yaml);
         var mana = root.Get("mana") as YamlMap;
         var policy = root.Get("policy") as YamlMap;
+        var git = root.Get("git") as YamlMap;
         var plan = ParsePlan(mana?.GetString("plan"));
         var d = SystemConfig.Create(plan);
         var limits = mana?.Get("limits") as YamlMap;
@@ -80,6 +84,8 @@ internal static class SystemConfigReader
             ProtectPaths = Strings(policy, "protect_paths", d.ProtectPaths),
             ProtectSecretsExtra = Strings(policy, "protect_secrets_extra", d.ProtectSecretsExtra),
             ReadOnlyShadows = Strings(policy, "read_only_shadows", d.ReadOnlyShadows),
+            ProtectedBranches = Strings(git, "protected_branches", d.ProtectedBranches),
+            IntegrationBranch = git?.GetString("integration_branch") is { Length: > 0 } ib ? ib : d.IntegrationBranch,
         };
     }
 

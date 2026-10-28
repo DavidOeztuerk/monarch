@@ -152,6 +152,50 @@ internal static class EvidenceCommands
 
     private static ManaCost EstimateOf(string root, QuestId id) => new LocalFileBoard(root).ReadEstimate(id) ?? new ManaCost(5, 1, 0m);
 
+    /// <summary>
+    /// The one CI rule, shared by <c>quest verify</c> and <c>gate merge</c> (ADR-0007 B2): only conclusion <c>success</c> counts, the latest run per check name
+    /// counts, and <c>evidence.required</c> from system.yaml narrows the set. Pending: checks missing or still running; Refused: a check is not green.
+    /// </summary>
+    internal static (StepResult Result, List<CheckEvidence> Relevant) CheckCi(CliEnv env, ProjectPaths paths, ForgeRef forge, string head)
+    {
+        var latest = Forge.Evidence(env).GetChecksAsync(forge.Owner, forge.Repo, head).GetAwaiter().GetResult()
+            .GroupBy(c => c.Name).Select(g => g.OrderBy(c => c.IsCompleted ? c.Evidence.At : DateTimeOffset.MaxValue).Last()).OrderBy(c => c.Name, StringComparer.Ordinal).ToList();
+        var required = Forge.Required(paths);
+        List<CheckEvidence> relevant;
+        if (required.Count > 0)
+        {
+            var missing = required.Where(n => latest.All(c => c.Name != n)).ToList();
+            if (missing.Count > 0)
+            {
+                return (new StepResult(StepKind.Pending, $"required checks missing on {head[..Math.Min(8, head.Length)]}: {string.Join(", ", missing)}."), []);
+            }
+
+            relevant = [.. latest.Where(c => required.Contains(c.Name))];
+        }
+        else
+        {
+            relevant = latest;
+            if (relevant.Count == 0)
+            {
+                return (new StepResult(StepKind.Pending, $"no check runs on {head[..Math.Min(8, head.Length)]} yet."), []);
+            }
+        }
+
+        var running = relevant.Where(c => !c.IsCompleted).ToList();
+        if (running.Count > 0)
+        {
+            return (new StepResult(StepKind.Pending, "checks still running: " + string.Join(", ", running.Select(c => $"{c.Name}={c.Status}")) + "; verify again when they have completed."), relevant);
+        }
+
+        var bad = relevant.Where(c => !c.IsSuccess).ToList();
+        if (bad.Count > 0)
+        {
+            return (new StepResult(StepKind.Refused, "checks not green: " + string.Join(", ", bad.Select(c => $"{c.Name}={c.Conclusion}"))), relevant);
+        }
+
+        return (new StepResult(StepKind.Done, string.Empty), relevant);
+    }
+
     private static StepResult VerifyCore(CliEnv env, ProjectPaths paths, BoardQuest bq, string file)
     {
         if (bq.State != QuestState.InReview)
@@ -169,43 +213,14 @@ internal static class EvidenceCommands
             return new StepResult(StepKind.Refused, "no repository found (add boards.github.owner/repo to system.yaml or set a git origin).");
         }
 
-        var source = Forge.Evidence(env);
-        var head = source.GetPullHeadAsync(forge.Owner, forge.Repo, pr).GetAwaiter().GetResult();
-        var latest = source.GetChecksAsync(forge.Owner, forge.Repo, head).GetAwaiter().GetResult()
-            .GroupBy(c => c.Name).Select(g => g.OrderBy(c => c.IsCompleted ? c.Evidence.At : DateTimeOffset.MaxValue).Last()).OrderBy(c => c.Name, StringComparer.Ordinal).ToList();
-        var required = Forge.Required(paths);
-        List<CheckEvidence> relevant;
-        if (required.Count > 0)
+        var head = Forge.Evidence(env).GetPullHeadAsync(forge.Owner, forge.Repo, pr).GetAwaiter().GetResult();
+        var ci = CheckCi(env, paths, forge, head);
+        if (ci.Result.Kind != StepKind.Done)
         {
-            var missing = required.Where(n => latest.All(c => c.Name != n)).ToList();
-            if (missing.Count > 0)
-            {
-                return new StepResult(StepKind.Pending, $"required checks missing on {head[..Math.Min(8, head.Length)]}: {string.Join(", ", missing)}.");
-            }
-
-            relevant = [.. latest.Where(c => required.Contains(c.Name))];
-        }
-        else
-        {
-            relevant = latest;
-            if (relevant.Count == 0)
-            {
-                return new StepResult(StepKind.Pending, $"no check runs on {head[..Math.Min(8, head.Length)]} yet.");
-            }
+            return ci.Result;
         }
 
-        var running = relevant.Where(c => !c.IsCompleted).ToList();
-        if (running.Count > 0)
-        {
-            return new StepResult(StepKind.Pending, "checks still running: " + string.Join(", ", running.Select(c => $"{c.Name}={c.Status}")) + "; verify again when they have completed.");
-        }
-
-        var bad = relevant.Where(c => !c.IsSuccess).ToList();
-        if (bad.Count > 0)
-        {
-            return new StepResult(StepKind.Refused, "checks not green: " + string.Join(", ", bad.Select(c => $"{c.Name}={c.Conclusion}")));
-        }
-
+        var relevant = ci.Relevant;
         var digest = ManaSupport.Sha(string.Join("\n", relevant.Select(c => c.Evidence.Digest)));
         var evidence = new Evidence(EvidenceKind.CiRun, $"https://github.com/{forge.Owner}/{forge.Repo}/commit/{head}/checks", digest, relevant.Max(c => c.Evidence.At));
         var quest = QuestCommands.Reconstitute(bq, EstimateOf(paths.Root, bq.Id));
@@ -222,6 +237,33 @@ internal static class EvidenceCommands
             ("source", evidence.Source), ("digest", digest),
             ("evidence", LedgerScan.StringObjects(relevant.Select(c => (IReadOnlyList<(string, string)>)[("kind", "CiRun"), ("name", c.Name), ("source", c.Evidence.Source), ("digest", c.Evidence.Digest), ("conclusion", c.Conclusion)]))));
         return new StepResult(StepKind.Done, $"verified on PR #{pr} ({relevant.Count} check(s) green).");
+    }
+
+    /// <summary>
+    /// ADR-0007 T3: the forge merge is the clear evidence; <c>GateMerged</c> is only compared against it. A merge without <c>GateMerged</c>, a different merge commit
+    /// or a base other than the integration branch yields a hint (never a refusal).
+    /// </summary>
+    internal static string GateMergedNote(ProjectPaths paths, List<LedgerRow> rows, int pr, Evidence merge)
+    {
+        var recorded = rows.LastOrDefault(r => r.Type == "GateMerged" && (int?)r.Num("pr") == pr);
+        if (recorded is null)
+        {
+            return $" (note: PR #{pr} has no GateMerged in the ledger, so it was not merged by 'monarch gate merge'; check who merged it and into which branch)";
+        }
+
+        var notes = new List<string>();
+        if (recorded.Str("merge_commit_sha") is { } sha && !string.Equals(sha, merge.Digest, StringComparison.OrdinalIgnoreCase))
+        {
+            notes.Add($"GateMerged recorded merge commit {sha[..Math.Min(8, sha.Length)]} but the forge reports {merge.Digest[..Math.Min(8, merge.Digest.Length)]}");
+        }
+
+        var integration = SystemConfigReader.Load(paths.Root).IntegrationBranch;
+        if (recorded.Str("base") is { } baseRef && !string.Equals(baseRef, integration, StringComparison.OrdinalIgnoreCase))
+        {
+            notes.Add($"GateMerged recorded base '{baseRef}', not the integration branch '{integration}'");
+        }
+
+        return notes.Count == 0 ? string.Empty : $" (note: {string.Join("; ", notes)})";
     }
 
     private static StepResult ClearCore(CliEnv env, ProjectPaths paths, BoardQuest bq, string file)
@@ -273,7 +315,7 @@ internal static class EvidenceCommands
         ledger.Append(ledger.SessionId(), "cli", "QuestCleared", ("quest", bq.Id.Value), ("gate", bq.Gate.Value), ("rank", bq.Rank.ToString()), ("kind", bq.Kind.ToString()),
             ("xp", (long)xp.Xp), ("baseXp", (long)xp.Base), ("kindFactor", xp.Kind), ("quality", xp.Quality), ("submissions", (long)submissions), ("pr", (long)pr),
             ("evidence", LedgerScan.StringObjects([[("kind", "MergeCommit"), ("source", merge.Source), ("digest", merge.Digest)]])));
-        var note = string.Empty;
+        var note = GateMergedNote(paths, rows, pr, merge);
         if (link.Issue is not null)
         {
             try
@@ -282,7 +324,7 @@ internal static class EvidenceCommands
             }
             catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
             {
-                note = $" (warning: could not close issue #{link.Issue}: {ex.Message})";
+                note += $" (warning: could not close issue #{link.Issue}: {ex.Message})";
             }
         }
 
