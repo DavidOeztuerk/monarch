@@ -137,11 +137,14 @@ public sealed class LedgerAnchorRestoreTests : IDisposable
     }
 
     [Fact]
-    public void Truncating_and_appending_without_restoring_stays_red()
+    public void Truncating_and_appending_without_restoring_records_no_restore_and_is_red_until_acknowledged()
     {
         var original = StashedWithNewGeneration();
-        Ack(ResetHash());
         Notes(10, "x");
+        Assert.False(LedgerVerifier.Verify(_t.Path).Ok);
+        Ack(ResetHash());
+        Notes(10, "y");
+        Assert.True(LedgerVerifier.Verify(_t.Path).Ok);
         Assert.Equal(3, File.ReadAllLines(original).Length);
         Assert.Equal(0, Count("LedgerAnchorRestored"));
     }
@@ -172,6 +175,50 @@ public sealed class LedgerAnchorRestoreTests : IDisposable
         Notes(1, "back");
         var after = LedgerVerifier.Verify(_t.Path);
         Assert.True(after.Ok, string.Join("; ", after.Violations));
+    }
+
+    // Warden-Abschlussrunde zu Q-0125, Fall A5: Wird die aktuelle Schreiber-Datei gekürzt, während ein Restore ansteht, darf der
+    // Restore-Append das dabei entstehende Anker-Reset nicht verwerfen (ADR-0010 Nr. 1).
+    [Fact]
+    public void Truncation_of_the_current_file_while_a_restore_is_pending_stays_a_finding()
+    {
+        var original = StashedWithNewGeneration();
+        Ack(ResetHash());
+        Notes(2, "after-ack");
+        Git("stash", "pop");
+        var current = LedgerFiles().Single(f => f != original);
+        var lines = File.ReadAllLines(current);
+        // Nur die zwei Zeilen hinter der Quittung fallen weg; die Quittung des alten Resets bleibt erhalten.
+        Assert.Contains("LedgerAnchorResetAcknowledged", lines[^3], StringComparison.Ordinal);
+        File.WriteAllLines(current, lines[..^2]);
+
+        Notes(1, "next");
+
+        var v = LedgerVerifier.Verify(_t.Path);
+        Assert.False(v.Ok);
+        Assert.Contains(v.Violations, x => x.Kind == LedgerViolationKind.AnchorReset);
+    }
+
+    // Fall A6: Ein ungültiger Ankereintrag im selben Fenster muss als klebendes Reset sichtbar bleiben, nicht still neu aufgebaut werden.
+    [Fact]
+    public void Invalid_anchor_while_a_restore_is_pending_stays_a_finding()
+    {
+        var original = StashedWithNewGeneration();
+        Ack(ResetHash());
+        Git("stash", "pop");
+        var current = Path.GetFileName(LedgerFiles().Single(f => f != original));
+        var heads = Path.Combine(_t.Path, ".monarch", "local", "ledger-heads.json");
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(heads))!;
+        var files = node["files"]!.AsObject();
+        var key = files.Select(p => p.Key).Single(k => k.EndsWith(current, StringComparison.Ordinal));
+        files[key]!["seq"] = 0;
+        File.WriteAllText(heads, node.ToJsonString());
+
+        Notes(1, "next");
+
+        var v = LedgerVerifier.Verify(_t.Path);
+        Assert.False(v.Ok);
+        Assert.Contains(v.Violations, x => x.Kind == LedgerViolationKind.AnchorReset);
     }
 
     private static string ForgeLine(long seq, string prev, string payload)

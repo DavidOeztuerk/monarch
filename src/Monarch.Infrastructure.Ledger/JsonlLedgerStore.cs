@@ -62,7 +62,13 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
                 w.WriteEndObject();
             }
 
-            AppendCore(sessionId, "ledger", "LedgerAnchorRestored", JsonDocument.Parse(ms.ToArray()).RootElement.Clone(), out _);
+            var restored = AppendCore(sessionId, "ledger", "LedgerAnchorRestored", JsonDocument.Parse(ms.ToArray()).RootElement.Clone(), out var reset);
+            if (reset is not null)
+            {
+                // Like Append: a reset caused by this append is never dropped (ADR-0010 no. 1).
+                AppendCore(sessionId, "ledger", "LedgerAnchorReset", ResetPayload(reset, restored.At), out _);
+            }
+
             LedgerHeadStore.ApplyRestore(options.Root, file, old);
         }
     }

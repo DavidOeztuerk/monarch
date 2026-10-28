@@ -70,7 +70,7 @@ Grundlage ist ADR-0011 (Bedrohungsmodell Phase 0). Der Hook ist eine **Leitplank
 - **MCP-Tools mit Pfad-Argumenten**, Hooks Dritter mit `updatedInput` und Hooks im Frontmatter von `.claude/agents/**` und `.claude/skills/**` (vom Agenten schreibbar) sind nicht geschuetzt.
 - **Evidence-Integritaet:** Workflows, Tests und Bench-Grenzen schuetzt nur das Warden-Review des Diffs. Risk Tags pruefen heute nur den geplanten Quest-Scope, Scope Lock nur Datei-Tools. Follow-up: Risk Tags bei `quest submit` gegen den PR-Diff.
 - **Ledger, ungetrackt:** Datei und Anker gemeinsam gefaelscht sowie die Faelschung „frischer Klon“ (Anker und `writer-id` geloescht, Dateien auf HEAD) sind lokal nicht erkennbar (ADR-0010). Schutz sind committete und gepushte Ledger-Dateien.
-- **Bekannte, offene Follow-ups (Issue-Nummern setzt der Main nach):**
+- **Bekannte, offene Follow-ups:**
   - N1: Array-Zuweisungen und `set --` mit Schutzpfad werden nicht als Zuweisung modelliert (#2).
   - N3: `#`-Kommentar innerhalb einzeiliger Backticks wird nicht als solcher erkannt (#3).
   - Datei-vor-Anker: fremd angehaengte Zeilen hinter dem verankerten Head werden uebernommen, wenn die Datei vor dem Anker liegt (#4).
