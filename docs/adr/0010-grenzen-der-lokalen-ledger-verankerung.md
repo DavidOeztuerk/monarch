@@ -19,7 +19,11 @@ dass ein korrupter Anker beim nächsten Append still neu aufgebaut wurde.
    neu verankerte Dateien). `ledger verify` meldet jedes nicht quittierte Reset (Exit 1).
    Quittiert wird nur per `monarch ledger ack-reset <event-hash>` (Event
    `LedgerAnchorResetAcknowledged`, Actor `cli`). Ein frischer Klon (kein `writer-id`) gilt
-   nicht als Reset.
+   nicht als Reset. Liegt der Anker einer Datei **vor** deren Inhalt (weniger Zeilen oder
+   anderer Hash an der verankerten `seq`, z. B. nach `git stash`), schreibt der Append den
+   Anker nicht fort, sondern beginnt eine neue Datei (neue writerId-Generation) und
+   hinterlässt ein `LedgerAnchorReset` („Anchor ahead of file“) als klebenden Befund bis zur
+   Quittierung; die alte Datei wird dabei auf ihren Rest verankert.
 2. **`verify` stürzt bei keinem Anker-Inhalt ab.** Jeder defekte Anker oder Eintrag ist ein
    Befund `AnchorInvalid`.
 3. **Zweite, unabhängige Quelle: Git.** `verify` gleicht die Ledger-Dateien mit

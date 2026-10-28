@@ -202,4 +202,32 @@ public sealed class LedgerAnchorRobustnessTests : IDisposable
         var v = LedgerVerifier.Verify(_t.Path);
         Assert.False(v.Ok);
     }
+
+    [Fact]
+    public void Anchor_ahead_of_file_starts_a_new_generation_and_leaves_a_sticky_finding()
+    {
+        var file = Path.Combine(_t.Path, Seed(6));
+        File.WriteAllLines(file, File.ReadAllLines(file).Take(2));
+        var store = Store();
+        for (var i = 0; i < 10; i++)
+        {
+            store.Append("s1", "knight", "Note", P.Json("""{"a":1}"""));
+        }
+
+        Assert.Equal(2, File.ReadAllLines(file).Length);
+        var v = LedgerVerifier.Verify(_t.Path);
+        Assert.False(v.Ok);
+        var reset = Assert.Single(v.Violations, x => x.Kind == LedgerViolationKind.AnchorReset);
+        Assert.Contains("ahead of file", reset.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(_t.Path, ".monarch", "ledger"), "*.jsonl", SearchOption.AllDirectories).Length);
+    }
+
+    [Fact]
+    public void Normal_append_history_has_no_reset()
+    {
+        Seed(12);
+        var v = LedgerVerifier.Verify(_t.Path);
+        Assert.True(v.Ok, string.Join("; ", v.Violations));
+        Assert.Empty(v.Resets!);
+    }
 }

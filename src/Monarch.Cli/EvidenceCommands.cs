@@ -86,6 +86,14 @@ internal static class EvidenceCommands
                 continue;
             }
 
+            // ADR-0011 G3: a ledger finding stops the whole sync for this quest, before Verified as well as before Cleared.
+            if (Guarded(() => new StepResult(StepKind.Done, ManaCommands.VerifyBeforeClear(env, paths, q.Id.Value) ?? string.Empty)) is { Message.Length: > 0 } blocked)
+            {
+                env.Out.WriteLine($"{q.Id.Value}: refused - {blocked.Message}");
+                failed = true;
+                continue;
+            }
+
             var current = q;
             if (current.State == QuestState.InReview)
             {
