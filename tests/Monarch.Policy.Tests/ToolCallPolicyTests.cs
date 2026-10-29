@@ -236,6 +236,14 @@ public class ToolCallPolicyTests
 
     // ---- scope lock
     [Fact]
+    public void Scope_lock_deny_text_names_the_way_forward()
+    {
+        var d = Run(Edit("docs/readme.md"), Ctx(Rank.C, scope: Scope));
+        Assert.Contains("liegt außerhalb des Scopes von Q-1.", d.Reason, StringComparison.Ordinal);
+        Assert.Contains("Folge-Quest per `gate_plan`, Notiz per `knowledge_write`, oder erst `quest submit`; nicht mit anderem Pfad/Tool wiederholen.", d.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Scope_lock_allows_inside_and_denies_outside_with_signal()
     {
         var ctx = Ctx(Rank.C, scope: Scope);

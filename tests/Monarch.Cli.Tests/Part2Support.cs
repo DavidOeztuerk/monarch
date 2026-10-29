@@ -35,6 +35,12 @@ internal sealed partial class FakeForge : HttpMessageHandler
 
     public const string MergeSha = "m3rge0000000000000000000000000000000000";
 
+    /// <summary>Head of the integration branch before the merge (Q-0132).</summary>
+    public const string DevelopSha = "d3velop000000000000000000000000000000000";
+
+    /// <summary>Branch heads for <c>GET …/git/ref/heads/{branch}</c> (default: <see cref="DevelopSha"/>).</summary>
+    public Dictionary<string, string> Refs { get; } = [];
+
     public static string Run(int id, string name, string conclusion, string status = "completed") =>
         $$"""{"id":{{id}},"name":"{{name}}","head_sha":"{{Sha}}","status":"{{status}}","conclusion":{{(conclusion == "" ? "null" : $"\"{conclusion}\"")}},"completed_at":{{(status == "completed" ? "\"2026-10-27T09:05:00Z\"" : "null")}},"html_url":"https://github.com/o/r/runs/{{id}}"}""";
 
@@ -56,6 +62,13 @@ internal sealed partial class FakeForge : HttpMessageHandler
             Pulls[n] = (pr.Head, true);
             if (BaseAfterMerge is not null) Bases[n] = BaseAfterMerge;
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($$"""{"sha":"{{MergeSha}}","merged":true,"message":"Pull Request successfully merged"}""", Encoding.UTF8, "application/json") };
+        }
+
+        if (RefPath().Match(path) is { Success: true } rm)
+        {
+            var branch = Uri.UnescapeDataString(rm.Groups[1].Value);
+            var sha = Refs.GetValueOrDefault(branch, DevelopSha);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($$$"""{"ref":"refs/heads/{{{branch}}}","object":{"sha":"{{{sha}}}","type":"commit"}}""",Encoding.UTF8, "application/json") };
         }
 
         var cm = CommitPath().Match(path);
@@ -92,6 +105,9 @@ internal sealed partial class FakeForge : HttpMessageHandler
 
     [GeneratedRegex(@"/repos/o/r/pulls/(\d+)/merge$")]
     private static partial Regex PullMergePath();
+
+    [GeneratedRegex(@"/repos/o/r/git/ref/heads/(.+)$")]
+    private static partial Regex RefPath();
 
     [GeneratedRegex(@"/repos/o/r/commits/([^/]+)$")]
     private static partial Regex CommitPath();

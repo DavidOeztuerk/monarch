@@ -486,7 +486,7 @@ public static partial class ToolCallPolicy
         if (rel.Length > 0 && MatchesAny(AlwaysWritable, rel)) return null;
         if (rel.Length > 0 && MatchesAny(quest.Scope.Include, rel) && !MatchesAny(quest.Scope.Exclude, rel)) return null;
         return PolicyDecision.Deny(PolicyRules.ScopeLock,
-            $"'{(rel.Length == 0 ? call.FilePath : rel)}' liegt außerhalb des Scopes von {quest.Id.Value}. Double-Dungeon-Signal: Replan nötig.")
+            $"'{(rel.Length == 0 ? call.FilePath : rel)}' liegt außerhalb des Scopes von {quest.Id.Value}. Double-Dungeon-Signal: Replan nötig. Folge-Quest per `gate_plan`, Notiz per `knowledge_write`, oder erst `quest submit`; nicht mit anderem Pfad/Tool wiederholen.")
             with { Signals = [PolicySignals.DoubleDungeon] };
     }
 

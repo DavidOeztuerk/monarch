@@ -6,6 +6,19 @@ using Monarch.Policy;
 
 namespace Monarch.Cli;
 
+/// <summary>Fixed rule texts (Q-0132) shown at <c>quest start</c> and in the SessionStart briefing; no free text from the environment.</summary>
+internal static class RuleTexts
+{
+    public const string Rule1 = "Regel 1: Der Scope gilt für jeden Schreibzugriff, auch Scratchpad, Temp-Ordner und Notizen. Was außerhalb liegt, geht nur über `gate_plan` (Folge-Quests), `knowledge_write` (Notizen) oder nach `quest submit`.";
+    public const string Rule2 = "Regel 2: Ein Deny heißt stoppen und den genannten Weg nehmen, keine Varianten.";
+    public const string MergeLine = "Merge nur über `monarch gate merge` in den Integrations-Branch; main/master nie.";
+    public const string PlanLine = "Folge-Quests laufen über `gate_plan`.";
+
+    /// <summary>The scope of the quest as one line.</summary>
+    public static string ScopeLine(IEnumerable<string> include, IEnumerable<string> exclude) =>
+        $"Scope: include {string.Join(", ", include)}; exclude {(exclude.Any() ? string.Join(", ", exclude) : "-")}";
+}
+
 /// <summary><c>monarch quest ...</c> (accept, start, submit, abandon, fail, list, show).</summary>
 internal static class QuestCommands
 {
@@ -127,6 +140,13 @@ internal static class QuestCommands
         }
 
         env.Out.WriteLine($"{bq.Id.Value}: {action} ok -> {stateName}");
+        if (action == "start")
+        {
+            env.Out.WriteLine(RuleTexts.ScopeLine(bq.Scope.Include, bq.Scope.Exclude));
+            env.Out.WriteLine(RuleTexts.Rule1);
+            env.Out.WriteLine(RuleTexts.Rule2);
+        }
+
         if (pairLine is not null)
         {
             env.Out.WriteLine(estimateLine);

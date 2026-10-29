@@ -393,7 +393,18 @@ internal static class Briefing
             sb.AppendLine("- Recap vorhanden: lies zuerst .monarch/recap/RECAP.md");
         }
 
-        sb.Append("- Regeln: deny/ask erzwingen Hooks (Scope-Lock, geschuetzte Pfade, Secrets, deny_bash); bei Ablehnung nicht umgehen, sondern melden.");
+        sb.AppendLine("- Hooks erzwingen Scope-Lock, geschuetzte Pfade, Secrets und deny_bash.");
+        if (active is not null)
+        {
+            sb.AppendLine($"- {RuleTexts.Rule1}");
+            sb.AppendLine($"- {RuleTexts.Rule2}");
+        }
+        else
+        {
+            sb.AppendLine($"- {RuleTexts.PlanLine}");
+        }
+
+        sb.Append($"- {RuleTexts.MergeLine}");
         return sb.ToString();
     }
 }

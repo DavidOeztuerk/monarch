@@ -134,3 +134,33 @@ muss also in Monarch liegen.
   (`PolicyDecided rule=protect_branches`).
 - Latenz: Es kommt höchstens ein zusätzlicher Dateizugriff (`HEAD`) für
   `git push` ohne Refspec hinzu. Das p99-Gate (≤ 20 ms) bleibt.
+
+## Q-0132: develop vorher und nachher grün
+
+Ein Merge auf einen roten Integrations-Branch verdeckt, wer ihn gebrochen hat.
+`monarch gate merge` prüft deshalb den Integrations-Branch selbst.
+
+- **Vorher.** Nach der PR-CI (Schritt 5) liest Monarch den Head des
+  Integrations-Branches über die GitHub-API (`GET …/git/ref/heads/{branch}`,
+  `GitHubPulls.GetBranchHeadAsync`) und wendet auf diesen SHA dieselbe
+  Funktion an wie `quest verify` (`EvidenceCommands.CheckCi`). Nur `success`
+  zählt. Rot, abgebrochen, ausstehend oder fehlend gilt als nicht grün und
+  verweigert den Merge mit Begründung, bevor das PUT passiert. Läuft noch ein
+  Check oder fehlt der Lauf, lautet die Begründung „develop läuft noch“.
+- **Nachher.** Nach dem erfolgreichen Merge fragt Monarch dieselbe Funktion
+  für den Merge-Commit ab, bis sie entscheidet oder die Wartezeit abläuft
+  (Default 15 min, Polling 30 s; injizierbar über
+  `MONARCH_MERGE_WAIT_SECONDS` und `MONARCH_MERGE_POLL_SECONDS`, damit Tests
+  nicht warten). Ergebnis als Ledger-Event `IntegrationRunChecked`
+  (`gate`, `sha`, `branch`, `result`):
+  - `green`: Exit 0.
+  - `red` (rot oder abgebrochen): Ausgabe „develop ist ROT nach dem Merge –
+    zuerst klären“, Exit ≠ 0.
+  - `pending` (Timeout): Hinweis, die GitHub-Checks des Merge-Commits
+    anzusehen, Exit ≠ 0.
+  Der Merge selbst bleibt in jedem Fall bestehen und `GateMerged` ist
+  geschrieben; der Exit-Code ist nur das Signal, dass jemand hinsehen muss.
+- **Grenze.** Die Prüfung kennt nur die Checks, die GitHub am SHA zeigt
+  (`evidence.required` aus `system.yaml` schränkt sie ein, wie bei
+  `quest verify`). Ein Branch ganz ohne CI wird als „nicht grün“ behandelt;
+  wer das will, braucht eine CI auf dem Integrations-Branch.

@@ -90,10 +90,21 @@ internal sealed class PullHeadDto
     public string? Sha { get; set; }
 }
 
+internal sealed class GitRefDto
+{
+    public GitRefObjectDto? Object { get; set; }
+}
+
+internal sealed class GitRefObjectDto
+{
+    public string? Sha { get; set; }
+}
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(CheckRunsPage))]
 [JsonSerializable(typeof(PullDto))]
 [JsonSerializable(typeof(CommitDto))]
+[JsonSerializable(typeof(GitRefDto))]
 [JsonSerializable(typeof(MergeRequestDto))]
 [JsonSerializable(typeof(MergeResponseDto))]
 internal sealed partial class EvidenceJsonContext : JsonSerializerContext
