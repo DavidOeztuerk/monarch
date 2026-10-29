@@ -129,3 +129,31 @@ Alle Tests laufen ohne Netz und ohne echtes `$HOME`: Temp-Verzeichnisse, `MONARC
 5. Der ſ-Test wird plattformabhängig (ubuntu/macos).
 6. Tests: Zwilling-Worktree mit gleicher Quest-ID, verschachteltes A/x, `$HOME` und Elternverzeichnis von `MONARCH_HOME`, `tools/call` vor der Roots-Antwort, Session-Zuordnung, lesende Tools schreiben nichts, die Antwort nennt das Projekt, deterministische Request-IDs im StringReader-Harness.
 7. Die Roots-Messung mit echten Daten (a–f) steht als Nachtrag im ADR, bevor der Code freigegeben wird.
+
+## Messung (29.10.)
+
+**Aufbau.** Claude Code 2.1.312, headless, Haiku, Rechtemodus default (kein bypass, keine zusätzlichen `--allowedTools`), `--strict-mcp-config`. Der MCP-Server ist der AOT-Build dieses Worktrees (`monarch mcp`), gestartet mit `MONARCH_MCP_ROOTS_LOG`. Das Binary schreibt jede empfangene Roots-Antwort als Zeile `mcp: roots=[…]` in diese Datei (und auf stderr). Aufruf: `claude -p "Antworte nur mit OK" --model haiku --strict-mcp-config --mcp-config <json>`. Konfigurationen und Logs liegen unter `tests/Monarch.Cli.Tests/Fixtures/roots-probe/` (`mcp-a|b|c.json`, `roots-a|b|c.log`; der Binary-Pfad in den JSONs ist der des Messlaufs).
+
+| Fall | Start-cwd | Zusatz | gemessene Roots |
+|---|---|---|---|
+| (a) | `~/Projects` (nicht erweckt) | – | `[/Users/davidozturk/Projects]` |
+| (b) | Worktree `monarch-G-0103` (erweckt) | – | `[/Users/davidozturk/.../monarch-G-0103]` |
+| (c) | `~/Projects` | `--add-dir <Worktree>` | `[/Users/davidozturk/Projects]` (auch bei einer längeren Sitzung, ein Aufruf, kein `list_changed`) |
+| (d) | cd per Bash | – | **nicht gemessen** |
+| (e) | Subagent mit Worktree-Isolation | – | **nicht gemessen** |
+| (f) | Ist das Start-cwd immer ein Root? | – | **ja, in (a), (b), (c)** |
+
+**Nicht gemessen (d), (e):** Beides braucht im Lauf das Bash- bzw. Agent-Tool. Im Rechtemodus default verweigert `-p` solche Aufrufe ohne Rechte-Erweiterung (`--allowedTools` oder bypass). Beides ist ausgeschlossen. Die Aussage zu (d) stützt sich weiter nur auf den Aufbau (der MCP-Prozess behält sein Start-cwd); zu (e) gibt es keine Aussage.
+
+**Befund und Folgen für das Design.**
+- Das Start-cwd kommt in allen gemessenen Fällen als einziger Root (f). Die Annahme aus §0 (es gibt immer eine Root-Grenze) hält. Die Ergänzung „Start-cwd fehlt in nichtleerer Liste“ ist nicht nötig.
+- **`--add-dir` erscheint nicht in den Roots (c).** Die Vermutung „Start-cwd plus `/add-dir`-Verzeichnisse“ ist damit für den Start-Parameter widerlegt. Ob ein in der Sitzung gegebenes `/add-dir` ein `list_changed` auslöst, ist nicht gemessen. Für einen Start in `~/Projects` sind die Roots also `[~/Projects]`; `project=<erweckter Pfad unter ~/Projects>` liegt unter diesem Root und funktioniert. `--add-dir` ist **kein** Weg, einen Pfad außerhalb des Start-cwd für den Parameter freizuschalten. Das stärkt G2 (Roots nicht durch den Agenten erweiterbar) für diesen Weg, ändert aber nichts am Design.
+- Das Design verlangt nicht mehr als das Start-cwd und bleibt unverändert gültig (Abschnitt „Problem und Messung“ nannte genau diesen Fall).
+
+## Abweichungen der Umsetzung vom Wortlaut (Code-Phase)
+
+- **Reihenfolge der Parameter-Prüfung:** Die Prüfung gegen `~/.monarch`/`MONARCH_HOME` (Regel 3.5) läuft vor der `system.yaml`-Prüfung (3.4) und vor der Root-Grenze. Grund: `~/.monarch` selbst, `MONARCH_HOME` und Pfade darunter haben kein eigenes `.monarch/system.yaml` und müssten sonst mit der unspezifischen Meldung „nicht erweckt“ scheitern. Fehlermeldungen nennen die Stufe als Wort: `(absolute)`, `(exists)`, `(global)`, `(awakened)`, `(roots)`. Regel 3.2 (kanonisch) und 3.6 (Projekt-Root, keine Aufwärtssuche) sind in `(exists)` und `(awakened)` aufgegangen.
+- **Implizite Auflösung mit Client-Roots** verlangt wie der Parameter eine reguläre Datei `.monarch/system.yaml`; das Prozess-cwd (Stufe 3) bleibt bei der bisherigen Prüfung des Verzeichnisses `.monarch`, damit bestehende Aufrufe ohne `system.yaml` weiter funktionieren. Ohne Client-Roots ist das cwd der einzige Root, die Quelle heißt dann `cwd`.
+- **Timeout** der Roots-Antwort: Standard 3 s, injizierbar über `MONARCH_MCP_ROOTS_TIMEOUT_MS` (Tests). Bei Timeout, Fehler oder Ende der Eingabe ist die Roots-Liste leer, die Zeile `mcp: roots=[] (…)` geht auf stderr.
+- **Session** gilt auch für die Ereignisse, die `gate_plan` und `knowledge_write` selbst schreiben (`GateOpened`, `QuestProposed`, `KnowledgeWritten`). Ereignisse der delegierten CLI-Befehle (`quest_transition`, `evidence_sync`) behalten deren eigene Session-Ermittlung; sichtbar als MCP-Aufruf ist dort `McpProjectResolved`.
+- Ein `project: null`-Wert wird wie „nicht angegeben“ behandelt; ein Wert, der keine Zeichenkette ist, wird an Stufe `(absolute)` abgelehnt.
