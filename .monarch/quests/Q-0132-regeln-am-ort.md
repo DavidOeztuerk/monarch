@@ -5,7 +5,7 @@ kind: main
 rank: A
 severity: medium
 risk_tags: [policy]
-state: proposed
+state: in_review
 scope:
   repo: monarch
   include: ["src/Monarch.Cli/QuestCommands.cs", "src/Monarch.Cli/HookRunner.cs", "src/Monarch.Cli/GateMergeCommands.cs", "src/Monarch.Infrastructure.Evidence/**", "src/Monarch.Policy/ToolCallPolicy.cs", "tests/**", "plugin/skills/**", "plugin/README.md", "docs/adr/0007-*"]
@@ -18,6 +18,7 @@ dod:
   - gate merge verweigert, wenn der letzte Lauf auf dem Integrations-Branch nicht grün ist; nach dem Merge prüft er den Lauf auf dem Merge-Commit und meldet rot/abgebrochen deutlich (Ledger-Event)
   - Tests rot → grün; keine abgeschwächten Tests
 boss: "gate merge mit rotem develop-Lauf → verweigert ohne PUT; quest start und Scope-Deny nennen gate_plan/knowledge_write/submit"
+board: { pr: 29 }
 ---
 # Regeln dort, wo sie gebraucht werden
 
