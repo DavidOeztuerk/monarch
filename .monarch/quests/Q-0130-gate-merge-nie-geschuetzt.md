@@ -5,7 +5,7 @@ kind: main
 rank: A
 severity: high
 risk_tags: [policy]
-state: in_review
+state: cleared
 scope:
   repo: monarch
   include: ["src/Monarch.Cli/GateMergeCommands.cs", "src/Monarch.Cli/SystemConfig.cs", "src/Monarch.Policy/ProtectBranchesRule.cs", "tests/Monarch.Cli.Tests/**", "tests/Monarch.Policy.Tests/**", "docs/adr/0007-*", "docs/adr/0008-*", "plugin/README.md"]

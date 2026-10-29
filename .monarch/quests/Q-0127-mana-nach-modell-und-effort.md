@@ -5,7 +5,7 @@ kind: main
 rank: C
 severity: medium
 risk_tags: []
-state: in_review
+state: cleared
 scope:
   repo: monarch
   include: ["src/Monarch.Domain/**", "src/Monarch.Cli/**", "src/Monarch.Mcp/**", "tests/**", "docs/adr/0012-*", "plugin/skills/**", "plugin/README.md"]

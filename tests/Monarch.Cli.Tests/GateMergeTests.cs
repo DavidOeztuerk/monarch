@@ -14,6 +14,8 @@ public class GateMergeTests
         var f = new FakeForge();
         f.Pulls[7] = (FakeForge.Sha, false);
         f.SetChecks(FakeForge.Run(1, "build", "success"), FakeForge.Run(2, "test", "success"));
+        f.Checks[FakeForge.DevelopSha] = f.Checks[FakeForge.Sha];
+        f.Checks[FakeForge.MergeSha] = f.Checks[FakeForge.Sha];
         p.Http = f;
         Seed.Gate(p, "G-0001", "[Q-0001]", gateRank);
         Seed.Quest(p, "Q-0001", "in_review", rank: questRank, extra: link ? "board: { provider: github, pr: 7 }\n" : "");
@@ -35,7 +37,8 @@ public class GateMergeTests
         return p.Run(["gate", "verdict", "G-0001", "--verdict", verdict, "--source", source]);
     }
 
-    private static RunResult Merge(TempProject p) { Tick(p); return p.Run(["gate", "merge", "G-0001"]); }
+    // Q-0132: no waiting in tests; the post-merge check polls once (timeout 0) unless a test says otherwise.
+    private static RunResult Merge(TempProject p, string wait = "0") { Tick(p); return p.Run(["gate", "merge", "G-0001"], vars: new Dictionary<string, string?> { ["MONARCH_MERGE_WAIT_SECONDS"] = wait, ["MONARCH_MERGE_POLL_SECONDS"] = "0" }); }
 
     private static void Approved(TempProject p)
     {
@@ -476,6 +479,94 @@ public class GateMergeTests
             Assert.DoesNotContain("GateMerged", clear.Out, StringComparison.Ordinal);
             Assert.DoesNotContain("GateMerged", q.Run(["ledger", "verify"]).Out, StringComparison.Ordinal);
             Assert.Single(g.MergeBodies);
+        }
+    }
+
+    // ---- Q-0132: develop green before and after the merge
+    [Theory]
+    [InlineData("failure", "not green")]
+    [InlineData("cancelled", "not green")]
+    [InlineData("timed_out", "not green")]
+    public void Refuses_when_the_integration_branch_is_not_green_before_the_merge(string conclusion, string reason)
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            f.Checks[FakeForge.DevelopSha] = $$"""{"total_count":2,"check_runs":[{{FakeForge.Run(1, "build", "success")}},{{FakeForge.Run(2, "test", conclusion)}}]}""";
+            Approved(p);
+            var r = Merge(p);
+            Refused(p, f, r, "develop");
+            Assert.Contains(reason, r.Err, StringComparison.Ordinal);
+            Assert.Contains("GET /repos/o/r/git/ref/heads/develop", f.Paths);
+            Assert.DoesNotContain(f.Paths, x => x.StartsWith("PUT", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void Refuses_when_the_integration_branch_is_still_running_or_has_no_run()
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            Approved(p);
+            f.Checks[FakeForge.DevelopSha] = $$"""{"total_count":1,"check_runs":[{{FakeForge.Run(3, "build", "", "in_progress")}}]}""";
+            Refused(p, f, Merge(p), "develop läuft noch");
+            f.Checks.Remove(FakeForge.DevelopSha);
+            Refused(p, f, Merge(p), "develop läuft noch");
+            Assert.DoesNotContain(f.Paths, x => x.StartsWith("PUT", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void A_green_integration_branch_afterwards_records_IntegrationRunChecked_green()
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            Approved(p);
+            var r = Merge(p);
+            Assert.Equal(0, r.Code);
+            var e = Assert.Single(p.Events(), x => x.Type == "IntegrationRunChecked").Payload;
+            Assert.Equal("green", e.GetProperty("result").GetString());
+            Assert.Equal(FakeForge.MergeSha, e.GetProperty("sha").GetString());
+            Assert.Equal("G-0001", e.GetProperty("gate").GetString());
+            Assert.True(LedgerVerifier.Verify(p.Root).Ok);
+        }
+    }
+
+    [Theory]
+    [InlineData("failure")]
+    [InlineData("cancelled")]
+    public void A_red_integration_branch_afterwards_is_loud_and_keeps_the_merge(string conclusion)
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            Approved(p);
+            f.Checks[FakeForge.MergeSha] = $$"""{"total_count":1,"check_runs":[{{FakeForge.Run(4, "test", conclusion)}}]}""";
+            var r = Merge(p);
+            Assert.NotEqual(0, r.Code);
+            Assert.Contains("develop ist ROT nach dem Merge – zuerst klären", r.Err, StringComparison.Ordinal);
+            Assert.Equal("red", Assert.Single(p.Events(), x => x.Type == "IntegrationRunChecked").Payload.GetProperty("result").GetString());
+            Assert.Single(p.Events(), x => x.Type == "GateMerged");
+            Assert.Single(f.MergeBodies);
+        }
+    }
+
+    [Fact]
+    public void A_timeout_afterwards_is_pending_with_a_hint_and_a_nonzero_exit()
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            Approved(p);
+            f.Checks[FakeForge.MergeSha] = $$"""{"total_count":1,"check_runs":[{{FakeForge.Run(4, "test", "", "in_progress")}}]}""";
+            var r = Merge(p);
+            Assert.NotEqual(0, r.Code);
+            Assert.Contains($"GitHub-Checks des Merge-Commits {FakeForge.MergeSha}", r.Err, StringComparison.Ordinal);
+            Assert.Contains("noch nicht abgeschlossen", r.Err, StringComparison.Ordinal);
+            Assert.Equal("pending", Assert.Single(p.Events(), x => x.Type == "IntegrationRunChecked").Payload.GetProperty("result").GetString());
+            Assert.Single(p.Events(), x => x.Type == "GateMerged");
         }
     }
 }

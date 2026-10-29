@@ -10,7 +10,7 @@ description: Verwaltet Gates (Arbeitspakete aus Issues): importieren, auflisten,
 - `~/.monarch/bin/monarch gate show <G-xxxx>`: Details, Quests, Boss.
 - `~/.monarch/bin/monarch gate sync`: Zustand mit der Forge abgleichen.
 - `~/.monarch/bin/monarch gate verdict <G-xxxx> --verdict approve|changes --source <url>`: Verdict des unabhaengigen Wardens zum aktuellen Head-SHA eintragen (nur der Main, nach dem Warden-Lauf).
-- `~/.monarch/bin/monarch gate merge <G-xxxx>`: einziger Merge-Weg (nur der Main): prueft ledger verify, genau einen PR, Base = `develop`, Rank (S verweigert), gruene CI wie `quest verify`, Verdict plus Warden-Lauf; dann Squash mit `sha`-Bindung und `GateMerged`. Danach `evidence sync`.
+- `~/.monarch/bin/monarch gate merge <G-xxxx>`: einziger Merge-Weg (nur der Main): prueft ledger verify, genau einen PR, Base = `develop`, Rank (S verweigert), gruene CI wie `quest verify`, gruene CI am Head von `develop` (rot, abgebrochen, fehlend oder laufend verweigert), Verdict plus Warden-Lauf; dann Squash mit `sha`-Bindung und `GateMerged`. Danach prueft der Befehl den Lauf auf dem Merge-Commit (Default 15 min, `IntegrationRunChecked` mit green/red/pending; red und pending beenden mit Exit 1, der Merge bleibt). Danach `evidence sync`.
 - Zerlegung in Quests nur ueber den Agenten `monarch:strategist` auf Basis verifizierter Scout-Funde; Rank kommt aus der Policy, nicht aus Bauchgefuehl.
 - Gate-Branch: `monarch/G-xxxx-<slug>`.
 

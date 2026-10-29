@@ -5,7 +5,7 @@ kind: main
 rank: A
 severity: medium
 risk_tags: [policy]
-state: in_review
+state: cleared
 scope:
   repo: monarch
   include: ["src/Monarch.Policy/ProtectBranchesRule.cs", "tests/Monarch.Policy.Tests/**", "docs/adr/0008-*", "plugin/README.md"]

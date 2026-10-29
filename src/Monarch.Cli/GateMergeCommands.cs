@@ -137,6 +137,19 @@ internal static class GateMergeCommands
             return Refuse(env, $"CI is not green on {Short(pull.HeadSha)}: {ci.Message}");
         }
 
+        // 5b. Q-0132: the integration branch itself must be green (same function, applied to its head)
+        var integrationHead = pulls.GetBranchHeadAsync(t.Forge.Owner, t.Forge.Repo, config.IntegrationBranch).GetAwaiter().GetResult();
+        var integrationCi = EvidenceCommands.CheckCi(env, paths, t.Forge, integrationHead).Result;
+        if (integrationCi.Kind == StepKind.Pending)
+        {
+            return Refuse(env, $"develop läuft noch (kein abgeschlossener grüner CI-Lauf am Head von {config.IntegrationBranch}, {Short(integrationHead)}): {integrationCi.Message}");
+        }
+
+        if (integrationCi.Kind != StepKind.Done)
+        {
+            return Refuse(env, $"{config.IntegrationBranch} is not green at {Short(integrationHead)}, merge refused until it is fixed: {integrationCi.Message}");
+        }
+
         // 6. verdict and warden run
         var commitTime = pulls.GetCommitTimeAsync(t.Forge.Owner, t.Forge.Repo, pull.HeadSha).GetAwaiter().GetResult();
         if (CheckVerdict(LedgerScan.All(paths.Root), gateId, pull.HeadSha, commitTime) is { } verdictError)
@@ -164,7 +177,59 @@ internal static class GateMergeCommands
 
         var note = string.Equals(recorded, mergeSha, StringComparison.OrdinalIgnoreCase) ? "" : $" (note: merge call returned {Short(mergeSha)}, the pull request reports {Short(recorded)})";
         env.Out.WriteLine($"{gateId}: merged PR #{t.Pr} into {after.BaseRef} (squash {Short(recorded)}){note}. Run 'monarch evidence sync' to verify and clear the quests.");
-        return 0;
+        return CheckIntegrationRun(env, t.Paths, t.Forge, gateId, after.BaseRef, recorded, ledger);
+    }
+
+    private const int DefaultWaitSeconds = 900;
+    private const int DefaultPollSeconds = 30;
+
+    private static int Seconds(CliEnv env, string name, int fallback) =>
+        int.TryParse(env.GetVar(name), NumberStyles.None, CultureInfo.InvariantCulture, out var v) ? v : fallback;
+
+    /// <summary>
+    /// Q-0132 (ADR-0007): after the merge, waits for the run on the merge commit and records <c>IntegrationRunChecked</c>.
+    /// The merge stays in every case; red and pending exit non-zero so that somebody looks.
+    /// </summary>
+    private static int CheckIntegrationRun(CliEnv env, ProjectPaths paths, ForgeRef forge, string gateId, string branch, string sha, ProjectLedger ledger)
+    {
+        var wait = TimeSpan.FromSeconds(Seconds(env, "MONARCH_MERGE_WAIT_SECONDS", DefaultWaitSeconds));
+        var poll = TimeSpan.FromSeconds(Seconds(env, "MONARCH_MERGE_POLL_SECONDS", DefaultPollSeconds));
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        StepResult ci;
+        while (true)
+        {
+            try
+            {
+                ci = EvidenceCommands.CheckCi(env, paths, forge, sha).Result;
+            }
+            catch (Exception ex) when (IsExpected(ex))
+            {
+                ci = new StepResult(StepKind.Pending, $"could not read the checks: {ex.Message}");
+            }
+
+            if (ci.Kind != StepKind.Pending || started.Elapsed + poll > wait)
+            {
+                break;
+            }
+
+            env.Out.Flush();
+            Task.Delay(poll).GetAwaiter().GetResult();
+        }
+
+        var result = ci.Kind switch { StepKind.Done => "green", StepKind.Pending => "pending", _ => "red" };
+        ledger.Append(ledger.SessionId(), "cli", "IntegrationRunChecked", ("gate", gateId), ("sha", sha), ("branch", branch), ("result", result));
+        switch (result)
+        {
+            case "green":
+                env.Out.WriteLine($"{branch} is green at {Short(sha)} after the merge.");
+                return 0;
+            case "red":
+                env.Err.WriteLine($"{branch} ist ROT nach dem Merge – zuerst klären ({Short(sha)}): {ci.Message} Der Merge bleibt bestehen; nichts Weiteres auf {branch} mergen, bis das geklärt ist.");
+                return 1;
+            default:
+                env.Err.WriteLine($"{branch}: Lauf auf dem Merge-Commit {Short(sha)} noch nicht abgeschlossen nach {(int)wait.TotalSeconds} s ({ci.Message}) Nachprüfen: die GitHub-Checks des Merge-Commits {sha} ansehen (Actions-Lauf auf {branch}). Der Merge bleibt bestehen.");
+                return 1;
+        }
     }
 
     /// <summary>

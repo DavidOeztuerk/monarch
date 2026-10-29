@@ -43,6 +43,19 @@ public sealed class GitHubPulls
             pull.MergeCommitSha);
     }
 
+    /// <summary>Reads the head commit of a branch (<c>GET …/git/ref/heads/{branch}</c>).</summary>
+    /// <param name="owner">Repository owner.</param>
+    /// <param name="repo">Repository name.</param>
+    /// <param name="branch">Branch name (slashes allowed).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The head sha.</returns>
+    public async Task<string> GetBranchHeadAsync(string owner, string repo, string branch, CancellationToken cancellationToken = default)
+    {
+        var escaped = string.Join('/', branch.Split('/').Select(Uri.EscapeDataString));
+        var reference = await _api.GetAsync($"{Repo(owner, repo)}/git/ref/heads/{escaped}", EvidenceJsonContext.Default.GitRefDto, cancellationToken).ConfigureAwait(false);
+        return reference.Object?.Sha ?? throw new InvalidOperationException($"Branch '{branch}' has no head sha.");
+    }
+
     /// <summary>Reads the committer date of a commit.</summary>
     /// <param name="owner">Repository owner.</param>
     /// <param name="repo">Repository name.</param>

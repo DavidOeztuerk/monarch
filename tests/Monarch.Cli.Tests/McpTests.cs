@@ -20,6 +20,9 @@ public class McpServerTests
     private static string Call(int id, string tool, string args) =>
         $$$"""{"jsonrpc":"2.0","id":{{{id}}},"method":"tools/call","params":{"name":"{{{tool}}}","arguments":{{{args}}}}}""";
 
+    /// <summary>Text without the leading project line (ADR-0013); text without it is returned as is.</summary>
+    private static string Json(string text) => text.StartsWith("project: ", StringComparison.Ordinal) ? text[(text.IndexOf('\n', StringComparison.Ordinal) + 1)..] : text;
+
     private static (bool IsError, string Text) Result(JsonNode r) =>
         (r["result"]!["isError"]?.GetValue<bool>() ?? false, r["result"]!["content"]![0]!["text"]!.GetValue<string>());
 
@@ -52,10 +55,10 @@ public class McpServerTests
         var r = Rpc(p, Call(1, "system_status", "{}"), Call(2, "mana_forecast", """{"estimates":[{"session_pct":5,"weekly_pct":1},{"session_pct":60,"weekly_pct":1}]}"""),
             Call(3, "mana_forecast", """{"estimates":[{"session_pct":5,"weekly_pct":1}]}"""), Call(4, "mana_forecast", "{}"));
         Assert.Contains("ledgerOk", Result(r[0]).Text, StringComparison.Ordinal);
-        var big = JsonNode.Parse(Result(r[1]).Text)!;
+        var big = JsonNode.Parse(Json(Result(r[1]).Text))!;
         Assert.Equal("RecapAndStop", big["decision"]!.GetValue<string>());
         Assert.Equal("plan default", big["limitSource"]!.GetValue<string>());
-        var small = JsonNode.Parse(Result(r[2]).Text)!;
+        var small = JsonNode.Parse(Json(Result(r[2]).Text))!;
         Assert.Equal("Proceed", small["decision"]!.GetValue<string>());
         Assert.Equal(90 - 40 - 5 - 5, small["headroom"]!["fiveHourPct"]!.GetValue<double>(), 3);
         Assert.True(Result(r[3]).IsError);
@@ -68,7 +71,7 @@ public class McpServerTests
         var r = Rpc(p, Call(1, "gate_plan", Plan));
         var (err, text) = Result(r[0]);
         Assert.False(err, text);
-        var res = JsonNode.Parse(text)!;
+        var res = JsonNode.Parse(Json(text))!;
         var raised = res["quests"]!.AsArray().Single(q => q!["id"]!.GetValue<string>() == "Q-0072")!;
         Assert.Equal("A", raised["rank"]!.GetValue<string>());
         Assert.Contains("auth", raised["reason"]!.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
