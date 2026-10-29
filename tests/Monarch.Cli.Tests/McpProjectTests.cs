@@ -879,7 +879,8 @@ public class McpProjectTests
         };
         foreach (var (tool, args) in calls)
         {
-            Assert.StartsWith(Hdr(a, "cwd") + "\n", w.One(a, null, tool, args).Text, StringComparison.Ordinal);
+            // The first line is exactly the project line; a tool with no output of its own answers with that line alone.
+            Assert.Equal(Hdr(a, "cwd"), McpWorld.Header(w.One(a, null, tool, args).Text));
         }
     }
 }

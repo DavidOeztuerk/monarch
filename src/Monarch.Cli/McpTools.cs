@@ -18,33 +18,86 @@ internal static class McpTools
     private const int MaxKnowledgeBytes = 1_000_000;
 
     /// <summary>Serves MCP on the environment's streams.</summary>
-    public static int Run(CliEnv env) => new McpServer(Build(env), "monarch", ServerVersion).Run(env.In, env.Out);
+    public static int Run(CliEnv env)
+    {
+        TimeSpan? timeout = int.TryParse(env.GetVar("MONARCH_MCP_ROOTS_TIMEOUT_MS"), System.Globalization.NumberStyles.None, CultureInfo.InvariantCulture, out var ms) && ms > 0
+            ? TimeSpan.FromMilliseconds(ms) : null;
+        var options = new McpServerOptions(env.Err, env.GetVar("MONARCH_MCP_ROOTS_LOG"), timeout);
+        return new McpServer(Build(env), "monarch", ServerVersion, options).Run(env.In, env.Out);
+    }
+
+    private const string ProjectProperty = "\"project\":{\"type\":\"string\",\"description\":\"Absolute path of an awakened project root at or below the client roots. Without it the project is resolved from the roots, then the start directory.\"}";
+
+    private static string Schema(string schema)
+    {
+        const string marker = "\"properties\":{";
+        var at = schema.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
+        return schema[..at] + ProjectProperty + (schema[at] == '}' ? string.Empty : ",") + schema[at..];
+    }
 
     /// <summary>The six tools.</summary>
     public static IReadOnlyList<McpTool> Build(CliEnv env) =>
     [
         new("system_status", "Read-only project status (active quest, quest counts, XP, mana, guard, ledger integrity); same data as 'monarch status --json'.",
-            """{"type":"object","properties":{},"additionalProperties":false}""", true,
-            _ => Capture(env, e => StatusCommand.Run(e, true))),
+            Schema("""{"type":"object","properties":{},"additionalProperties":false}"""), true,
+            (a, c) => InProject(env, c, "system_status", true, true, a, (e, _, _) => Capture(e, x => StatusCommand.Run(x, true)))),
         new("gate_plan", "Validate and store a strategist plan: one gate plus its quests as files, with GateOpened/QuestProposed ledger events. Ranks are raised to the minimum implied by risk-tag paths; quests beyond Proposed are never overwritten.",
-            """{"type":"object","required":["gate","quests"],"properties":{"gate":{"type":"object","required":["id","title","rank"],"properties":{"id":{"type":"string","pattern":"^G-\\d{4,}$"},"title":{"type":"string"},"rank":{"enum":["E","D","C","B","A","S"]},"kind":{"enum":["standard","red","instance","jobchange"]}}},"quests":{"type":"array","items":{"type":"object","required":["id","title","kind","rank","scope","estimate","dod"],"properties":{"id":{"type":"string","pattern":"^Q-\\d{4,}$"},"title":{"type":"string"},"kind":{"enum":["main","side","daily","penalty","emergency","hidden"]},"rank":{"enum":["E","D","C","B","A","S"]},"scope":{"type":"object","required":["include"],"properties":{"include":{"type":"array","items":{"type":"string"}},"exclude":{"type":"array","items":{"type":"string"}}}},"estimate":{"type":"object","required":["session_pct","weekly_pct"],"properties":{"session_pct":{"type":"number"},"weekly_pct":{"type":"number"}}},"dod":{"type":"array","items":{"type":"string"}},"boss":{"type":"string"}}}}}}""",
-            false, a => GatePlan.Apply(env, a)),
+            Schema("""{"type":"object","required":["gate","quests"],"properties":{"gate":{"type":"object","required":["id","title","rank"],"properties":{"id":{"type":"string","pattern":"^G-\\d{4,}$"},"title":{"type":"string"},"rank":{"enum":["E","D","C","B","A","S"]},"kind":{"enum":["standard","red","instance","jobchange"]}}},"quests":{"type":"array","items":{"type":"object","required":["id","title","kind","rank","scope","estimate","dod"],"properties":{"id":{"type":"string","pattern":"^Q-\\d{4,}$"},"title":{"type":"string"},"kind":{"enum":["main","side","daily","penalty","emergency","hidden"]},"rank":{"enum":["E","D","C","B","A","S"]},"scope":{"type":"object","required":["include"],"properties":{"include":{"type":"array","items":{"type":"string"}},"exclude":{"type":"array","items":{"type":"string"}}}},"estimate":{"type":"object","required":["session_pct","weekly_pct"],"properties":{"session_pct":{"type":"number"},"weekly_pct":{"type":"number"}}},"dod":{"type":"array","items":{"type":"string"}},"boss":{"type":"string"}}}}}}"""),
+            false, (a, c) => InProject(env, c, "gate_plan", false, true, a, (e, p, s) => GatePlan.Apply(e, a, p!, s))),
         new("quest_transition", "Move a quest forward: accept, start or submit. Verify and clear are not MCP tools; they run from forge evidence via the CLI.",
-            """{"type":"object","required":["id","action"],"properties":{"id":{"type":"string"},"action":{"enum":["accept","start","submit"]}}}""", false,
-            a => Transition(env, a)),
+            Schema("""{"type":"object","required":["id","action"],"properties":{"id":{"type":"string"},"action":{"enum":["accept","start","submit"]}}}"""), false,
+            (a, c) => InProject(env, c, "quest_transition", false, true, a, (e, _, _) => Transition(e, a))),
         new("evidence_sync", "Pull checks and merge state of linked pull requests from GitHub and verify/clear quests accordingly. Only forge data counts.",
-            """{"type":"object","properties":{"quest":{"type":"string","description":"Quest id; omit for all linked quests."}}}""", false,
-            a => Capture(env, e => EvidenceCommands.Sync(e, Opt(a, "quest")))),
-        new("mana_forecast", "Ask the Mana-Guard whether estimated steps fit: decision, remaining headroom per window and the limit source (plan default or adaptive).",
-            """{"type":"object","required":["estimates"],"properties":{"estimates":{"type":"array","minItems":1,"items":{"type":"object","required":["session_pct","weekly_pct"],"properties":{"session_pct":{"type":"number"},"weekly_pct":{"type":"number"}}}}}}""", true,
-            a => Forecast(env, a)),
+            Schema("""{"type":"object","properties":{"quest":{"type":"string","description":"Quest id; omit for all linked quests."}}}"""), false,
+            (a, c) => InProject(env, c, "evidence_sync", false, true, a, (e, _, _) => Capture(e, x => EvidenceCommands.Sync(x, Opt(a, "quest"))))),
+        new("mana_forecast", "Ask the Mana-Guard whether estimated steps fit: decision, remaining headroom per window and the limit source (plan default or adaptive). Works without a project (uncalibrated, plan defaults).",
+            Schema("""{"type":"object","required":["estimates"],"properties":{"estimates":{"type":"array","minItems":1,"items":{"type":"object","required":["session_pct","weekly_pct"],"properties":{"session_pct":{"type":"number"},"weekly_pct":{"type":"number"}}}}}}"""), true,
+            (a, c) => InProject(env, c, "mana_forecast", true, false, a, (e, p, _) => Forecast(e, a, p))),
         new("knowledge_write", "Write a file below .monarch/knowledge/ (relative path only; no '..', absolute paths or symlink escapes) and log KnowledgeWritten.",
-            """{"type":"object","required":["path","content"],"properties":{"path":{"type":"string"},"content":{"type":"string"}}}""", false,
-            a => KnowledgeWrite(env, a)),
+            Schema("""{"type":"object","required":["path","content"],"properties":{"path":{"type":"string"},"content":{"type":"string"}}}"""), false,
+            (a, c) => InProject(env, c, "knowledge_write", false, true, a, (e, p, s) => KnowledgeWrite(e, a, p!, s))),
     ];
 
     /// <summary>Optional string argument.</summary>
     internal static string? Opt(JsonElement a, string name) => a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+
+    /// <summary>
+    /// Resolves the project of this call (ADR-0013), runs <paramref name="body"/> with an environment whose cwd is the resolved project, logs
+    /// <c>McpProjectResolved</c> for writing tools before any effect and prefixes the answer with <c>project: &lt;root&gt; (source: …)</c>.
+    /// </summary>
+    private static McpToolResult InProject(CliEnv env, McpCallContext ctx, string tool, bool readOnly, bool required, JsonElement args, Func<CliEnv, ProjectPaths?, string, McpToolResult> body)
+    {
+        string? parameter = null;
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("project", out var p) && p.ValueKind != JsonValueKind.Null)
+        {
+            parameter = p.ValueKind == JsonValueKind.String ? p.GetString() : string.Empty;
+        }
+
+        var session = env.GetVar("CLAUDE_CODE_SESSION_ID") is { } sid && !string.IsNullOrWhiteSpace(sid) ? ProjectLedger.Sanitize(sid.Trim()) : "mcp-" + ctx.ServerId;
+        var res = ProjectResolver.Resolve(env, parameter, ctx.Roots);
+        if (res.Paths is null)
+        {
+            if (!required && res.Failure == ProjectFailure.NotFound)
+            {
+                return Prefixed("project: null", body(env, null, session));
+            }
+
+            env.Err.WriteLine($"mcp: {tool}: {res.Error}");
+            return new McpToolResult("project: null\nerror: " + res.Error, true);
+        }
+
+        var paths = res.Paths;
+        if (!readOnly)
+        {
+            var ledger = new ProjectLedger(paths, env.Clock);
+            ledger.Append(session, "mcp", "McpProjectResolved", ("tool", tool), ("project", paths.Root), ("source", res.Source), ("roots_count", res.RootsCount),
+                ("cwd_project", res.CwdProject), ("session", session));
+        }
+
+        return Prefixed($"project: {paths.Root} (source: {res.Source})", body(env with { Cwd = paths.Root }, paths, session));
+    }
+
+    private static McpToolResult Prefixed(string header, McpToolResult r) => new(r.Text.Length == 0 ? header : header + "\n" + r.Text, r.IsError);
 
     private static McpToolResult Capture(CliEnv env, Func<CliEnv, int> run)
     {
@@ -65,18 +118,17 @@ internal static class McpTools
 
         if (action is not ("accept" or "start" or "submit"))
         {
-            return new McpToolResult($"error: action '{action}' is not available over MCP; only accept, start and submit are. verify and clear are not MCP tools: they run via the CLI from forge evidence.", true);
+            return new McpToolResult($"error: action '{action}' is not available over MCP; only accept, start and submit are. verify and clear are not MCP tools: they run from forge evidence via the CLI.", true);
         }
 
         return Capture(env, e => QuestCommands.Transition(e, action, id));
     }
 
-    private static McpToolResult Forecast(CliEnv env, JsonElement a)
+    private static McpToolResult Forecast(CliEnv env, JsonElement a, ProjectPaths? project)
     {
-        if (ProjectPaths.Locate(env.Cwd, env.Home) is not { } paths)
-        {
-            return new McpToolResult("error: not an awakened project.", true);
-        }
+        // Without a project the forecast is global: the snapshot lives under ~/.monarch, the factor is the start factor and the limits are the plan
+        // defaults. A directory that does not exist stands in for the project, so no per-project file is read or written.
+        var paths = project ?? new ProjectPaths(Path.Combine(Path.GetTempPath(), "monarch-no-project-" + Guid.NewGuid().ToString("N")));
 
         if (!a.TryGetProperty("estimates", out var list) || list.ValueKind != JsonValueKind.Array || list.GetArrayLength() == 0)
         {
@@ -99,13 +151,8 @@ internal static class McpTools
         return new McpToolResult(ManaCommands.Forecast(env, paths, s, w));
     }
 
-    private static McpToolResult KnowledgeWrite(CliEnv env, JsonElement a)
+    private static McpToolResult KnowledgeWrite(CliEnv env, JsonElement a, ProjectPaths paths, string session)
     {
-        if (ProjectPaths.Locate(env.Cwd, env.Home) is not { } paths)
-        {
-            return new McpToolResult("error: not an awakened project.", true);
-        }
-
         var rel = Opt(a, "path");
         var content = Opt(a, "content");
         if (string.IsNullOrWhiteSpace(rel) || content is null)
@@ -158,7 +205,7 @@ internal static class McpTools
         Files.WriteAtomic(full, content);
         var ledger = new ProjectLedger(paths, env.Clock);
         var clean = string.Join('/', segments);
-        ledger.Append(ledger.SessionId(), "mcp", "KnowledgeWritten", ("path", clean), ("bytes", (long)bytes), ("sha256", ManaSupport.Sha(content)));
+        ledger.Append(session, "mcp", "KnowledgeWritten", ("path", clean), ("bytes", (long)bytes), ("sha256", ManaSupport.Sha(content)));
         return new McpToolResult($"wrote .monarch/knowledge/{clean} ({bytes} bytes)");
     }
 }
@@ -167,13 +214,8 @@ internal static class McpTools
 internal static partial class GatePlan
 {
     /// <summary>Validates and stores the plan; nothing is written unless the whole plan is valid.</summary>
-    public static McpToolResult Apply(CliEnv env, JsonElement a)
+    public static McpToolResult Apply(CliEnv env, JsonElement a, ProjectPaths paths, string session)
     {
-        if (ProjectPaths.Locate(env.Cwd, env.Home) is not { } paths)
-        {
-            return new McpToolResult("error: not an awakened project.", true);
-        }
-
         if (!a.TryGetProperty("gate", out var g) || g.ValueKind != JsonValueKind.Object)
         {
             return new McpToolResult("error: 'gate' object is required.", true);
@@ -284,7 +326,6 @@ internal static partial class GatePlan
         BoardFiles.Edit(gateFile, r => r.With("type", new YamlScalar(gateKind)));
 
         var ledger = new ProjectLedger(paths, env.Clock);
-        var session = ledger.SessionId();
         if (oldGate is null)
         {
             ledger.Append(session, "mcp", "GateOpened", ("gate", gateId), ("title", gateTitle), ("rank", gateRank.ToString()), ("kind", gateKind));
