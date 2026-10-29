@@ -15,7 +15,8 @@ namespace Monarch.Cli;
 /// <param name="Tokens">GitHub token source; null resolves from the environment.</param>
 /// <param name="StdinIsTty">True when stdin is an interactive terminal; owner-only commands (ADR-0011 rule 7) need it. Tests inject it.</param>
 /// <param name="Vars">Environment variables of the calling process; null reads the real process environment (tests inject a fixed set).</param>
-internal sealed record CliEnv(string Cwd, string Home, TextReader In, TextWriter Out, TextWriter Err, IClock Clock, HttpMessageHandler? Http = null, GitHubTokenProvider? Tokens = null, bool StdinIsTty = false, IReadOnlyDictionary<string, string?>? Vars = null)
+/// <param name="UserHome">The user's home, whose <c>.monarch</c> is never a project; null resolves the real home (tests inject a temp directory).</param>
+internal sealed record CliEnv(string Cwd, string Home, TextReader In, TextWriter Out, TextWriter Err, IClock Clock, HttpMessageHandler? Http = null, GitHubTokenProvider? Tokens = null, bool StdinIsTty = false, IReadOnlyDictionary<string, string?>? Vars = null, string? UserHome = null)
 {
     /// <summary>Value of an environment variable of the calling process.</summary>
     public string? GetVar(string name) => Vars is null ? Environment.GetEnvironmentVariable(name) : Vars.GetValueOrDefault(name);
