@@ -176,13 +176,29 @@ public static partial class ToolCallPolicy
     /// ADR-0014 Entscheidung 2: Nachweislich kein Code ist nur ein Segment der obersten Ebene mit harmlosem Kommandowort, ohne Pipe-Ausgang, Zuweisung,
     /// Umleitung, Heredoc, und nur in einem Kommando ohne Substitution und ohne Funktions- oder Alias-Definition.
     /// </summary>
-    private static bool IsNonCodeSegment(BashAnalysis.Segment s, string cmd)
+    private static bool IsNonCodeSegment(BashAnalysis.Segment s, bool commandAllows)
     {
+        if (!commandAllows) return false;
         if (s.Tokens.Length == 0 || Array.IndexOf(NonCodeWords, s.Tokens[0]) < 0) return false;
         if (s.PipesToNext || s.Assignments.Count > 0 || s.OutRedirects.Count > 0 || s.InRedirects.Count > 0 || s.Heredoc is not null || s.Events.Length > 0) return false;
         if (s.RawWords.Length != s.Tokens.Length) return false;
-        if (cmd.Contains("$(", StringComparison.Ordinal) || cmd.Contains('`') || cmd.Contains("<(", StringComparison.Ordinal) || cmd.Contains(">(", StringComparison.Ordinal)) return false;
-        return !HasDefinition(cmd);
+        return true;
+    }
+
+    /// <summary>True, wenn das Kommando Substitution enthaelt.</summary>
+    private static bool HasSubstitution(string cmd) =>
+        cmd.Contains("$(", StringComparison.Ordinal) || cmd.Contains('`') || cmd.Contains("<(", StringComparison.Ordinal) || cmd.Contains(">(", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Einmal je Kommando: Nicht-Code-Segmente gibt es nur ohne Substitution, ohne Funktions-/Alias-Definition und wenn kein Heredoc/Here-String an einem
+    /// verworfenen Segment (Gruppe, Subshell) haengt (mehr Heredoc-Operatoren im Text als Segmente mit Heredoc).
+    /// </summary>
+    private static bool NonCodeAllowed(string cmd, List<BashAnalysis.Segment> segments)
+    {
+        if (HasSubstitution(cmd) || HasDefinition(cmd)) return false;
+        var raw = 0;
+        for (var i = cmd.IndexOf("<<", StringComparison.Ordinal); i >= 0; i = cmd.IndexOf("<<", i + 2, StringComparison.Ordinal)) raw++;
+        return raw <= segments.Count(s => s.Heredoc is not null);
     }
 
     private static bool HasDefinition(string cmd)
@@ -221,12 +237,12 @@ public static partial class ToolCallPolicy
     /// ADR-0014 Entscheidung 3: <c>git restore --staged|-S [-q|--quiet] [--] pfade</c> und <c>git reset [-q|--quiet] [HEAD] -- pfade</c> setzen nur den
     /// Index zurück. Gilt nur für wörtliche Argumente (keine Variablen, Globs, Substitutionen, Wrapper, Zuweisungen, Globaloptionen).
     /// </summary>
-    private static bool IsIndexOnlyGit(BashAnalysis.Segment seg, List<BashAnalysis.Segment> all, string cmd)
+    private static bool IsIndexOnlyGit(BashAnalysis.Segment seg, List<BashAnalysis.Segment> all, bool hasSubstitution)
     {
         var raw = seg.RawWords;
         if (raw.Length < 3 || raw[0] != "git" || !raw.SequenceEqual(seg.Tokens) || seg.Assignments.Count > 0) return false;
         if (seg.OutRedirects.Count > 0 || seg.InRedirects.Count > 0 || seg.Heredoc is not null || seg.PipesToNext) return false;
-        if (cmd.Contains("$(", StringComparison.Ordinal) || cmd.Contains('`') || cmd.Contains("<(", StringComparison.Ordinal) || cmd.Contains(">(", StringComparison.Ordinal)) return false;
+        if (hasSubstitution) return false;
         if (all.Any(s => s.AssignmentNames.Any(n => n.StartsWith("GIT_", StringComparison.OrdinalIgnoreCase)))) return false;
         if (raw.Any(t => t.Contains('$', StringComparison.Ordinal) || t.AsSpan().IndexOfAny("*?[]{}") >= 0)) return false;
         var sub = raw[1];
@@ -264,12 +280,14 @@ public static partial class ToolCallPolicy
     private static PolicyDecision? BashProtect(string cmd, PolicyContext ctx, List<BashAnalysis.Segment> segments, Canon paths)
     {
         // Interpreter mit Inline- oder stdin-Code, der .monarch/.claude erwähnt (auch zerlegt wie '.mon' + 'arch').
+        var hasSubstitution = HasSubstitution(cmd);
         var inline = segments.FirstOrDefault(BashAnalysis.IsInlineInterpreter);
+        var nonCodeAllowed = inline is not null && NonCodeAllowed(cmd, segments);
         if (inline is not null)
         {
             // ADR-0014 Entscheidung 2: Default ist "Code" (Teilstring-Suche wie bisher); nur nachweislich harmlose cd/ls-Segmente sind es nicht,
             // dort zählt nur eine echte Pfadkomponente.
-            var nonCode = segments.Where(s => IsNonCodeSegment(s, cmd)).ToList();
+            var nonCode = segments.Where(s => IsNonCodeSegment(s, nonCodeAllowed)).ToList();
             string compact;
             if (nonCode.Count == 0) compact = BashAnalysis.Compress(cmd);
             else
@@ -345,7 +363,7 @@ public static partial class ToolCallPolicy
                 return PolicyDecision.Deny(PolicyRules.ProtectPaths,
                     $"Regel 2 (ADR-0011): Das Skript von '{word}' schreibt in den geschützten Pfad '{script.Path}' (protect_paths: {script.Pattern}).");
 
-            if (IsIndexOnlyGit(seg, segments, cmd)) continue; // Segment bleibt mutierend (Zuweisungsregel oben), nur die Operanden sind ausgenommen
+            if (IsIndexOnlyGit(seg, segments, hasSubstitution)) continue; // Segment bleibt mutierend (Zuweisungsregel oben), nur die Operanden sind ausgenommen
             var (mutating, destructive) = Classify(word, tokens);
             if (!mutating && IsReading(word, tokens)) continue;
             if (IsPositive(seg, paths)) continue;
@@ -744,6 +762,7 @@ public static partial class ToolCallPolicy
                 var letters = 0;
                 while (letters < cluster.Length && char.IsAsciiLetter(cluster[letters])) letters++;
                 var pos = cluster[..letters].IndexOfAny(string.Concat(shortFlags));
+                if (word == "gh" && pos > 0) pos = -1; // gh: nur der erste Buchstabe ist das Daten-Flag (-Dq/..: -D ist ein Schreibpfad)
                 if (pos >= 0)
                 {
                     if (pos == cluster.Length - 1) i++; // Wert ist das nächste Wort
@@ -844,11 +863,22 @@ public static partial class ToolCallPolicy
         return false;
     }
 
-    /// <summary>Ein Segment <c>..</c> hinter dem ersten Wildcard kann ein Wildcard-Verzeichnis wieder aufheben (ADR-0014 1c): zählt als Treffer.</summary>
-    private static bool HasDotDotAfterWildcard(string token)
+    /// <summary>
+    /// Rest eines Glob-Tokens ab dem Wildcard-Segment (ADR-0014 1c): leere und <c>.</c>-Segmente und ein Slash am Ende entfallen. <paramref name="dotHit"/>:
+    /// ein Segment <c>..</c> oder ein Wildcard-Segment, das <c>.</c> oder <c>..</c> erzeugen kann (bash 3.2: <c>.?/</c>), zaehlt als Treffer (fail-closed).
+    /// </summary>
+    private static string NormalizeTail(string tail, out bool dotHit)
     {
-        var w = token.AsSpan().IndexOfAny('*', '?', '[');
-        return w >= 0 && token[w..].Split('/').Contains("..");
+        dotHit = false;
+        var keep = new List<string>();
+        foreach (var seg in tail.Split('/'))
+        {
+            if (seg.Length == 0 || seg == ".") continue;
+            if (seg == ".." || (seg[0] == '.' && BashAnalysis.IsGlob(seg) && FlatPattern.Parse(seg) is var p && (p.Matches(".") || p.Matches("..")))) dotHit = true;
+            keep.Add(seg);
+        }
+
+        return string.Join('/', keep);
     }
 
     private static string? Find(List<Zone> zones, Canon paths, string token, bool destructive)
@@ -856,9 +886,10 @@ public static partial class ToolCallPolicy
         if (token.Length == 0 || token.StartsWith('-')) return null;
         if (BashAnalysis.IsGlob(token))
         {
-            if (HasDotDotAfterWildcard(token) && zones.Count > 0) return zones[0].AnyShown;
-            foreach (var (dir, name, tail) in paths.GlobParts(token))
+            foreach (var (dir, name, rawTail) in paths.GlobParts(token))
             {
+                var tail = NormalizeTail(rawTail, out var dotHit);
+                if (dotHit && zones.Count > 0) return zones[0].AnyShown;
                 var pat = FlatPattern.Parse(tail);
                 foreach (var z in zones)
                     if (z.HitGlob(dir, name, destructive) is { } g && z.CanReach(dir, pat, destructive)) return g;

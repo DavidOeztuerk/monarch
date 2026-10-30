@@ -142,6 +142,64 @@ public sealed class Adr0014Tests
     [InlineData("printf -- --worktree | xargs git restore --staged .monarch")]
     [InlineData("git restore --staged .monarch *")]
     [InlineData("./git restore --staged .monarch/ledger")]
-    [InlineData("env git restore --staged --worktree .monarch")]
+    [InlineData("env git restore --staged .monarch")]
     public void Git_non_index_or_non_literal_forms_stay_denied(string cmd) => Denied(cmd);
+
+    // ---- Warden Code-Runde: Platzhalter-Schutz mit Rest nach dem Wildcard (Slash, ., //, .. durch Wildcard)
+    [Theory]
+    [InlineData("rsync -a x/ .monarc?/")]
+    [InlineData("cp -R x/ledger .monarc?/")]
+    [InlineData("rm .monarc?/./ledger/x")]
+    [InlineData("rm .monarc?//ledger/x")]
+    [InlineData("rm -rf .?/*")]
+    [InlineData("rm -rf .[.]/proj")]
+    [InlineData("rm -rf ~/.monarc?/")]
+    [InlineData("rm -rf ~/.claud?/settings.json")]
+    [InlineData("cp x ~/.monarc?/")]
+    public void Wildcard_rest_normalisation_stays_denied(string cmd) => Denied(cmd);
+
+    [Theory]
+    [InlineData("sed -i 's/foo.*/bar/' f.txt")]
+    [InlineData("rm -rf src/.cache*/x")]
+    public void Wildcard_rest_normalisation_regression_allowed(string cmd) => Allowed(cmd);
+
+    // ---- Heredoc/Here-String an Gruppe oder Subshell gehört zum Code
+    [Theory]
+    [InlineData("cd /tmp && ( python3 - ) <<'EOF'\nimport os; os.remove('.monarch/local/x')\nEOF")]
+    [InlineData("cd /tmp && { python3 -; } <<'EOF'\nimport os; os.remove('.monarch/local/x')\nEOF")]
+    [InlineData("cd /tmp && ( python3 - ) <<< \"import os; os.remove('.monarch/local/x')\"")]
+    [InlineData("python3 -c \"open('.mon'+'arch/ledger/x','w')\"")]
+    public void Heredoc_on_group_and_decomposed_inline_code_stay_denied(string cmd) => Denied(cmd);
+
+    // ---- gh: nur der erste Buchstabe eines Short-Clusters ist ein Daten-Flag
+    [Theory]
+    [InlineData("gh run download 123 -Dq/../.monarch/ledger")]
+    [InlineData("gh release download v1 -Oq/../.monarch/ledger/x")]
+    public void Gh_cluster_with_write_path_value_stays_denied(string cmd) => Denied(cmd);
+
+    // ---- FlatPattern (Einheitentests)
+    [Theory]
+    [InlineData(".monarc?", ".monarch", true)]
+    [InlineData(".mon[a]rch", ".monarch", true)]
+    [InlineData(".[]m]onarch", ".monarch", true)]
+    [InlineData(".[!M]onarch", ".monarch", true)]
+    [InlineData(".[a-z]onarch", ".monarch", true)]
+    [InlineData(".[[=m=]]onarch", ".monarch", true)]
+    [InlineData(".[0]x", ".monarch", false)]
+    [InlineData(".[", ".[", true)]
+    [InlineData(".[]", ".monarch", false)]
+    [InlineData(".[M]onarch", ".monarch", true)]
+    [InlineData(".m*", ".monarch", true)]
+    [InlineData(".monarch?ledger", ".monarch/ledger", true)]
+    [InlineData(".monarch[/]ledger", ".monarch/ledger", true)]
+    [InlineData(".[ß]x", ".qx", true)]
+    public void FlatPattern_matches(string pattern, string text, bool expected) =>
+        Assert.Equal(expected, FlatPattern.Parse(pattern).Matches(text));
+
+    [Theory]
+    [InlineData(".mon*/x", ".monarch/", true)]
+    [InlineData(".[0].message", ".monarch/", false)]
+    [InlineData("s/.*x", ".monarch/", false)]
+    public void FlatPattern_can_start_with(string pattern, string text, bool expected) =>
+        Assert.Equal(expected, FlatPattern.Parse(pattern).CanStartWith(text));
 }
