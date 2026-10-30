@@ -3,7 +3,7 @@ id: Q-0134
 gate: G-0104
 kind: main
 rank: A
-state: proposed
+state: abandoned
 dod:
   - Design zuerst: Nachtrag in docs/adr/0007-merge-policy-nach-zielbranch.md (Fix-PR-Kriterium, cancelled = unbelegt, Laufzeit und Nachprüfung, git.merge_method mit Default aus der Historie) -> eine Warden-Runde (Design) -> Code
   - Issue 34, roter develop: gate merge merged nur einen belegten Fix-PR, d. h. der PR-Head enthält den aktuellen develop-Head, alle Checks am PR-Head sind grün und genau die am develop-Head roten Checks sind dort grün; GateMerged hält die überstimmten Checks fest. Fehlt ein Beleg, bleibt die Verweigerung ohne PUT; kein Flag und keine Selbstauskunft schaltet das frei

@@ -3,7 +3,7 @@ id: Q-0135
 gate: G-0104
 kind: main
 rank: C
-state: proposed
+state: abandoned
 dod:
   - awaken und status (Text und --json) melden, ob ein aktiver gitleaks-pre-commit-Hook vorhanden ist; Erkennung: core.hooksPath falls gesetzt, sonst `<git rev-parse --git-common-dir>/hooks/pre-commit` (gilt auch in Worktrees); aktiv heißt vorhanden, ausführbar und ruft gitleaks auf
   - Monarch installiert nichts und ruft gitleaks nicht auf (Test: kein Schreibzugriff unter den Hook-Verzeichnissen)

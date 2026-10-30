@@ -3,7 +3,7 @@ id: Q-0136
 gate: G-0104
 kind: main
 rank: A
-state: proposed
+state: abandoned
 dod:
   - Design zuerst: docs/adr/0015-relatives-latenz-gate.md beschreibt den A/B-Vergleich PR-Binary gegen develop-Binary auf demselben Runner (verschränkte Messung, Schwelle aus gemessenen A/A-Läufen mit Zahlen und Run-IDs, u. a. Run 41038797796) und zeigt, dass echte Regressionen weiter auffallen; p99 <= 20 ms bleibt das Kriterium auf dem echten Mac (MVP-Gate C1) -> eine Warden-Runde (Design) vor TDD
   - bench/test-gate.sh erweitert, vorher rot, danach grün: Fehler-Injektion (synthetische Regression auf den Samples des PR-Binaries) -> A/B-Gate rot; A/A mit gleicher Verteilung und Einzelausreißern -> grün; die bestehenden Prüfungen (p95 besteht, p99 fällt) bleiben unverändert
