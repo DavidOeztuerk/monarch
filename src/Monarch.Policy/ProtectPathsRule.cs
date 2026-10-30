@@ -76,6 +76,34 @@ public static partial class ToolCallPolicy
             return null;
         }
 
+        /// <summary>
+        /// Beweis zu <see cref="HitGlob"/> (ADR-0014 1c): True, wenn das Muster einen String s erzeugen kann, für den <see cref="Hit"/> trifft
+        /// (Zone oder Vorfahren der Zone). Außerhalb der Projekt-Root bleibt es beim Vorfilter.
+        /// </summary>
+        internal bool CanReach(string dir, FlatPattern pat, bool destructive)
+        {
+            var rel = RelFolded(PathFold.Fold(dir));
+            if (rel is null) return true;
+            var dp = rel.Length == 0 ? "" : rel + "/";
+            if (destructive && dp.Length == 0 && pat.Matches("")) return true;
+            for (var i = 0; i < _literals.Length; i++)
+            {
+                var lit = _literals[i];
+                if (lit.Length == 0) { if (_globs[i] == "**") return true; continue; }
+                if (lit.StartsWith(dp, StringComparison.Ordinal))
+                {
+                    if (pat.CanStartWith(lit[dp.Length..])) return true;
+                    for (var k = lit.IndexOf('/', StringComparison.Ordinal); k > 0; k = lit.IndexOf('/', k + 1))
+                        if (lit[..k].StartsWith(dp, StringComparison.Ordinal) && pat.Matches(lit[dp.Length..k])) return true;
+                }
+                else if (dp.StartsWith(lit, StringComparison.Ordinal)) return true;
+            }
+
+            return false;
+        }
+
+        public string AnyShown => _shown[0];
+
         /// <summary>Treffer-Muster für ein Glob-Token: <paramref name="dir"/> (kanonisch) plus unvollständiger Namensteil <paramref name="name"/> (gefaltet).</summary>
         public string? HitGlob(string dir, string name, bool destructive)
         {
@@ -142,13 +170,145 @@ public static partial class ToolCallPolicy
         return BashProtect(cmd, ctx, segments, paths) ?? WorktreeAsk(segments);
     }
 
+    private static readonly string[] NonCodeWords = ["cd", "pushd", "popd", "ls", "pwd", "true", "false", "test", "["];
+
+    /// <summary>
+    /// ADR-0014 Entscheidung 2: Nachweislich kein Code ist nur ein Segment der obersten Ebene mit harmlosem Kommandowort, ohne Pipe-Ausgang, Zuweisung,
+    /// Umleitung, Heredoc, und nur in einem Kommando ohne Substitution und ohne Funktions- oder Alias-Definition.
+    /// </summary>
+    private static bool IsNonCodeSegment(BashAnalysis.Segment s, bool commandAllows)
+    {
+        if (!commandAllows) return false;
+        if (s.Tokens.Length == 0 || Array.IndexOf(NonCodeWords, s.Tokens[0]) < 0) return false;
+        if (s.PipesToNext || s.Assignments.Count > 0 || s.OutRedirects.Count > 0 || s.InRedirects.Count > 0 || s.Heredoc is not null || s.Events.Length > 0) return false;
+        if (s.RawWords.Length != s.Tokens.Length) return false;
+        return true;
+    }
+
+    /// <summary>True, wenn das Kommando Substitution enthaelt.</summary>
+    private static bool HasSubstitution(string cmd) =>
+        cmd.Contains("$(", StringComparison.Ordinal) || cmd.Contains('`') || cmd.Contains("<(", StringComparison.Ordinal) || cmd.Contains(">(", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Einmal je Kommando: Nicht-Code-Segmente gibt es nur ohne Substitution, ohne Funktions-/Alias-Definition und wenn kein Heredoc/Here-String an einem
+    /// verworfenen Segment (Gruppe, Subshell) haengt (mehr Heredoc-Operatoren im Text als Segmente mit Heredoc).
+    /// </summary>
+    private static bool NonCodeAllowed(string cmd, List<BashAnalysis.Segment> segments)
+    {
+        if (HasSubstitution(cmd) || HasDefinition(cmd)) return false;
+        var raw = 0;
+        for (var i = cmd.IndexOf("<<", StringComparison.Ordinal); i >= 0; i = cmd.IndexOf("<<", i + 2, StringComparison.Ordinal)) raw++;
+        return raw <= segments.Count(s => s.Heredoc is not null);
+    }
+
+    private static bool HasDefinition(string cmd)
+    {
+        for (var i = cmd.IndexOf('('); i >= 0; i = cmd.IndexOf('(', i + 1))
+        {
+            var j = i + 1;
+            while (j < cmd.Length && cmd[j] is ' ' or '\t') j++;
+            if (j < cmd.Length && cmd[j] == ')') return true;
+        }
+
+        return BashAnalysis.PathTokens(cmd).Any(t => t is "function" or "alias");
+    }
+
+    /// <summary>Echte Komponente <c>.monarch</c>/<c>.claude</c> (gefaltet, lexikalisch normalisiert); <c>.claude/worktrees</c> ist Projektcode und zählt nicht.</summary>
+    private static bool HasProtectedComponent(string token)
+    {
+        var parts = new List<string>();
+        foreach (var c in PathFold.Fold(token).Split('/'))
+        {
+            if (c.Length == 0 || c == ".") continue;
+            if (c == ".." && parts.Count > 0 && parts[^1] != "..") parts.RemoveAt(parts.Count - 1);
+            else parts.Add(c);
+        }
+
+        for (var i = 0; i < parts.Count; i++)
+        {
+            if (parts[i] == ".monarch") return true;
+            if (parts[i] == ".claude" && !(i + 1 < parts.Count && parts[i + 1] == "worktrees")) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// ADR-0014 Entscheidung 3: <c>git restore --staged|-S [-q|--quiet] [--] pfade</c> und <c>git reset [-q|--quiet] [HEAD] -- pfade</c> setzen nur den
+    /// Index zurück. Gilt nur für wörtliche Argumente (keine Variablen, Globs, Substitutionen, Wrapper, Zuweisungen, Globaloptionen).
+    /// </summary>
+    private static bool IsIndexOnlyGit(BashAnalysis.Segment seg, List<BashAnalysis.Segment> all, bool hasSubstitution)
+    {
+        var raw = seg.RawWords;
+        if (raw.Length < 3 || raw[0] != "git" || !raw.SequenceEqual(seg.Tokens) || seg.Assignments.Count > 0) return false;
+        if (seg.OutRedirects.Count > 0 || seg.InRedirects.Count > 0 || seg.Heredoc is not null || seg.PipesToNext) return false;
+        if (hasSubstitution) return false;
+        if (all.Any(s => s.AssignmentNames.Any(n => n.StartsWith("GIT_", StringComparison.OrdinalIgnoreCase)))) return false;
+        if (raw.Any(t => t.Contains('$', StringComparison.Ordinal) || t.AsSpan().IndexOfAny("*?[]{}") >= 0)) return false;
+        var sub = raw[1];
+        var i = 2;
+        var paths = 0;
+        if (sub == "restore")
+        {
+            var staged = false;
+            var dd = false;
+            for (; i < raw.Length; i++)
+            {
+                var t = raw[i];
+                if (dd) { paths++; continue; }
+                if (t == "--") { dd = true; continue; }
+                if (t is "--staged" or "-S") { staged = true; continue; }
+                if (t is "-q" or "--quiet") continue;
+                if (t.StartsWith('-')) return false;
+                paths++;
+            }
+
+            return staged && paths > 0;
+        }
+
+        if (sub == "reset")
+        {
+            for (; i < raw.Length && raw[i] is "-q" or "--quiet"; i++) { }
+            if (i < raw.Length && raw[i] == "HEAD") i++;
+            if (i >= raw.Length || raw[i] != "--") return false;
+            return raw.Length - i - 1 > 0;
+        }
+
+        return false;
+    }
+
     private static PolicyDecision? BashProtect(string cmd, PolicyContext ctx, List<BashAnalysis.Segment> segments, Canon paths)
     {
         // Interpreter mit Inline- oder stdin-Code, der .monarch/.claude erwähnt (auch zerlegt wie '.mon' + 'arch').
+        var hasSubstitution = HasSubstitution(cmd);
         var inline = segments.FirstOrDefault(BashAnalysis.IsInlineInterpreter);
+        var nonCodeAllowed = inline is not null && NonCodeAllowed(cmd, segments);
         if (inline is not null)
         {
-            var compact = BashAnalysis.Compress(cmd);
+            // ADR-0014 Entscheidung 2: Default ist "Code" (Teilstring-Suche wie bisher); nur nachweislich harmlose cd/ls-Segmente sind es nicht,
+            // dort zählt nur eine echte Pfadkomponente.
+            var nonCode = segments.Where(s => IsNonCodeSegment(s, nonCodeAllowed)).ToList();
+            string compact;
+            if (nonCode.Count == 0) compact = BashAnalysis.Compress(cmd);
+            else
+            {
+                var sb = new System.Text.StringBuilder();
+                foreach (var s in segments.Where(s => !nonCode.Contains(s)))
+                {
+                    sb.Append(s.Text).Append(' ').Append(s.Heredoc).Append(' ');
+                    foreach (var a in s.Assignments) sb.Append(a).Append(' ');
+                    foreach (var r in s.OutRedirects.Concat(s.InRedirects)) sb.Append(r).Append(' ');
+                }
+
+                compact = BashAnalysis.Compress(sb.ToString());
+                foreach (var s in nonCode)
+                    foreach (var arg in s.Tokens.Skip(1))
+                        foreach (var t in BashAnalysis.PathTokens(arg))
+                            if (HasProtectedComponent(t))
+                                return PolicyDecision.Deny(PolicyRules.ProtectPaths,
+                                    $"Der Interpreter '{inline.Word}' läuft nach '{s.Word} {t}', das eine Komponente .monarch/.claude nennt (protect_paths); geschützte Pfade ändert nur das Monarch-Binary.");
+            }
+
             foreach (var m in InterpreterMentions)
                 if (compact.Contains(m, StringComparison.Ordinal))
                     return PolicyDecision.Deny(PolicyRules.ProtectPaths,
@@ -203,6 +363,7 @@ public static partial class ToolCallPolicy
                 return PolicyDecision.Deny(PolicyRules.ProtectPaths,
                     $"Regel 2 (ADR-0011): Das Skript von '{word}' schreibt in den geschützten Pfad '{script.Path}' (protect_paths: {script.Pattern}).");
 
+            if (IsIndexOnlyGit(seg, segments, hasSubstitution)) continue; // Segment bleibt mutierend (Zuweisungsregel oben), nur die Operanden sind ausgenommen
             var (mutating, destructive) = Classify(word, tokens);
             if (!mutating && IsReading(word, tokens)) continue;
             if (IsPositive(seg, paths)) continue;
@@ -229,6 +390,8 @@ public static partial class ToolCallPolicy
     private static IEnumerable<string> PathCandidates(string arg)
     {
         foreach (var t in BashAnalysis.PathTokens(arg)) yield return t;
+        // Zeichenklassen koennen Trenner (= , Leerzeichen) enthalten; das ganze Argument wird zusaetzlich als Muster geprueft (ADR-0014 1c).
+        if (arg.Contains('[', StringComparison.Ordinal)) yield return BashAnalysis.StripQuotes(arg);
         if (arg.Length > 2 && arg[0] == '-' && arg[1] != '-')
         {
             foreach (var t in BashAnalysis.PathTokens(arg[2..])) yield return t;
@@ -573,12 +736,20 @@ public static partial class ToolCallPolicy
     {
         string[] shortFlags, longFlags;
         if (word == "git" && BashAnalysis.GitSubcommand(tokens, out _) is "commit" or "tag" or "merge" or "stash") (shortFlags, longFlags) = (["m", "F"], ["--message", "--file"]);
-        else if (word == "gh") (shortFlags, longFlags) = (["b", "t"], ["--body", "--title"]);
+        else if (word == "gh")
+        {
+            // ADR-0014 1a: jq-Ausdruck und Go-Template sind Daten (--template nur bei gh api; sonst ein Dateiname).
+            (shortFlags, longFlags) = (["b", "t", "q"], tokens.Length > 1 && tokens[1] == "api" ? ["--body", "--title", "--jq", "--template"] : ["--body", "--title", "--jq"]);
+        }
+        else if (word == "sed") return DropSedScript(tokens);
         else return tokens;
         var keep = new List<string>(tokens.Length);
+        var afterDashDash = false;
         for (var i = 0; i < tokens.Length; i++)
         {
             var t = tokens[i];
+            if (t == "--") afterDashDash = true;
+            if (afterDashDash) { keep.Add(t); continue; }
             if (i > 0 && t.StartsWith("--", StringComparison.Ordinal))
             {
                 var eq = t.IndexOf('=', StringComparison.Ordinal);
@@ -588,7 +759,10 @@ public static partial class ToolCallPolicy
             else if (i > 0 && t.Length > 1 && t[0] == '-')
             {
                 var cluster = t.AsSpan(1);
-                var pos = cluster.IndexOfAny(string.Concat(shortFlags));
+                var letters = 0;
+                while (letters < cluster.Length && char.IsAsciiLetter(cluster[letters])) letters++;
+                var pos = cluster[..letters].IndexOfAny(string.Concat(shortFlags));
+                if (word == "gh" && pos > 0) pos = -1; // gh: nur der erste Buchstabe ist das Daten-Flag (-Dq/..: -D ist ein Schreibpfad)
                 if (pos >= 0)
                 {
                     if (pos == cluster.Length - 1) i++; // Wert ist das nächste Wort
@@ -600,6 +774,40 @@ public static partial class ToolCallPolicy
         }
 
         return [.. keep];
+    }
+
+    private static readonly string[] SedPlainOptions =
+        ["-n", "-E", "-r", "-s", "-u", "-z", "--quiet", "--silent", "--regexp-extended", "--separate", "--unbuffered", "--null-data", "--posix", "--debug"];
+
+    /// <summary>
+    /// ADR-0014 1b: Das sed-Skript ist Daten, solange es kein w, W oder e enthält und alle Optionen eindeutig sind. Optionstokens (auch -i mit Suffix,
+    /// --in-place=...) und Dateioperanden bleiben Pfad-Kandidaten. Sonst gilt die heutige Prüfung.
+    /// </summary>
+    private static string[] DropSedScript(string[] tokens)
+    {
+        var drop = new HashSet<int>();
+        var expressions = new List<string>();
+        var firstPositional = -1;
+        for (var i = 1; i < tokens.Length; i++)
+        {
+            var t = tokens[i];
+            if (Array.IndexOf(SedPlainOptions, t) >= 0 || t == "-i" || t == "--in-place") continue;
+            if (t.StartsWith("--in-place=", StringComparison.Ordinal) || (t.StartsWith("-i", StringComparison.Ordinal) && t.Length > 2 && t[2] != '-')) continue;
+            if (t is "-e" or "--expression") { if (i + 1 >= tokens.Length) return tokens; expressions.Add(tokens[i + 1]); drop.Add(i + 1); i++; continue; }
+            if (t.StartsWith("--expression=", StringComparison.Ordinal)) { expressions.Add(t["--expression=".Length..]); drop.Add(i); continue; }
+            if (t.Length > 1 && t[0] == '-') return tokens; // unbekannte Option (-f, -l N, Bündel, --): Skript nicht eindeutig
+            if (firstPositional < 0) firstPositional = i;
+        }
+
+        if (expressions.Count == 0)
+        {
+            if (firstPositional < 0) return tokens;
+            expressions.Add(tokens[firstPositional]);
+            drop.Add(firstPositional);
+        }
+
+        if (expressions.Any(e => e.AsSpan().IndexOfAny('w', 'W', 'e') >= 0)) return tokens;
+        return [.. tokens.Where((_, i) => !drop.Contains(i))];
     }
 
     // ---- Regel 6: weiteres .monarch
@@ -655,14 +863,38 @@ public static partial class ToolCallPolicy
         return false;
     }
 
+    /// <summary>
+    /// Rest eines Glob-Tokens ab dem Wildcard-Segment (ADR-0014 1c): leere und <c>.</c>-Segmente und ein Slash am Ende entfallen. <paramref name="dotHit"/>:
+    /// ein Segment <c>..</c> oder ein Wildcard-Segment, das <c>.</c> oder <c>..</c> erzeugen kann (bash 3.2: <c>.?/</c>), zaehlt als Treffer (fail-closed).
+    /// </summary>
+    private static string NormalizeTail(string tail, out bool dotHit)
+    {
+        dotHit = false;
+        var keep = new List<string>();
+        foreach (var seg in tail.Split('/'))
+        {
+            if (seg.Length == 0 || seg == ".") continue;
+            if (seg == ".." || (seg[0] == '.' && BashAnalysis.IsGlob(seg) && FlatPattern.Parse(seg) is var p && (p.Matches(".") || p.Matches("..")))) dotHit = true;
+            keep.Add(seg);
+        }
+
+        return string.Join('/', keep);
+    }
+
     private static string? Find(List<Zone> zones, Canon paths, string token, bool destructive)
     {
         if (token.Length == 0 || token.StartsWith('-')) return null;
         if (BashAnalysis.IsGlob(token))
         {
-            foreach (var (dir, name) in paths.GlobParts(token))
+            foreach (var (dir, name, rawTail) in paths.GlobParts(token))
+            {
+                var tail = NormalizeTail(rawTail, out var dotHit);
+                if (dotHit && zones.Count > 0) return zones[0].AnyShown;
+                var pat = FlatPattern.Parse(tail);
                 foreach (var z in zones)
-                    if (z.HitGlob(dir, name, destructive) is { } g) return g;
+                    if (z.HitGlob(dir, name, destructive) is { } g && z.CanReach(dir, pat, destructive)) return g;
+            }
+
             return null;
         }
 
@@ -701,7 +933,7 @@ public static partial class ToolCallPolicy
 
         if (word == "find") return ClassifyFind(tokens);
         if (word == "sed")
-            return (args.Any(t => t == "--in-place" || t.StartsWith("-i", StringComparison.Ordinal)), destructive);
+            return (args.Any(t => t.StartsWith("--in-place", StringComparison.Ordinal) || t.StartsWith("-i", StringComparison.Ordinal)), destructive);
         if (Array.IndexOf(MutatingWords, word) < 0 && Array.IndexOf(ExtraMutatingWords, word) < 0) return (false, destructive);
         if (Array.IndexOf(DeleteWords, word) >= 0) destructive.AddRange(positional);
         else if (word == "mv" && positional.Count >= 2) destructive.AddRange(positional.Take(positional.Count - 1));

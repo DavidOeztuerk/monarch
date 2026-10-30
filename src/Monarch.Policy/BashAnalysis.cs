@@ -44,6 +44,12 @@ internal static class BashAnalysis
 
         /// <summary>Namen der Zuweisungen, parallel zu <see cref="Assignments"/> (ohne <c>+</c> bei <c>NAME+=wert</c>).</summary>
         public IReadOnlyList<string> AssignmentNames { get; init; } = [];
+
+        /// <summary>Wörter des Lexers vor dem Entfernen von Zuweisungen, Schlüsselwörtern und Wrappern.</summary>
+        public string[] RawWords { get; init; } = [];
+
+        /// <summary>True, wenn das Segment mit <c>|</c> in das nächste mündet.</summary>
+        public bool PipesToNext { get; init; }
     }
 
     /// <summary>
@@ -79,6 +85,8 @@ internal static class BashAnalysis
                 Events = pendingClose + raw.Events,
                 Assignments = assignments,
                 AssignmentNames = names,
+                RawWords = [.. raw.Words.Where(w => w.Length > 0)],
+                PipesToNext = raw.PipesToNext,
             });
             pendingClose = "";
             if (tokens.Length == 0) continue;
