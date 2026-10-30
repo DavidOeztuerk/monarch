@@ -1,9 +1,9 @@
 # RECAP
 
 ## Stand
-- Zeitpunkt: 2026-10-30T23:09:44Z
+- Zeitpunkt: 2026-10-30T23:10:01Z
 - Plan: Pro
-- Mana 5h: 40% (Limit 90%, Reset 2026-10-31T02:20:00Z)
+- Mana 5h: 41% (Limit 90%, Reset 2026-10-31T02:20:00Z)
 - Mana 7d: 94% (Limit 92%, Reset 2026-11-04T11:00:00Z)
 - Limits: 5h 90%, 7d 92% (adaptive)
 
@@ -24,4 +24,4 @@
 Nach Reset (Mi 04.11. 12:00): in Worktree .claude/worktrees/G-0105 (EnterWorktree path). (1) Q-0137-DoD ist in der Datei unvollständig (1. Punkt abgeschnitten vor dem Rautezeichen, 3 Punkte leer; Issue-Text für den Owner liegt vor) – zuerst Q-0137 per gate_plan neu schreiben (strategist, ganzes G-0105 mit Q-0137–Q-0141, DoD ohne Rautezeichen, Variante V1 und Q-0138 streng einarbeiten). (2) quest accept/start Q-0137, Knight: ADR-0007-Nachtrag (V1, cancelled, Laufzeit unter 120 s, Nachprüf-Befehl), eine Warden-Design-Runde, dann TDD. (3) Reihenfolge danach: Q-0138 + Q-0139, Q-0140, Q-0141 (ADR-0015; offen: bleibt das absolute p99-20-ms-Gate in CI blockierend – Owner fragen, falls das Design es ändern will).
 
 ## Offene Entscheidungen
-- G-0105/Q-0138 (#55): Owner wählt STRENG – jede bei d45e6b9 gesperrte Variante bleibt gesperrt; frei werden nur sed 's/.*/new/' f und sed -e 's/.*/e/' f. awk '/.*/ {print | "sort"}' f und rm -rf dist/.* bleiben deny und stehen im ADR-0014-Nachtrag als bekannte Fehlalarme. Grund: Owner-Regel aus G-0104, kein Schutz schrumpft.
+- ENTSCHIEDEN vom Owner am 30.10.: (1) Q-0137/Issue 34: V1 – belegter Fix-PR wird trotz rotem develop automatisch gemergt (develop-Head Vorfahr des PR-Heads, alle Checks am PR-Head grün, jeder am develop-Head rote Check gleichen Namens dort grün; GateMerged hält überstimmte Checks und develop-SHA fest); cancelled vor dem Merge bleibt Stopp (Lauf-ID, Rerun-Hinweis), danach Ergebnis cancelled mit Exit ungleich 0; pending bleibt Exit ungleich 0. (2) Q-0138/Issue 55: STRENG – jede bei d45e6b9 gesperrte Variante bleibt gesperrt; frei werden nur sed 's/.*/new/' f und sed -e 's/.*/e/' f; awk-Beispiel und rm -rf dist/.* bleiben deny, im ADR-0014-Nachtrag als bekannte Fehlalarme.
