@@ -273,14 +273,14 @@ public static partial class ToolCallPolicy
         /// Zerlegt ein Glob-Token am ersten Wildcard in das kanonische Verzeichnis des literalen Präfixes (je Basisverzeichnis) und den
         /// unvollständigen letzten Namensteil davor (gefaltet).
         /// </summary>
-        public IEnumerable<(string Dir, string Name)> GlobParts(string token)
+        public IEnumerable<(string Dir, string Name, string Tail)> GlobParts(string token)
         {
             var prefix = token[..token.AsSpan().IndexOfAny('*', '?', '[')];
             var slash = prefix.LastIndexOf('/');
             var dir = slash < 0 ? "" : slash == 0 ? "/" : prefix[..slash];
             var name = PathFold.Fold(prefix[(slash + 1)..]);
             foreach (var b in _bases)
-                foreach (var d in AbsFrom(dir.Length == 0 ? "." : dir, b)) yield return (d, name);
+                foreach (var d in AbsFrom(dir.Length == 0 ? "." : dir, b)) yield return (d, name, token[(slash + 1)..]);
         }
 
         /// <summary>Pfad relativ zur Wurzel, aufgelöst gegen das cwd.</summary>
