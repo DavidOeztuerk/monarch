@@ -67,3 +67,54 @@ stoppen, Recap, Weckruf (ADR-0004, ADR-0008).
   der Pfad liegt unter `.monarch/local/**` und ist per Tool nicht schreibbar.
 - Grenze: Ohne Abo-Statusline (API-Key) gibt es kein Δpp, also keine Kalibrierung
   (ADR-0004).
+
+## Nachtrag Q-0142 (G-0105): Die Grenze fällt nie unter `clamp`
+
+**Datum:** 04.11.2026 · **Status:** Entwurf (Design-Review Warden ausstehend)
+
+### Kurz in einfacher Sprache
+
+- Monarch hat die Wochengrenze von selbst auf 92 % gesenkt, obwohl in der `system.yaml` „nie unter 96 %“ steht. Dieser Eintrag wurde nie gelesen.
+- Künftig gilt: Die Grenze fällt nie unter den unteren `clamp`-Wert, weder im 5h-Fenster noch in der Woche.
+- Die Grenze steigt auch nicht von selbst über `work_until_pct`. In den heutigen Repos ist sie damit fest: 5h 90 %, Woche 96 %.
+- Alle Befehle nennen denselben Wert. Bisher zeigten Briefing, `status` und `quest accept` den Plan-Wert, `mana` und `rest` den adaptiven Wert.
+
+### Ursache (belegt)
+
+1. `SystemConfigReader` liest je Fenster nur `work_until_pct` (`SystemConfig.cs:76-77`). `clamp` schreibt `awaken` zwar (`AwakenCommand.cs:113-114`), aber kein Code liest es.
+2. Die adaptive Grenze läuft stattdessen zwischen `Start − 15` und `Start` (`Support.cs:216`, `:242-243`), in der Woche also zwischen 81 und 96.
+3. Der Wert 92 lässt sich nachrechnen (Ledger der Worktree G-0105, 30.10.): fünf `RecapWritten` mit Kosten 0, vier davon innerhalb einer Sekunde, heben die Sperre „ab drei Recaps“ auf. Das p90 der Wochenschritte ist 8, weil der Sprung 84 → 92 über eine Pause von vier Stunden als ein Schritt zählt. `100 − (1,5 · 0 + 8) = 92`.
+4. Verschiedene Werte haben zwei Gründe:
+   - Der Wechsel hängt an der Zahl der Recaps im Ledger der jeweiligen Root. `mana` vor dem dritten Recap nennt 96, `rest` danach 92 (`RestStarted` um 23:10:11, nach den Recaps). Auf `develop` steht kein `RecapWritten`, dort bleibt es bei 96.
+   - Briefing (`HookRunner.cs:383`), `status` (`StatusCommand.cs:42`, `:61`, `:122`, `:124`) und der Guard von `quest accept` (`QuestCommands.cs:89`) nutzen `config.Limits` statt `Resolve()`. Am 04.11. stand im Briefing 96, in `mana` 92.
+
+### Entscheidung
+
+Je Fenster gilt mit `w = work_until_pct` und `clamp: [min, max]`:
+
+| Fall | Grenze |
+|---|---|
+| Weniger als drei Recaps | `max(w, min)` |
+| Ab drei Recaps | `Clamp(adaptiv, min, max(w, min))` |
+| `clamp` fehlt oder ist ungültig (nicht zwei Zahlen, `min > max`) | wie oben mit `min = w` |
+
+- `AdaptiveFloorBelowStart` entfällt.
+- `SystemConfig.Limits` bleibt der Rohwert aus der Datei; `ManaSupport.Resolve()` ist die einzige Stelle, die die geltende Grenze bestimmt.
+- Briefing, `status` (Text, `--json`, damit auch MCP `system_status`) und `quest accept` rufen `Resolve()` auf. Damit nennen alle Befehle in demselben Zustand denselben Wert. Die Aussage aus Punkt 7 oben („Grenzen bleiben“) gilt jetzt auch im Code.
+- Der obere `clamp`-Wert bleibt ungenutzt. Als Deckel würde er die Woche bis 99 % steigen lassen, über die Owner-Vorgabe 96–98 % hinaus. Ein automatisches Anheben ist eine Owner-Entscheidung.
+
+### Warum das keine Lockerung ist
+
+Der Mana-Guard schützt vor dem Überziehen des Budgets und sichert die Recap-Reserve. Die Woche darf durch diese Änderung nicht weiter ausgeschöpft werden als vorgesehen: Der Wert 96 steht in der `system.yaml`, in Punkt 7 dieses ADR und in der Owner-Vorgabe. Der gesenkte Wert 92 entstand aus einem Messfehler. Die Reserve bleibt unverändert: Im 5h-Fenster rechnet der Guard weiter `Schritt + Recap-Reserve` gegen die Grenze.
+
+### Teststrategie
+
+- `ManaLimitTests.cs`: `clamp [96, 99]`, fünf Recaps mit Kosten 0, Schritt 8 → 7d 96 statt 92 (Fehlerfall vom 30.10.); hohe Recap-Kosten → weiter 96; 5h `clamp [90, 97]` → nie unter 90; `w` unter `min` → `min`; fehlendes oder ungültiges `clamp` → `w`.
+- Gleicher Wert: `mana`, `rest`, `status` (Text und `--json`), Briefing und der Guard von `quest accept` im selben Zustand, auch in einem Fall, in dem adaptiv und `w` auseinanderlägen (`work_until_pct: 98`, `clamp: [96, 99]`).
+- `ConfigTests.cs` bleibt unverändert (`Limits` ist der Rohwert 91/95).
+
+### Folgen
+
+- Die Formel läuft weiter, kann in Repos mit `min = w` aber nichts mehr ändern. Das gilt heute für Monarch, Noelia und Workertransfer.
+- Zwei Messschwächen bleiben: Recaps mit Kosten 0 zählen als gemessen, und ein Sprung über eine Pause zählt als ein Schritt. Beide wirken nur noch innerhalb von `clamp`.
+- Das Briefing liest bei SessionStart zusätzlich das Ledger. Der Hook-Hot-Path (`PreToolUse`) ist nicht betroffen.
