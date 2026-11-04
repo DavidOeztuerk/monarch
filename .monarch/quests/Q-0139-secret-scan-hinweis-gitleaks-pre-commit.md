@@ -3,7 +3,7 @@ id: Q-0139
 gate: G-0105
 kind: main
 rank: C
-state: proposed
+state: in_review
 dod:
   - awaken (AwakenCommand.cs:48-66) und status (Text StatusCommand.cs:51-69, --json WriteJson :102-136, damit auch MCP system_status) melden den Secret-Scan-Hook mit Pfad: 'aktiv' (vorhanden, ausführbar, ruft gitleaks auf), 'pre-commit-Hook ohne erkennbaren gitleaks-Aufruf' oder 'kein pre-commit-Hook'; außerhalb von git 'unbekannt'. Erkennung: core.hooksPath falls gesetzt (relativ gegen das Top-Level des Arbeitsbaums), sonst `<git rev-parse --git-common-dir>/hooks/pre-commit` (gilt in Worktrees)
   - Monarch installiert nichts, schreibt nie in Hook-Verzeichnisse und ruft gitleaks nicht auf (Test: Hook-Verzeichnis vor und nach awaken und status unverändert); kein neues Ledger-Feld
@@ -16,5 +16,6 @@ scope:
   exclude: []
 estimate: { session_pct: 7, weekly_pct: 1, gold_usd: 0 }
 boss: "Test: Worktree ohne Hook -> status (Text und --json) meldet 'kein pre-commit-Hook'; ausführbarer gitleaks-Hook im git-common-dir -> 'aktiv'; Hook-Verzeichnis danach unverändert"
+board: { pr: 57 }
 ---
 # Secret-Scan-Hinweis: gitleaks-pre-commit-Hook in awaken und status, knight.md korrigiert
