@@ -43,7 +43,7 @@ internal static class AwakenCommand
         }
 
         var mergeChoice = MergeMethodResolver.Derive(root, SystemConfig.Default.IntegrationBranch);
-        Files.WriteAtomic(paths.SystemYaml, Render(Path.GetFileName(root), planKind, plan ?? "pro", tags, mergeChoice.Method));
+        Files.WriteAtomic(paths.SystemYaml, Render(Path.GetFileName(root), planKind, plan ?? "pro", tags, mergeChoice.Method, mergeChoice.Fallback));
         var ignored = EnsureGitignore(root);
 
         var top = Git.Run(root, "rev-parse", "--show-toplevel");
@@ -101,7 +101,7 @@ internal static class AwakenCommand
 
     private static string List(IEnumerable<string> items) => "[" + string.Join(", ", items.Select(Q)) + "]";
 
-    private static string Render(string name, PlanKind plan, string planName, IReadOnlyList<RiskTagRule> tags, string mergeMethod)
+    private static string Render(string name, PlanKind plan, string planName, IReadOnlyList<RiskTagRule> tags, string mergeMethod, bool mergeFallback)
     {
         var limits = ManaLimits.ForPlan(plan);
         var p = new PolicyOptions();
@@ -133,7 +133,7 @@ internal static class AwakenCommand
         sb.AppendLine($"  read_only_shadows: {List(p.ReadOnlyShadowTypes)}");
         sb.AppendLine("git:");
         sb.AppendLine($"  integration_branch: {SystemConfig.Default.IntegrationBranch}");
-        sb.AppendLine($"  merge_method: {mergeMethod}                  # squash | merge; aus der Historie abgeleitet, vom Owner bestätigen");
+        sb.AppendLine($"  merge_method: {mergeMethod}                  # squash | merge; {(mergeFallback ? "Standard (Historie nicht lesbar)" : "aus der Historie abgeleitet")}, vom Owner bestätigen");
         sb.AppendLine("recap:");
         sb.AppendLine("  path: .monarch/recap/");
         return sb.ToString();

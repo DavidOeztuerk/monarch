@@ -182,6 +182,11 @@ internal static partial class GateMergeCommands
             }
         }
 
+        if (plan.Method.Fallback)
+        {
+            env.Err.WriteLine($"Warnung: Merge-Methode {plan.Method.Method}: {plan.Method.Source}. Mit git.merge_method in system.yaml festlegen, wenn das nicht gewollt ist.");
+        }
+
         var t = plan.Target;
         var config = plan.Config;
         var pull = plan.Pull;
@@ -279,7 +284,7 @@ internal static partial class GateMergeCommands
     private static void AppendMerged(ProjectLedger ledger, string gateId, int pr, string headSha, string mergeCommit, string? baseRef, Plan plan)
     {
         ledger.Append(
-            ledger.SessionId(), "cli", "GateMerged", ("gate", gateId), ("pr", (long)pr), ("sha", headSha), ("merge_commit_sha", mergeCommit), ("base", baseRef), ("method", plan.Method.Method),
+            ledger.SessionId(), "cli", "GateMerged", ("gate", gateId), ("pr", (long)pr), ("sha", headSha), ("merge_commit_sha", mergeCommit), ("base", baseRef), ("method", plan.Method.Method), ("method_source", plan.Method.Source),
             ("overridden", plan.Overridden is null ? null : StringArray(plan.Overridden)), ("integration_head", plan.Overridden is null ? null : plan.IntegrationHead));
     }
 
@@ -365,6 +370,9 @@ internal static partial class GateMergeCommands
             return Refuse(env, $"system.yaml is invalid: {ex.Message}");
         }
 
+        // ADR-0007 Q-0140: configured method, else derived from the history of the integration branch. Local git, but under the deadline of phase A (and its own).
+        var method = MergeMethodResolver.Resolve(env, config, paths.Root, ct);
+
         if (SystemConfigReader.IsProtectedBranch(config, pull.BaseRef))
         {
             return Refuse(env, $"pull request #{t.Pr} targets the protected branch '{pull.BaseRef}', not the integration branch '{config.IntegrationBranch}'. main/master merges only the owner (ADR-0007).");
@@ -431,8 +439,7 @@ internal static partial class GateMergeCommands
             }
         }
 
-        // ADR-0007 Q-0140: configured method, else derived from the history of the integration branch (local git with its own deadline, before the PUT).
-        plan = new Plan(t, pull, config, integrationHead, overridden, MergeMethodResolver.Resolve(config, paths.Root));
+        plan = new Plan(t, pull, config, integrationHead, overridden, method);
         return null;
     }
 

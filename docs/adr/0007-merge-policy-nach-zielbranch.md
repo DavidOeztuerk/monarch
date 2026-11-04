@@ -84,7 +84,8 @@ muss also in Monarch liegen.
       Lauf deckt genau ein Verdict. Ein Push nach dem Verdict macht es damit
       ungültig.
    6. Erst dann ruft Monarch selbst `PUT /repos/{o}/{r}/pulls/{n}/merge` auf,
-      mit `merge_method: squash` und `sha` = geprüfter Head-SHA. GitHub weist
+      mit `merge_method` (`squash` oder `merge`, je Repo einstellbar, siehe
+      Nachtrag Q-0140 am Ende) und `sha` = geprüfter Head-SHA. GitHub weist
       den Merge ab, falls sich der Head inzwischen bewegt hat. Danach liest
       Monarch den PR erneut (Base, `merged`, `merge_commit_sha`) und schreibt
       `GateMerged` mit Merge-Commit und Base. Liegt die Base nicht auf dem
@@ -279,6 +280,6 @@ Bisher mergt `gate merge` immer per Squash. Das passt nicht zu Repos, die ihren 
 
 `awaken` schreibt das Ergebnis als `git`-Sektion in die neue `system.yaml` und nennt dabei die Ableitung mit dem Hinweis, dass der Owner sie bestätigen soll. Bei einem bestehenden Repo ohne Schlüssel rechnet `gate merge` zur Merge-Zeit genauso und nennt die Quelle in der Ausgabe („Konfiguration“ oder „aus der Historie abgeleitet“). Das Lesen läuft in Phase A, vor dem PUT, mit fester Frist; lokales git zählt nicht zu den Forge-Fristen, darf aber nicht hängen.
 
-**Was gleich bleibt.** Das PUT trägt `merge_method` und weiter `sha` = geprüfter Head; GitHub weist den Merge ab, wenn sich der Head bewegt hat. Verdict, Rank-Prüfung und `ledger verify` bleiben unverändert. Der Fix-PR-Pfad (erster Elternteil) gilt für beide Methoden: Auch ein Merge-Commit hat als ersten Elternteil den Stand von develop. `GateMerged.method` und die Ausgabe nennen die tatsächlich benutzte Methode.
+**Was gleich bleibt.** Das PUT trägt `merge_method` und weiter `sha` = geprüfter Head; GitHub weist den Merge ab, wenn sich der Head bewegt hat. Verdict, Rank-Prüfung und `ledger verify` bleiben unverändert. Der Fix-PR-Pfad (erster Elternteil) gilt für beide Methoden: Auch ein Merge-Commit hat als ersten Elternteil den Stand von develop. `GateMerged.method` und die Ausgabe nennen die tatsächlich benutzte Methode, `GateMerged.method_source` die Quelle. Das Lesen der Historie läuft unter der Frist von Phase A (zusätzlich höchstens 10 s je git-Aufruf); schlägt es fehl, gilt `squash`, und `gate merge` warnt vor dem PUT. Ein Wert, der kein einzelner Text ist (Liste, Map), ist ein Konfigurationsfehler.
 
 **Nicht Monarchs Sache.** Der Weg von develop nach main bleibt der Merge-Commit des Owners.

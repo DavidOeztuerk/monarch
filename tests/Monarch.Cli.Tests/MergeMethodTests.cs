@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Monarch.Infrastructure.Ledger;
 
 namespace Monarch.Cli.Tests;
 
@@ -162,8 +163,8 @@ public class MergeMethodTests
         var (p, f) = Setup(Seed.ForgeYaml);
         using (p)
         {
-            // first-parent line: 1 root + 4 merges + 5 plain = 10 commits, 4 of them merges
-            History(p.Root, "develop", 4, 5);
+            // first-parent line: 1 root + 5 merges + 4 plain = 10 commits, exactly half of them merges
+            History(p.Root, "develop", 5, 4);
             Assert.Equal(0, MergeApproved(p).Code);
             Assert.Equal("squash", Method(f));
         }
@@ -204,6 +205,162 @@ public class MergeMethodTests
             Assert.Equal(0, MergeApproved(p).Code);
             Assert.Equal("squash", Method(f));
         }
+    }
+
+    // ---- warden round (Q-0140)
+    private static RunResult MergeApprovedWith(TempProject p, Dictionary<string, string?> extra)
+    {
+        Tick(p);
+        Assert.Equal(0, p.Hook("subagent-stop", """{"session_id":"sess1","hook_event_name":"SubagentStop","agent_id":"a1","agent_type":"monarch:warden"}""").Code);
+        Tick(p);
+        Assert.Equal(0, p.Run(["gate", "verdict", "G-0001", "--verdict", "approve", "--source", Review]).Code);
+        Tick(p);
+        var vars = new Dictionary<string, string?> { ["MONARCH_MERGE_WAIT_SECONDS"] = "0", ["MONARCH_MERGE_POLL_SECONDS"] = "0" };
+        foreach (var (k, v) in extra) vars[k] = v;
+        return p.Run(["gate", "merge", "G-0001"], vars: vars);
+    }
+
+    private static string HangingGit(string dir)
+    {
+        var path = Path.Combine(dir, "hanging-git.sh");
+        File.WriteAllText(path, "#!/bin/sh\nsleep 30\n");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        return path;
+    }
+
+    [Fact]
+    public void Only_the_newest_50_first_parent_commits_count()
+    {
+        var (p, f) = Setup(Seed.ForgeYaml);
+        using (p)
+        {
+            G(p.Root, "init", "-q", "-b", "develop");
+            for (var i = 0; i < 60; i++) G(p.Root, "commit", "-q", "--allow-empty", "-m", $"old {i}");
+            for (var i = 0; i < 30; i++)
+            {
+                G(p.Root, "checkout", "-q", "-b", $"f{i}");
+                G(p.Root, "commit", "-q", "--allow-empty", "-m", $"feature {i}");
+                G(p.Root, "checkout", "-q", "develop");
+                G(p.Root, "merge", "-q", "--no-ff", "-m", $"Merge f{i}", $"f{i}");
+            }
+
+            // newest 50: 30 merges + 20 plain -> merge; over all 91 commits it would be squash
+            Assert.Equal(0, MergeApproved(p).Code);
+            Assert.Equal("merge", Method(f));
+        }
+    }
+
+    [Theory]
+    [InlineData("[rebase]")]
+    [InlineData("{ a: b }")]
+    public void Config_rejects_a_merge_method_that_is_not_a_scalar(string value) =>
+        Assert.Throws<FormatException>(() => SystemConfigReader.Parse($"git:\n  merge_method: {value}\n"));
+
+    [Fact]
+    public void The_source_is_named_and_recorded_for_a_configured_method()
+    {
+        var (p, f) = Setup(Seed.ForgeYaml + "git:\n  merge_method: merge\n");
+        using (p)
+        {
+            var r = MergeApproved(p);
+            Assert.Contains("Konfiguration", r.Out, StringComparison.Ordinal);
+            Assert.Contains("Konfiguration", Assert.Single(p.Events(), e => e.Type == "GateMerged").Payload.GetProperty("method_source").GetString(), StringComparison.Ordinal);
+            Assert.True(LedgerVerifier.Verify(p.Root).Ok);
+        }
+    }
+
+    [Fact]
+    public void A_derived_method_records_its_source_in_the_ledger()
+    {
+        var (p, f) = Setup(Seed.ForgeYaml);
+        using (p)
+        {
+            History(p.Root, "develop", 6, 0);
+            Assert.Equal(0, MergeApproved(p).Code);
+            Assert.Contains("Historie", Assert.Single(p.Events(), e => e.Type == "GateMerged").Payload.GetProperty("method_source").GetString(), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void An_unreadable_history_warns_before_the_put_and_records_the_default()
+    {
+        var (p, f) = Setup(Seed.ForgeYaml);
+        using (p)
+        {
+            var r = MergeApproved(p);
+            Assert.Equal(0, r.Code);
+            Assert.Contains("Warnung", r.Err, StringComparison.Ordinal);
+            Assert.Contains("squash", r.Err, StringComparison.Ordinal);
+            Assert.Contains("Standard", Assert.Single(p.Events(), e => e.Type == "GateMerged").Payload.GetProperty("method_source").GetString(), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void A_proven_fix_pr_merges_with_the_merge_method_too()
+    {
+        var (p, f) = Setup(Seed.ForgeYaml + "git:\n  merge_method: merge\n");
+        using (p)
+        {
+            f.Checks[FakeForge.DevelopSha] = $$"""{"total_count":2,"check_runs":[{{FakeForge.Run(1, "build", "success")}},{{FakeForge.Run(2, "test", "failure")}}]}""";
+            f.Compare[$"{FakeForge.DevelopSha}...{FakeForge.Sha}"] = "ahead";
+            f.Parents[FakeForge.MergeSha] = FakeForge.DevelopSha;
+            var r = MergeApproved(p);
+            Assert.Equal(0, r.Code);
+            Assert.Equal("merge", Method(f));
+            var merged = Assert.Single(p.Events(), e => e.Type == "GateMerged").Payload;
+            Assert.Equal("merge", merged.GetProperty("method").GetString());
+            Assert.Equal(FakeForge.DevelopSha, merged.GetProperty("integration_head").GetString());
+        }
+    }
+
+    [Fact]
+    public void A_hanging_git_ends_at_its_own_deadline_with_squash_and_a_warning()
+    {
+        var (p, f) = Setup(Seed.ForgeYaml);
+        using (p)
+        {
+            History(p.Root, "develop", 6, 0);
+            var sw = Stopwatch.StartNew();
+            var r = MergeApprovedWith(p, new() { ["MONARCH_GIT_BIN"] = HangingGit(p.Home), ["MONARCH_MERGE_GIT_SECONDS"] = "1" });
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(20), sw.Elapsed.ToString());
+            Assert.Equal(0, r.Code);
+            Assert.Equal("squash", Method(f));
+            Assert.Contains("Warnung", r.Err, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void The_git_read_runs_under_the_deadline_of_phase_A()
+    {
+        var (p, f) = Setup(Seed.ForgeYaml);
+        using (p)
+        {
+            History(p.Root, "develop", 6, 0);
+            var sw = Stopwatch.StartNew();
+            var r = MergeApprovedWith(p, new() { ["MONARCH_GIT_BIN"] = HangingGit(p.Home), ["MONARCH_MERGE_GIT_SECONDS"] = "10", ["MONARCH_MERGE_FORGE_SECONDS"] = "2" });
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(8), sw.Elapsed.ToString());
+            Assert.Equal(1, r.Code);
+            Assert.Contains("Forge-Frist", r.Err, StringComparison.Ordinal);
+            Assert.Empty(f.MergeBodies);
+        }
+    }
+
+    [Fact]
+    public void The_awaken_comment_names_the_source()
+    {
+        using var derived = new TempProject(awakened: false);
+        History(derived.Root, "develop", 6, 0);
+        derived.Run(["awaken"]);
+        Assert.Contains("aus der Historie abgeleitet", File.ReadAllText(Path.Combine(derived.Root, ".monarch", "system.yaml")), StringComparison.Ordinal);
+
+        using var fallback = new TempProject(awakened: false);
+        fallback.Run(["awaken"]);
+        var yaml = File.ReadAllText(Path.Combine(fallback.Root, ".monarch", "system.yaml"));
+        Assert.DoesNotContain("aus der Historie abgeleitet", yaml, StringComparison.Ordinal);
+        Assert.Contains("Standard", yaml, StringComparison.Ordinal);
     }
 
     // ---- awaken

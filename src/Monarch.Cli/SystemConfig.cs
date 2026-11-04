@@ -102,7 +102,12 @@ internal static class SystemConfigReader
             MergeMethod = git?.GetString("merge_method") is { Length: > 0 } mm ? mm : null,
         };
 
-        if (config.MergeMethod is not null && !MergeMethodResolver.IsValid(config.MergeMethod))
+        if (git?.Get("merge_method") is not (null or YamlScalar))
+        {
+            throw new FormatException("git.merge_method must be a single value, squash or merge (ADR-0007, no rebase).");
+        }
+
+        if (config.MergeMethod is not null &&!MergeMethodResolver.IsValid(config.MergeMethod))
         {
             throw new FormatException($"git.merge_method '{config.MergeMethod}' is not allowed; use squash or merge (ADR-0007, no rebase).");
         }
