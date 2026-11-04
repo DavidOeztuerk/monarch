@@ -229,4 +229,7 @@ Der Zweck der Regel ist, dass kein Merge einen Bruch verdeckt. Bei einem belegte
 - Default-Wartezeit 90 s; `pending` nennt `gate check`.
 - `gate check`: trägt `green` nach, ohne `GateMerged` kein Eintrag, Shadow verweigert (Binary und `ProtectBranchesTests.cs`).
 
-Bestehende Tests bleiben unverändert, auch `GateMergeTests.cs:490-557`. Ein Test, der heute `result red` bei `cancelled` festschreibt, wäre im Nachtrag ausdrücklich geändert und wird gemeldet, nicht still angepasst.
+Bestehende Tests bleiben unverändert, mit genau einer Ausnahme:
+
+- `GateMergeTests.cs:539` (`[InlineData("cancelled")]` in `A_red_integration_branch_afterwards_is_loud_and_keeps_the_merge`) schreibt das Verhalten fest, das der Owner geändert hat: `result red` und „ROT“ bei einem abgebrochenen Lauf. Diese eine Zeile entfällt, ein neuer Test `A_cancelled_integration_run_afterwards_…` übernimmt sie mit derselben Strenge: Exit ≠ 0, genau ein `GateMerged`, genau ein PUT, dazu `result cancelled`.
+- Die Zeile mit `failure` bleibt unverändert. Vor dem Merge behält die Meldung den Text `not green`, damit `GateMergeTests.cs:487` unverändert gilt.
