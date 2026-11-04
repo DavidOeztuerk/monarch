@@ -20,7 +20,7 @@ internal static partial class GateMergeCommands
 
     private sealed record Target(ProjectPaths Paths, BoardGate Gate, ForgeRef Forge, int Pr, Rank Rank);
 
-    private sealed record Plan(Target Target, PullInfo Pull, SystemConfig Config, string IntegrationHead, List<string>? Overridden);
+    private sealed record Plan(Target Target, PullInfo Pull, SystemConfig Config, string IntegrationHead, List<string>? Overridden, MergeMethodChoice Method);
 
     private static int Refuse(CliEnv env, string message)
     {
@@ -196,7 +196,7 @@ internal static partial class GateMergeCommands
         {
             try
             {
-                mergeSha = pulls.MergeSquashAsync(t.Forge.Owner, t.Forge.Repo, t.Pr, pull.HeadSha, phaseB.Token).GetAwaiter().GetResult();
+                mergeSha = pulls.MergeAsync(t.Forge.Owner, t.Forge.Repo, t.Pr, plan.Method.Method, pull.HeadSha, phaseB.Token).GetAwaiter().GetResult();
             }
             catch (Exception ex) when (ex is OperationCanceledException || (ex is HttpRequestException h && (h.StatusCode is null || (int)h.StatusCode >= 500)))
             {
@@ -256,7 +256,7 @@ internal static partial class GateMergeCommands
 
         var note = mergeSha is null || string.Equals(recorded, mergeSha, StringComparison.OrdinalIgnoreCase) ? "" : $" (note: merge call returned {Short(mergeSha)}, the pull request reports {Short(recorded)})";
         var fix = plan.Overridden is null ? "" : $" Fix-PR: {config.IntegrationBranch} war rot bei {Short(plan.IntegrationHead)}, überstimmte Checks: {string.Join(", ", plan.Overridden)}.";
-        env.Out.WriteLine($"{gateId}: merged PR #{t.Pr} into {after.BaseRef} (squash {Short(recorded)}){note}.{fix} Run 'monarch evidence sync' to verify and clear the quests.");
+        env.Out.WriteLine($"{gateId}: merged PR #{t.Pr} into {after.BaseRef} ({plan.Method.Method} {Short(recorded)}){note}.{fix} Merge-Methode {plan.Method.Method}: {plan.Method.Source}. Run 'monarch evidence sync' to verify and clear the quests.");
 
         // Phase C: the run on the merge commit (and, for a fix PR, the first parent of the merge commit).
         using var phaseC = new CancellationTokenSource(PhaseC(env));
@@ -279,7 +279,7 @@ internal static partial class GateMergeCommands
     private static void AppendMerged(ProjectLedger ledger, string gateId, int pr, string headSha, string mergeCommit, string? baseRef, Plan plan)
     {
         ledger.Append(
-            ledger.SessionId(), "cli", "GateMerged", ("gate", gateId), ("pr", (long)pr), ("sha", headSha), ("merge_commit_sha", mergeCommit), ("base", baseRef), ("method", "squash"),
+            ledger.SessionId(), "cli", "GateMerged", ("gate", gateId), ("pr", (long)pr), ("sha", headSha), ("merge_commit_sha", mergeCommit), ("base", baseRef), ("method", plan.Method.Method),
             ("overridden", plan.Overridden is null ? null : StringArray(plan.Overridden)), ("integration_head", plan.Overridden is null ? null : plan.IntegrationHead));
     }
 
@@ -431,7 +431,8 @@ internal static partial class GateMergeCommands
             }
         }
 
-        plan = new Plan(t, pull, config, integrationHead, overridden);
+        // ADR-0007 Q-0140: configured method, else derived from the history of the integration branch (local git with its own deadline, before the PUT).
+        plan = new Plan(t, pull, config, integrationHead, overridden, MergeMethodResolver.Resolve(config, paths.Root));
         return null;
     }
 

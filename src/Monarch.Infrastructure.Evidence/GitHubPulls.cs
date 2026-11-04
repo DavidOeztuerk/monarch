@@ -12,7 +12,7 @@ namespace Monarch.Infrastructure.Evidence;
 public sealed record PullInfo(int Number, string HeadSha, string BaseRef, bool Merged, string? MergeCommitSha);
 
 /// <summary>
-/// GitHub pull request reads and the one merge call Monarch makes itself (<c>PUT …/pulls/{n}/merge</c>, squash, bound to the checked head sha).
+/// GitHub pull request reads and the one merge call Monarch makes itself (<c>PUT …/pulls/{n}/merge</c>, squash or merge, bound to the checked head sha).
 /// The hook denies every other route to that endpoint (ADR-0007).
 /// </summary>
 public sealed class GitHubPulls
@@ -93,19 +93,20 @@ public sealed class GitHubPulls
         return commit.Parents is { Count: > 0 } parents ? parents[0].Sha : null;
     }
 
-    /// <summary>Squash-merges a pull request; GitHub refuses when the head moved away from <paramref name="headSha"/>.</summary>
+    /// <summary>Merges a pull request with the given method; GitHub refuses when the head moved away from <paramref name="headSha"/>.</summary>
     /// <param name="owner">Repository owner.</param>
     /// <param name="repo">Repository name.</param>
     /// <param name="number">Pull request number.</param>
+    /// <param name="method">The merge method, <c>squash</c> or <c>merge</c>.</param>
     /// <param name="headSha">The head sha that was checked.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The merge commit sha.</returns>
-    public async Task<string> MergeSquashAsync(string owner, string repo, int number, string headSha, CancellationToken cancellationToken = default)
+    public async Task<string> MergeAsync(string owner, string repo, int number, string method, string headSha, CancellationToken cancellationToken = default)
     {
         var response = await _api.SendJsonAsync(
             HttpMethod.Put,
             $"{Repo(owner, repo)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/merge",
-            new MergeRequestDto { MergeMethod = "squash", Sha = headSha },
+            new MergeRequestDto { MergeMethod = method, Sha = headSha },
             EvidenceJsonContext.Default.MergeRequestDto,
             EvidenceJsonContext.Default.MergeResponseDto,
             cancellationToken).ConfigureAwait(false);

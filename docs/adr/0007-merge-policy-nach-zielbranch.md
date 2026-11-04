@@ -264,3 +264,21 @@ Bestehende Tests bleiben unverändert, mit genau einer Ausnahme:
 
 - `GateMergeTests.cs:539` (`[InlineData("cancelled")]` in `A_red_integration_branch_afterwards_is_loud_and_keeps_the_merge`) schreibt das Verhalten fest, das der Owner geändert hat: `result red` und „ROT“ bei einem abgebrochenen Lauf. Diese eine Zeile entfällt, ein neuer Test `A_cancelled_integration_run_afterwards_…` übernimmt sie mindestens so streng: Exit ≠ 0, genau ein `GateMerged`, genau ein PUT, `result cancelled`, die Meldung enthält „abgebrochen“ und die Lauf-ID und nicht „ROT“.
 - Die Zeile mit `failure` bleibt unverändert. Vor dem Merge behält die Meldung den Text `not green`, damit `GateMergeTests.cs:488` unverändert gilt.
+
+## Nachtrag Q-0140: Merge-Methode je Repo (Issue #48)
+
+Bisher mergt `gate merge` immer per Squash. Das passt nicht zu Repos, die ihren Integrations-Branch mit Merge-Commits führen (Beispiel: Workertransfer). Der Owner hat entschieden: Die Methode ist je Repo einstellbar, und es gibt nur zwei Werte, `squash` und `merge`. Rebase gibt es nicht.
+
+**Schlüssel.** `git.merge_method: squash | merge` in `.monarch/system.yaml`. Jeder andere Wert ist ein Konfigurationsfehler, `gate merge` verweigert dann mit „system.yaml is invalid“.
+
+**Default aus der Historie.** `system.yaml` ist geschützt, bestehende Repos haben den Schlüssel nicht. Fehlt er, leitet Monarch die Methode ab:
+
+- Gelesen wird die first-parent-Linie des Integrations-Branches, die letzten 50 Commits, zuerst `origin/<branch>`, sonst der lokale Branch.
+- Haben mehr als die Hälfte dieser Commits zwei Eltern (Merge-Commits), gilt `merge`, sonst `squash`.
+- Fehlt der Branch oder ist die Historie nicht lesbar (auch bei Zeitüberschreitung), gilt `squash`. Das ist das Verhalten von heute.
+
+`awaken` schreibt das Ergebnis als `git`-Sektion in die neue `system.yaml` und nennt dabei die Ableitung mit dem Hinweis, dass der Owner sie bestätigen soll. Bei einem bestehenden Repo ohne Schlüssel rechnet `gate merge` zur Merge-Zeit genauso und nennt die Quelle in der Ausgabe („Konfiguration“ oder „aus der Historie abgeleitet“). Das Lesen läuft in Phase A, vor dem PUT, mit fester Frist; lokales git zählt nicht zu den Forge-Fristen, darf aber nicht hängen.
+
+**Was gleich bleibt.** Das PUT trägt `merge_method` und weiter `sha` = geprüfter Head; GitHub weist den Merge ab, wenn sich der Head bewegt hat. Verdict, Rank-Prüfung und `ledger verify` bleiben unverändert. Der Fix-PR-Pfad (erster Elternteil) gilt für beide Methoden: Auch ein Merge-Commit hat als ersten Elternteil den Stand von develop. `GateMerged.method` und die Ausgabe nennen die tatsächlich benutzte Methode.
+
+**Nicht Monarchs Sache.** Der Weg von develop nach main bleibt der Merge-Commit des Owners.

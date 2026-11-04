@@ -140,7 +140,7 @@ internal static class MonarchApp
         gateVerdict.SetAction(r => GateMergeCommands.Verdict(env, r.GetValue(verdictGate)!, r.GetValue(verdictValue)!, r.GetValue(verdictSource)!));
         gate.Subcommands.Add(gateVerdict);
         var mergeGate = new Argument<string>("id") { Description = "Gate id." };
-        var gateMerge = new Command("merge", "Squash-merge the gate's pull request into the integration branch after base, rank, CI, verdict and warden run check out (main only). A red integration branch blocks the merge unless the pull request is a proven fix (ancestor, green checks, the red checks green at its head); a cancelled run is no evidence and stops. Waits 60 s for the run on the merge commit; if it is still running, 'gate check' reads it later.");
+        var gateMerge = new Command("merge", "Merge the gate's pull request into the integration branch (squash or merge commit: git.merge_method, else derived from the branch history; never rebase) after base, rank, CI, verdict and warden run check out (main only). A red integration branch blocks the merge unless the pull request is a proven fix (ancestor, green checks, the red checks green at its head); a cancelled run is no evidence and stops. Waits 60 s for the run on the merge commit; if it is still running, 'gate check' reads it later.");
         gateMerge.Arguments.Add(mergeGate);
         gateMerge.SetAction(r => GateMergeCommands.Merge(env, r.GetValue(mergeGate)!));
         gate.Subcommands.Add(gateMerge);

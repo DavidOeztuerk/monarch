@@ -15,6 +15,9 @@ internal sealed record SystemConfig(
     /// <summary>Opt-in of the out-of-session wake call (ADR-0008): <c>launchd</c>, <c>systemd</c> or <c>off</c> (default). Owner decision in the protected system.yaml.</summary>
     public string Wake { get; init; } = "off";
 
+    /// <summary><c>git.merge_method</c> (<c>squash</c> or <c>merge</c>, ADR-0007 Nachtrag Q-0140); <see langword="null"/> when the key is missing: <c>gate merge</c> then derives it from the history.</summary>
+    public string? MergeMethod { get; init; }
+
     /// <summary>Lower <c>clamp</c> bound per window (ADR-0012, Q-0142); <see langword="null"/> means the limit never moves down (floor = <see cref="Limits"/>).</summary>
     public ManaLimits? ClampMin { get; init; }
 
@@ -96,7 +99,13 @@ internal static class SystemConfigReader
             ReadOnlyShadows = Strings(policy, "read_only_shadows", d.ReadOnlyShadows),
             ProtectedBranches = Strings(git, "protected_branches", d.ProtectedBranches),
             IntegrationBranch = git?.GetString("integration_branch") is { Length: > 0 } ib ? ib : d.IntegrationBranch,
+            MergeMethod = git?.GetString("merge_method") is { Length: > 0 } mm ? mm : null,
         };
+
+        if (config.MergeMethod is not null && !MergeMethodResolver.IsValid(config.MergeMethod))
+        {
+            throw new FormatException($"git.merge_method '{config.MergeMethod}' is not allowed; use squash or merge (ADR-0007, no rebase).");
+        }
 
         // ADR-0007: the integration branch is never a protected branch (built-ins or file, case-insensitive).
         if (IsProtectedBranch(config, config.IntegrationBranch))
