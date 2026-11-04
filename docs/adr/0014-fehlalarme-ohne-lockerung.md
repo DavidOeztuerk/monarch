@@ -234,20 +234,21 @@ Dateien: `tests/Monarch.Policy.Tests/Adr0011Tests.cs` (Regel 2, Globs, sed, gh, 
 
 `ScriptWriterHit` überspringt ein sed-Skript nur, wenn **alle** Bedingungen gelten. Sonst läuft die Prüfung wie bei `d45e6b9`.
 
-1. Das Segment lautet wörtlich `sed <Skript> <Dateien>` oder `sed -e <Skript> <Dateien>`: genau ein Skript, keine weitere Option, also auch kein `-i`, `-n`, `-E`, `-f`.
-2. Das Skript ist genau `s/.*/R/`: Trennzeichen `/`, Regex genau `.*`, keine Flags, `R` besteht aus mindestens einem Buchstaben oder einer Ziffer (`[A-Za-z0-9]+`).
-3. Alle Argumente stehen wörtlich da wie bei #47: `Tokens[0]` ist genau `sed`, `RawWords` gleich `Tokens` (kein `env`, `command`, `xargs`, `./sed`), keine Substitution im Kommando, kein `$` in einem Token, kein Glob- oder Brace-Zeichen in einem Dateioperanden.
-4. Kein Dateioperand trifft eine Schutzzone: `Find` liefert für jeden Operanden nichts.
+1. **Exakte Tokenform.** Das Segment hat genau die Tokens `sed <Skript> <Datei>` (drei) oder `sed -e <Skript> <Datei>` (vier). Damit gibt es genau ein Skript und genau einen Operanden. Keine weitere Option an irgendeiner Stelle, auch nicht hinter dem Operanden, wo GNU-sed sie noch liest (`f -i`, `f --in-place`, `f -n`, `f -e …`).
+2. **Das Skript** ist genau `s/.*/R/`: Trennzeichen `/`, Regex genau `.*`, keine Flags, `R` besteht aus mindestens einem Buchstaben oder einer Ziffer (`[A-Za-z0-9]+`).
+3. **Der Operand** beginnt nicht mit `-` (auch nicht `-` allein oder `--`), enthält kein `$` und kein Glob- oder Brace-Zeichen, und die Operandenprüfung wie in `ProtectPathsRule.cs:374-381` (`PathCandidates`, `Find`, `IsDecoyMonarch`) findet nichts. Damit bleiben auch `sub/.monarch/x` und Vorfahren gesperrt.
+4. **Nichts außer stdout.** Das Segment hat keine `OutRedirects`, `InRedirects`, keinen `Heredoc`, kein `PipesToNext`, und es bekommt keine Pipe-Eingabe. Wie bei `ProtectPathsRule.cs:244` zählt die Umleitung also nicht als harmlos.
+5. **Wörtlich wie bei #47.** Geprüft wird am Aufrufer (`ProtectPathsRule.cs:362`) auf `seg`, nicht auf dem Ergebnis von `Effective()`, das bei `xargs` auch `sed` liefert: `seg.Tokens[0]` und `RawWords` sind genau `sed` (kein `env`, `command`, `xargs`, `./sed`), und im Kommando steht keine Substitution.
 
-`NormalizeTail`, `Find`, `FlatPattern` und `DropSedScript` bleiben unverändert. Die Ausnahme sitzt ausschließlich vor der Skriptprüfung.
+`NormalizeTail`, `Find`, `FlatPattern` und `DropSedScript` bleiben unverändert. Die Ausnahme sitzt ausschließlich vor der Skriptprüfung. Weitere Verschleierungen sind nach ADR-0011 eine Grenze, kein Blocker.
 
-**Lesart des Owner-Entscheids.** `f` und `new` sind Platzhalter: Ein Fix nur für die Datei `f` wäre keiner. Deshalb gilt die Ausnahme für diese eine Form mit beliebigem Dateinamen und einem einfachen Ersatzwort, nicht für zwei exakte Zeichenketten. Enger geht es ohne Sonderfälle für einzelne Wörter nicht. Weiter geht sie nicht: Der Regex bleibt genau `.*`.
+**Lesart des Owner-Entscheids.** `f` und `new` sind Platzhalter: Ein Fix nur für die Datei `f` wäre keiner. Deshalb gilt die Ausnahme für diese eine Form mit einem beliebigen Dateinamen und einem einfachen Ersatzwort, nicht für zwei exakte Zeichenketten. Enger geht es ohne Sonderfälle für einzelne Wörter nicht. Weiter geht sie nicht: Der Regex bleibt genau `.*`, und es gibt genau einen Operanden.
 
 ### Wechsel gegenüber `d45e6b9`
 
 | Kommando | `d45e6b9` | neu | Warum unmöglich zu schreiben |
 |---|---|---|---|
-| `sed 's/.*/new/' f` | deny | **allow** | Ohne Flags ist `s` kein Schreiber; ohne `-i` geht die Ausgabe nur nach stdout |
+| `sed 's/.*/new/' f` | deny | **allow** | Ohne Flags ist `s` kein Schreiber; ohne `-i` und ohne Umleitung oder Pipe geht die Ausgabe nur nach stdout |
 | `sed -e 's/.*/e/' f` | deny | **allow** | wie oben |
 
 Das sind die einzigen Wechsel, abgesehen von anderen Dateinamen und Ersatzwörtern derselben Form. Ein `s`-Befehl schreibt nur mit dem Flag `w` und führt nur mit dem Flag `e` aus; beide stehen hinter dem letzten Trennzeichen, und dort lässt die Form nichts zu. `R` kann das Trennzeichen nicht enthalten, also keinen zweiten Befehl anhängen.
@@ -256,19 +257,24 @@ Das sind die einzigen Wechsel, abgesehen von anderen Dateinamen und Ersatzwörte
 
 - `awk '/.*/ {print | "sort"}' f`
 - `rm -rf dist/.*` (`dist/..` ist die Projekt-Root)
-- `sed -i 's/.*/new/' f`, `sed -n 's/.*/new/p' f`, `sed -E 's/.*/new/' f`, `sed 's/.*x/new/' f` mit Skriptbuchstaben `w`, `W`, `e`, auch `sed -n '/.*foo/,/bar/p' f`: Die letzte Form kam beim Lesen von Quelltext am 04.11. zweimal vor. Ausweg: `grep -n` und das Read-Werkzeug.
+- `sed -i 's/.*/new/' f`, `sed -n 's/.*/new/p' f`, `sed -E 's/.*/new/' f`, `sed 's/.*/new/' a b`, `sed 's/.*/new/' f > out`, `sed 's/.*/new/' f | sort`
+- Skripte mit einem Segment `.*` oder einem Token, das in die Zone reichen kann, sobald darin `w`, `W` oder `e` vorkommt, auch nur als Buchstabe: `sed -n '/private static .*Foo/,/^}/p' f`. Diese Form kam beim Lesen von Quelltext am 04.11. zweimal vor. Ausweg: `grep -n` und das Read-Werkzeug.
 
 ### Bleibt deny (Schutz)
 
-Unverändert: alle Fälle in `Adr0014Tests.cs:55-82` und `:148-159`. Neu als Test: `rm -rf .?/*`, `rm -rf dist/.?/.monarch/ledger`, `rm -rf dist/.*/.monarch`, `cp -R x/ledger dist/.?/.monarc?`, `chmod -R 000 dist/.*`, `sed 's/x/y/w s/.?/.monarch/ledger/x' f`, `sed -i 's/a/b/' dist/.?/.monarch/ledger/x`. Zusätzlich gegen die Ausnahme:
+Unverändert: alle Fälle in `Adr0014Tests.cs:55-82` und `:148-159`, darunter schon `rm -rf .?/*` (`:154`). Neu als Test: `rm -rf dist/.?/.monarch/ledger`, `rm -rf dist/.*/.monarch`, `cp -R x/ledger dist/.?/.monarc?`, `chmod -R 000 dist/.*`, `sed 's/x/y/w s/.?/.monarch/ledger/x' f`, `sed -i 's/a/b/' dist/.?/.monarch/ledger/x`. Zusätzlich gegen die Ausnahme:
 
-- `sed 's/.*/new/' .monarch/ledger/x` (Operand in der Zone)
-- `sed 's/.*/new/w .monarch/ledger/x' f`, `sed 's/.*/new/e' f`, `sed 's/.*/new/;w .monarch/ledger/x' f`
-- `sed 's/.*/$X/' f`, `sed "s/.*/$(cat g)/" f`, `sed 's/.*/new/' $F`, `sed 's/.*/new/' *`
-- `env sed 's/.*/new/' f`, `./sed 's/.*/new/' f`, `printf f | xargs sed 's/.*/new/'`
-- `sed -e 's/.*/new/' -e 'w .monarch/ledger/x' f` (zwei Skripte)
+- Operand: `sed 's/.*/new/' .monarch/ledger/x`, `sed 's/.*/new/' sub/.monarch/x`, `sed 's/.*/new/'` ohne Operand
+- Skript: `sed 's/.*/new/w .monarch/ledger/x' f`, `sed 's/.*/new/e' f`, `sed 's/.*/new/;w .monarch/ledger/x' f`
+- Optionen hinter dem Operanden: `sed 's/.*/new/' f -i`, `… f --in-place`, `… f -n`, `sed 's/.*/new/' f -e 'w .monarch/ledger/x'`, `sed 's/.*/new/' -- f`, `sed 's/.*/new/' -`, `sed 's/.*/new/' {f,-i}`
+- Umleitung und Pipe: `sed 's/.*/new/' f > out`, `… > $T`, `… f | sh`, `… f < g`, `cat g | sed 's/.*/new/' f`
+- Nicht wörtlich: `sed 's/.*/$NEW/' f`, `sed "s/.*/$(cat g)new/" f`, `sed 's/.*/new/' $F`, `sed 's/.*/new/' *`
+- Wrapper: `env sed 's/.*/new/' f`, `./sed 's/.*/new/' f`, `printf f | xargs sed 's/.*/new/'`
+- Zwei Skripte: `sed -e 's/.*/new/' -e 'w .monarch/ledger/x' f`
 
-Jeder neue Fall wird vor der Umsetzung gegen `d45e6b9` als deny gegengeprüft. Ein dort schon erlaubter Fall ist ein eigener Befund und nicht Teil dieser Quest.
+`ProtectPathsRule.cs` ist seit `d45e6b9` unverändert, der Lauf vor dem Fix misst also genau diesen Stand. Jeder Deny-Fall wird dort gegengeprüft. Ein dort schon erlaubter Fall ist ein eigener Befund und nicht Teil dieser Quest; er bleibt, wie er ist, und wird gemeldet.
+
+**Eigener Befund, nicht Teil dieser Quest:** `sed -e's/x/y/w .monarch/ledger/x' f` (Skript direkt an `-e`) übergeht `ScriptWriterHit` (`:607`). Siehe Issue 59.
 
 ### Teststrategie
 
