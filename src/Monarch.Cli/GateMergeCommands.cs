@@ -117,7 +117,9 @@ internal static partial class GateMergeCommands
 
             var ledger = new ProjectLedger(paths, env.Clock);
             using var cts = new CancellationTokenSource(PhaseC(env));
-            return CheckIntegrationRun(env, paths, forge, gateId, branch, sha, ledger, cts.Token, null);
+            // A fix PR that ended in "Status unbekannt" never checked the first parent: GateMerged carries integration_head, so catch it up here.
+            var deviation = merged.Str("integration_head") is { Length: > 0 } head ? CheckFirstParent(env, Forge.Pulls(env), forge, sha, head, cts.Token) : null;
+            return CheckIntegrationRun(env, paths, forge, gateId, branch, sha, ledger, cts.Token, deviation);
         }
         catch (Exception ex) when (IsExpected(ex))
         {
@@ -153,7 +155,15 @@ internal static partial class GateMergeCommands
             return Refuse(env, "not an awakened project.");
         }
 
-        // Phase A (ADR-0007 Q-0137): every call before the PUT shares one deadline; running out refuses without a PUT.
+        // 1. ledger verify: local git, outside every forge deadline, so it runs before the timer of phase A starts
+        var ledgerCheck = LedgerVerifier.Verify(paths.Root);
+        if (!ledgerCheck.Ok)
+        {
+            var findings = string.Join("; ", ledgerCheck.Violations.Take(5).Select(v => $"{v.File}:{v.Line} {v.Kind}"));
+            return Refuse(env, $"ledger verify reports {ledgerCheck.Violations.Count} finding(s) ({findings}); merge refused until the ledger is clean (monarch ledger verify).");
+        }
+
+        // Phase A (ADR-0007 Q-0137): every forge call before the PUT shares one deadline; running out refuses without a PUT.
         Plan plan;
         using (var phaseA = new CancellationTokenSource(Forge1(env)))
         {
@@ -188,8 +198,9 @@ internal static partial class GateMergeCommands
             {
                 mergeSha = pulls.MergeSquashAsync(t.Forge.Owner, t.Forge.Repo, t.Pr, pull.HeadSha, phaseB.Token).GetAwaiter().GetResult();
             }
-            catch (OperationCanceledException)
+            catch (Exception ex) when (ex is OperationCanceledException || (ex is HttpRequestException h && (h.StatusCode is null || (int)h.StatusCode >= 500)))
             {
+                // No answer to the PUT (deadline, transport error, 5xx): the merge may have landed, so read back like after an expired PUT. 4xx stays a plain refusal.
                 putExpired = true;
             }
 
@@ -210,7 +221,7 @@ internal static partial class GateMergeCommands
         {
             if (mergeSha is null)
             {
-                return Refuse(env, $"Status unbekannt: das PUT für {gateStep} lief nach {(int)Forge1(env).TotalSeconds} s ab und der PR ist nicht lesbar. Das PUT kann noch ankommen; auf der Forge prüfen, ob der PR gemergt ist, bevor etwas erneut läuft ('monarch gate check {gateId}' nach dem Merge).");
+                return Refuse(env, $"Status unbekannt: das PUT für {gateStep} blieb ohne Antwort (Frist {(int)Forge1(env).TotalSeconds} s, Transport- oder 5xx-Fehler) und der PR ist nicht lesbar. Das PUT kann noch ankommen; auf der Forge prüfen, ob der PR gemergt ist, bevor etwas erneut läuft ('monarch gate check {gateId}' nach dem Merge).");
             }
 
             // The PUT answered, so the merge exists: record it with the sha the PUT returned.
@@ -221,7 +232,7 @@ internal static partial class GateMergeCommands
 
         if (mergeSha is null && !after.Merged)
         {
-            return Refuse(env, $"Status unbekannt: das PUT für {gateStep} lief nach {(int)Forge1(env).TotalSeconds} s ab und der PR liest sich als nicht gemergt. Das PUT kann nach dem letzten Lesen noch ankommen; auf der Forge prüfen, ob der PR gemergt ist, bevor etwas erneut läuft.");
+            return Refuse(env, $"Status unbekannt: das PUT für {gateStep} blieb ohne Antwort (Frist {(int)Forge1(env).TotalSeconds} s, Transport- oder 5xx-Fehler) und der PR liest sich als nicht gemergt. Das PUT kann nach dem letzten Lesen noch ankommen; auf der Forge prüfen, ob der PR gemergt ist, bevor etwas erneut läuft.");
         }
 
         if (mergeSha is null && string.IsNullOrEmpty(after.MergeCommitSha))
@@ -230,7 +241,8 @@ internal static partial class GateMergeCommands
         }
 
         // 9. record
-        var recorded = after.MergeCommitSha ?? mergeSha!;
+        // A read that lags behind the PUT reports the test merge in merge_commit_sha: the answered PUT wins unless the PR reads as merged.
+        var recorded = after.Merged ? after.MergeCommitSha ?? mergeSha! : mergeSha!;
         AppendMerged(ledger, gateId, t.Pr, pull.HeadSha, recorded, after.BaseRef, plan);
         if (!after.Merged)
         {
@@ -248,7 +260,7 @@ internal static partial class GateMergeCommands
 
         // Phase C: the run on the merge commit (and, for a fix PR, the first parent of the merge commit).
         using var phaseC = new CancellationTokenSource(PhaseC(env));
-        var deviation = plan.Overridden is null ? null : CheckFirstParent(env, pulls, t, recorded, plan.IntegrationHead, phaseC.Token);
+        var deviation = plan.Overridden is null ? null : CheckFirstParent(env, pulls, t.Forge, recorded, plan.IntegrationHead, phaseC.Token);
         return CheckIntegrationRun(env, t.Paths, t.Forge, gateId, after.BaseRef, recorded, ledger, phaseC.Token, deviation);
     }
 
@@ -292,12 +304,12 @@ internal static partial class GateMergeCommands
     /// <summary>A deviation found after the merge of a fix PR: the first parent of the merge commit is not the develop head that was checked.</summary>
     private sealed record ParentDeviation(string Kind, string? FirstParent, string Warning);
 
-    private static ParentDeviation? CheckFirstParent(CliEnv env, GitHubPulls pulls, Target t, string mergeCommit, string integrationHead, CancellationToken ct)
+    private static ParentDeviation? CheckFirstParent(CliEnv env, GitHubPulls pulls, ForgeRef forge, string mergeCommit, string integrationHead, CancellationToken ct)
     {
         string? parent;
         try
         {
-            parent = pulls.GetFirstParentAsync(t.Forge.Owner, t.Forge.Repo, mergeCommit, ct).GetAwaiter().GetResult();
+            parent = pulls.GetFirstParentAsync(forge.Owner, forge.Repo, mergeCommit, ct).GetAwaiter().GetResult();
         }
         catch (Exception ex) when (IsExpected(ex))
         {
@@ -327,14 +339,6 @@ internal static partial class GateMergeCommands
     private static int? Prepare(CliEnv env, string gateId, ProjectPaths paths, CancellationToken ct, out Plan? plan)
     {
         plan = null;
-
-        // 1. ledger verify
-        var ledgerCheck = LedgerVerifier.Verify(paths.Root);
-        if (!ledgerCheck.Ok)
-        {
-            var findings = string.Join("; ", ledgerCheck.Violations.Take(5).Select(v => $"{v.File}:{v.Line} {v.Kind}"));
-            return Refuse(env, $"ledger verify reports {ledgerCheck.Violations.Count} finding(s) ({findings}); merge refused until the ledger is clean (monarch ledger verify).");
-        }
 
         // 2. unique pull request of the gate
         if (Resolve(env, gateId, out var target) is { } error)

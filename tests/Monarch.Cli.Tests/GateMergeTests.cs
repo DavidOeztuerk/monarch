@@ -1128,4 +1128,131 @@ public class GateMergeTests
         var main = p.Hook("pre-tool-use", TempProject.PreToolUse("Bash", command: "monarch gate check G-0101"));
         Assert.DoesNotContain("deny", main.Out, StringComparison.Ordinal);
     }
+
+    // ---- Warden code round Q-0137
+    [Theory]
+    [InlineData(502)]
+    [InlineData(500)]
+    [InlineData(0)] // transport error: no status code
+    public void A_failed_put_whose_merge_landed_is_recorded_like_an_expired_one(int status)
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            f.Intercept = (req, ct) =>
+            {
+                if (req.Method != HttpMethod.Put) return Task.FromResult<HttpResponseMessage?>(null);
+                f.Pulls[7] = (FakeForge.Sha, true);
+                if (status == 0) throw new HttpRequestException("connection reset");
+                return Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage((System.Net.HttpStatusCode)status));
+            };
+            Approved(p);
+            var r = MergeWith(p, Forge1);
+            Assert.Equal(0, r.Code);
+            Assert.Equal(FakeForge.MergeSha, Assert.Single(p.Events(), e => e.Type == "GateMerged").Payload.GetProperty("merge_commit_sha").GetString());
+            Assert.Equal(["green"], Results(p));
+        }
+    }
+
+    [Theory]
+    [InlineData(502)]
+    [InlineData(0)]
+    public void A_failed_put_whose_merge_did_not_land_is_status_unknown(int status)
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            f.Intercept = (req, ct) =>
+            {
+                if (req.Method != HttpMethod.Put) return Task.FromResult<HttpResponseMessage?>(null);
+                if (status == 0) throw new HttpRequestException("connection reset");
+                return Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage((System.Net.HttpStatusCode)status));
+            };
+            Approved(p);
+            var r = MergeWith(p, Forge1);
+            Assert.NotEqual(0, r.Code);
+            Assert.Contains("Status unbekannt", r.Err, StringComparison.Ordinal);
+            Assert.DoesNotContain(p.Events(), e => e.Type == "GateMerged");
+        }
+    }
+
+    [Fact]
+    public void An_answered_put_with_a_lagging_read_records_the_put_sha_not_the_test_merge_sha()
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            var put = false;
+            f.Intercept = (req, ct) =>
+            {
+                if (req.Method == HttpMethod.Put) { put = true; return Task.FromResult<HttpResponseMessage?>(null); }
+                if (put && req.RequestUri!.AbsolutePath.EndsWith("/pulls/7", StringComparison.Ordinal))
+                {
+                    var json = $$$"""{"number":7,"merged":false,"merge_commit_sha":"7e570000000000000000000000000000000000aa","head":{"sha":"{{{FakeForge.Sha}}}"},"base":{"ref":"develop"}}""";
+                    return Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json") });
+                }
+
+                return Task.FromResult<HttpResponseMessage?>(null);
+            };
+            Approved(p);
+            var r = MergeWith(p, Forge1);
+            Assert.NotEqual(0, r.Code);
+            Assert.Equal(FakeForge.MergeSha, Assert.Single(p.Events(), e => e.Type == "GateMerged").Payload.GetProperty("merge_commit_sha").GetString());
+        }
+    }
+
+    private static void BothReadsFailAfterPut(FakeForge f)
+    {
+        var put = false;
+        f.Intercept = (req, ct) =>
+        {
+            if (req.Method == HttpMethod.Put) { put = true; return Task.FromResult<HttpResponseMessage?>(null); }
+            if (put && req.RequestUri!.AbsolutePath.EndsWith("/pulls/7", StringComparison.Ordinal))
+            {
+                return Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError));
+            }
+
+            return Task.FromResult<HttpResponseMessage?>(null);
+        };
+    }
+
+    [Fact]
+    public void Gate_check_after_status_unknown_uses_the_configured_branch_when_GateMerged_has_no_base()
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            BothReadsFailAfterPut(f);
+            Approved(p);
+            Assert.NotEqual(0, MergeWith(p, Forge1).Code);
+            var merged = Assert.Single(p.Events(), e => e.Type == "GateMerged").Payload;
+            Assert.False(merged.TryGetProperty("base", out _));
+            f.Intercept = null;
+            var r = Check(p);
+            Assert.Equal(0, r.Code);
+            Assert.Equal("develop", Assert.Single(p.Events(), e => e.Type == "IntegrationRunChecked").Payload.GetProperty("branch").GetString());
+        }
+    }
+
+    [Fact]
+    public void Gate_check_after_status_unknown_catches_up_the_first_parent_of_a_fix_pr()
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            RedDevelop(f);
+            ProvenFix(f);
+            f.Parents[FakeForge.MergeSha] = "0ther000000000000000000000000000000000000";
+            BothReadsFailAfterPut(f);
+            Approved(p);
+            Assert.NotEqual(0, MergeWith(p, Forge1).Code);
+            Assert.Equal(FakeForge.DevelopSha, Assert.Single(p.Events(), e => e.Type == "GateMerged").Payload.GetProperty("integration_head").GetString());
+            f.Intercept = null;
+            var r = Check(p);
+            Assert.NotEqual(0, r.Code);
+            Assert.Contains("0ther000", r.Err, StringComparison.Ordinal);
+            var run = Assert.Single(p.Events(), e => e.Type == "IntegrationRunChecked").Payload;
+            Assert.Equal("mismatch", run.GetProperty("parent_check").GetString());
+        }
+    }
 }
