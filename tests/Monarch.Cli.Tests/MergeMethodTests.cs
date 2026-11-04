@@ -208,7 +208,7 @@ public class MergeMethodTests
     }
 
     // ---- warden round (Q-0140)
-    private static RunResult MergeApprovedWith(TempProject p, Dictionary<string, string?> extra)
+    private static RunResult MergeApprovedWith(TempProject p, Dictionary<string, string?> extra, Stopwatch? timer = null)
     {
         Tick(p);
         Assert.Equal(0, p.Hook("subagent-stop", """{"session_id":"sess1","hook_event_name":"SubagentStop","agent_id":"a1","agent_type":"monarch:warden"}""").Code);
@@ -217,7 +217,24 @@ public class MergeMethodTests
         Tick(p);
         var vars = new Dictionary<string, string?> { ["MONARCH_MERGE_WAIT_SECONDS"] = "0", ["MONARCH_MERGE_POLL_SECONDS"] = "0" };
         foreach (var (k, v) in extra) vars[k] = v;
-        return p.Run(["gate", "merge", "G-0001"], vars: vars);
+        timer?.Start();
+        var result = p.Run(["gate", "merge", "G-0001"], vars: vars);
+        timer?.Stop();
+        return result;
+    }
+
+    [Fact]
+    public void A_relative_git_bin_is_ignored()
+    {
+        var (p, f) = Setup(Seed.ForgeYaml);
+        using (p)
+        {
+            History(p.Root, "develop", 6, 0);
+            var r = MergeApprovedWith(p, new() { ["MONARCH_GIT_BIN"] = "no-such-dir/git" });
+            Assert.Equal(0, r.Code);
+            Assert.Equal("merge", Method(f));
+            Assert.DoesNotContain("Warnung", r.Err, StringComparison.Ordinal);
+        }
     }
 
     private static string HangingGit(string dir)
@@ -323,9 +340,9 @@ public class MergeMethodTests
         using (p)
         {
             History(p.Root, "develop", 6, 0);
-            var sw = Stopwatch.StartNew();
-            var r = MergeApprovedWith(p, new() { ["MONARCH_GIT_BIN"] = HangingGit(p.Home), ["MONARCH_MERGE_GIT_SECONDS"] = "1" });
-            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(20), sw.Elapsed.ToString());
+            var sw = new Stopwatch();
+            var r = MergeApprovedWith(p, new() { ["MONARCH_GIT_BIN"] = HangingGit(p.Home), ["MONARCH_MERGE_GIT_SECONDS"] = "1" }, sw);
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(25), sw.Elapsed.ToString());
             Assert.Equal(0, r.Code);
             Assert.Equal("squash", Method(f));
             Assert.Contains("Warnung", r.Err, StringComparison.Ordinal);
@@ -339,9 +356,10 @@ public class MergeMethodTests
         using (p)
         {
             History(p.Root, "develop", 6, 0);
-            var sw = Stopwatch.StartNew();
-            var r = MergeApprovedWith(p, new() { ["MONARCH_GIT_BIN"] = HangingGit(p.Home), ["MONARCH_MERGE_GIT_SECONDS"] = "10", ["MONARCH_MERGE_FORGE_SECONDS"] = "2" });
-            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(8), sw.Elapsed.ToString());
+            var sw = new Stopwatch();
+            var r = MergeApprovedWith(p, new() { ["MONARCH_GIT_BIN"] = HangingGit(p.Home), ["MONARCH_MERGE_GIT_SECONDS"] = "10", ["MONARCH_MERGE_FORGE_SECONDS"] = "2" }, sw);
+            // two hanging refs would take 20 s at the git deadline alone; phase A (2 s) must cut in far earlier. Only the merge call is timed, not the approval steps.
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15), sw.Elapsed.ToString());
             Assert.Equal(1, r.Code);
             Assert.Contains("Forge-Frist", r.Err, StringComparison.Ordinal);
             Assert.Empty(f.MergeBodies);

@@ -29,7 +29,7 @@ internal static class MergeMethodResolver
         }
 
         var seconds = int.TryParse(env.GetVar("MONARCH_MERGE_GIT_SECONDS"), NumberStyles.None, CultureInfo.InvariantCulture, out var s) && s > 0 ? s : DefaultGitSeconds;
-        return Derive(root, config.IntegrationBranch, TimeSpan.FromSeconds(seconds), env.GetVar("MONARCH_GIT_BIN") is { Length: > 0 } bin ? bin : "git", ct);
+        return Derive(root, config.IntegrationBranch, TimeSpan.FromSeconds(seconds), env.GetVar("MONARCH_GIT_BIN") is { Length: > 0 } bin && Path.IsPathRooted(bin) ? bin : "git", ct);
     }
 
     /// <summary>Derives the method: more than half of the last 50 first-parent commits are merge commits -> merge, otherwise squash. A missing branch or an unreadable history gives squash.</summary>

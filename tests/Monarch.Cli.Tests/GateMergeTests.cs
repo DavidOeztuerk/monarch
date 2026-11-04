@@ -10,7 +10,7 @@ public class GateMergeTests
 
     private static (TempProject P, FakeForge F) Setup(string gateRank = "C", string questRank = "C", string? yaml = null, bool link = true)
     {
-        var p = new TempProject(systemYaml: yaml ?? Seed.ForgeYaml);
+        var p = new TempProject(systemYaml: yaml ?? Seed.ForgeYaml + "git:\n  merge_method: squash\n"); // Q-0140: no git process inside the 1 s forge deadlines of these tests
         var f = new FakeForge();
         f.Pulls[7] = (FakeForge.Sha, false);
         f.SetChecks(FakeForge.Run(1, "build", "success"), FakeForge.Run(2, "test", "success"));
