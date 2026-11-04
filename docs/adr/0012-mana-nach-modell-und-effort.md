@@ -70,7 +70,7 @@ stoppen, Recap, Weckruf (ADR-0004, ADR-0008).
 
 ## Nachtrag Q-0142 (G-0105): Die Grenze fällt nie unter `clamp`
 
-**Datum:** 04.11.2026 · **Status:** Entwurf (Design-Review Warden ausstehend)
+**Datum:** 04.11.2026 · **Status:** angenommen (Design-Review Warden G-0105, Auflagen eingearbeitet)
 
 ### Kurz in einfacher Sprache
 
@@ -102,7 +102,7 @@ Je Fenster gilt mit `w = work_until_pct` und `clamp: [min, max]`:
 - **Gültig** ist `clamp` nur mit genau zwei Einträgen, beide endlich, und `0 ≤ min ≤ max ≤ 100`. Ein nicht endliches `work_until_pct` (`NaN`, `Infinity`) zählt als fehlend, es gilt der Plan-Wert.
 - `AdaptiveFloorBelowStart` entfällt.
 - `SystemConfig.Limits` bleibt der Rohwert aus der Datei; `ManaSupport.Resolve()` ist die einzige Stelle, die die geltende Grenze bestimmt. Die Zeile `start limits` von `mana` (`ManaCommands.cs:218`) zeigt bewusst weiter den Rohwert, die Zeile `Limits in use` den geltenden Wert.
-- `Resolve()` wirft bei Lesefehlern nicht. Eine defekte Ledger-Zeile bleibt ein Befund von `ledger verify` und `status` (`StatusCommand.cs:67`) und darf `status`, das Briefing oder `quest accept` nicht abbrechen. Dasselbe Muster steht schon in `ManaCommands.cs:266-268`.
+- `Resolve()` wirft bei Lesefehlern nicht (`JsonException`, `InvalidOperationException`). Eine defekte Ledger-Zeile bleibt ein Befund von `ledger verify` und `status` (`StatusCommand.cs:67`) und darf das **Lesen** der Grenze in `status`, im Briefing und im Guard von `quest accept` nicht abbrechen. Das Schreiben ist davon getrennt: Der Store verweigert `Append` weiter bei einer defekten letzten Zeile der Session-Datei (`JsonlLedgerStore.cs:189`, `:221`). `LedgerScan.All` bleibt streng, weil `gate merge` darüber Verdicts liest.
 - Briefing, `status` (Text, `--json`, damit auch MCP `system_status`) und `quest accept` (Guard `QuestCommands.cs:89` und Ablehnungstext `:93`) rufen `Resolve()` auf. Damit nennen alle Befehle in demselben Zustand denselben Wert. Die Aussage aus Punkt 7 oben („Grenzen bleiben“) gilt jetzt auch im Code.
 - Alle Ausgaben formatieren Grenzen gleich (`0.#`), damit 96,8 nicht an einer Stelle als 97 erscheint.
 - Der obere `clamp`-Wert bleibt ungenutzt. Als Deckel würde er die Woche bis 99 % steigen lassen, über die Owner-Vorgabe 96–98 % hinaus. Ein automatisches Anheben ist eine Owner-Entscheidung.
