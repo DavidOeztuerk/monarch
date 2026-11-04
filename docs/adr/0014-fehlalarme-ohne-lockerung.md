@@ -215,3 +215,61 @@ Dateien: `tests/Monarch.Policy.Tests/Adr0011Tests.cs` (Regel 2, Globs, sed, gh, 
 - **Nicht Teil dieser Quest:** Der Fehlalarm bei `for f in .monarch/quests/*.md; do sed -n 1p "$f"; done` wird ein eigenes Issue.
 - Grenze: Tokens in mutierenden Befehlen, die wegen `*` über `/` einen Zonennamen benennen können (z. B. `.*)x` aus einem perl-Muster), bleiben konservativ Treffer.
 - Restrisiko Klasse 2 (Code leitet den Namen zur Laufzeit ab) bleibt wie in ADR-0011 dokumentiert.
+
+## Nachtrag Q-0138 (G-0105): `sed 's/.*/new/' f` wieder frei, sonst nichts
+
+**Datum:** 04.11.2026 · **Status:** Entwurf (Design-Review Warden ausstehend) · **Issue:** 55
+
+### Kurz in einfacher Sprache
+
+- Der Fix aus der Code-Runde von Q-0133 sperrt seitdem auch harmlose Lesebefehle wie `sed 's/.*/new/' f`. Das Wort `new` enthält die Buchstaben `e` und `w`, deshalb wird das Skript als möglicher Schreiber geprüft, und `.*` zählt dann als Treffer.
+- Owner-Entscheid vom 30.10.: streng. Frei wird nur diese eine Form. Alles andere, was bei `d45e6b9` gesperrt ist, bleibt gesperrt.
+- Dafür ändert sich der Matcher nicht. Die Regel für `.*` bleibt, wie sie ist; es gibt nur eine eng begrenzte Ausnahme davor.
+
+### Ursache
+
+`ScriptWriterHit` nimmt ein sed-Skript in die Pfadprüfung, sobald es irgendwo die Buchstaben `w`, `W` oder `e` enthält (`ProtectPathsRule.cs:612`). Das trifft auch den Ersatztext eines `s`-Befehls. In der Pfadprüfung zählt ein Segment wie `.*` sofort als Treffer, weil es `.` oder `..` erzeugen kann (`NormalizeTail`, `:877`, `Find`, `:892`, aus Warden-Befund 1 zu Q-0133).
+
+### Entscheidung
+
+`ScriptWriterHit` überspringt ein sed-Skript nur, wenn **alle** Bedingungen gelten. Sonst läuft die Prüfung wie bei `d45e6b9`.
+
+1. Das Segment lautet wörtlich `sed <Skript> <Dateien>` oder `sed -e <Skript> <Dateien>`: genau ein Skript, keine weitere Option, also auch kein `-i`, `-n`, `-E`, `-f`.
+2. Das Skript ist genau `s/.*/R/`: Trennzeichen `/`, Regex genau `.*`, keine Flags, `R` besteht aus mindestens einem Buchstaben oder einer Ziffer (`[A-Za-z0-9]+`).
+3. Alle Argumente stehen wörtlich da wie bei #47: `Tokens[0]` ist genau `sed`, `RawWords` gleich `Tokens` (kein `env`, `command`, `xargs`, `./sed`), keine Substitution im Kommando, kein `$` in einem Token, kein Glob- oder Brace-Zeichen in einem Dateioperanden.
+4. Kein Dateioperand trifft eine Schutzzone: `Find` liefert für jeden Operanden nichts.
+
+`NormalizeTail`, `Find`, `FlatPattern` und `DropSedScript` bleiben unverändert. Die Ausnahme sitzt ausschließlich vor der Skriptprüfung.
+
+**Lesart des Owner-Entscheids.** `f` und `new` sind Platzhalter: Ein Fix nur für die Datei `f` wäre keiner. Deshalb gilt die Ausnahme für diese eine Form mit beliebigem Dateinamen und einem einfachen Ersatzwort, nicht für zwei exakte Zeichenketten. Enger geht es ohne Sonderfälle für einzelne Wörter nicht. Weiter geht sie nicht: Der Regex bleibt genau `.*`.
+
+### Wechsel gegenüber `d45e6b9`
+
+| Kommando | `d45e6b9` | neu | Warum unmöglich zu schreiben |
+|---|---|---|---|
+| `sed 's/.*/new/' f` | deny | **allow** | Ohne Flags ist `s` kein Schreiber; ohne `-i` geht die Ausgabe nur nach stdout |
+| `sed -e 's/.*/e/' f` | deny | **allow** | wie oben |
+
+Das sind die einzigen Wechsel, abgesehen von anderen Dateinamen und Ersatzwörtern derselben Form. Ein `s`-Befehl schreibt nur mit dem Flag `w` und führt nur mit dem Flag `e` aus; beide stehen hinter dem letzten Trennzeichen, und dort lässt die Form nichts zu. `R` kann das Trennzeichen nicht enthalten, also keinen zweiten Befehl anhängen.
+
+### Bleibt deny (bekannte Fehlalarme, Owner-Entscheid)
+
+- `awk '/.*/ {print | "sort"}' f`
+- `rm -rf dist/.*` (`dist/..` ist die Projekt-Root)
+- `sed -i 's/.*/new/' f`, `sed -n 's/.*/new/p' f`, `sed -E 's/.*/new/' f`, `sed 's/.*x/new/' f` mit Skriptbuchstaben `w`, `W`, `e`, auch `sed -n '/.*foo/,/bar/p' f`: Die letzte Form kam beim Lesen von Quelltext am 04.11. zweimal vor. Ausweg: `grep -n` und das Read-Werkzeug.
+
+### Bleibt deny (Schutz)
+
+Unverändert: alle Fälle in `Adr0014Tests.cs:55-82` und `:148-159`. Neu als Test: `rm -rf .?/*`, `rm -rf dist/.?/.monarch/ledger`, `rm -rf dist/.*/.monarch`, `cp -R x/ledger dist/.?/.monarc?`, `chmod -R 000 dist/.*`, `sed 's/x/y/w s/.?/.monarch/ledger/x' f`, `sed -i 's/a/b/' dist/.?/.monarch/ledger/x`. Zusätzlich gegen die Ausnahme:
+
+- `sed 's/.*/new/' .monarch/ledger/x` (Operand in der Zone)
+- `sed 's/.*/new/w .monarch/ledger/x' f`, `sed 's/.*/new/e' f`, `sed 's/.*/new/;w .monarch/ledger/x' f`
+- `sed 's/.*/$X/' f`, `sed "s/.*/$(cat g)/" f`, `sed 's/.*/new/' $F`, `sed 's/.*/new/' *`
+- `env sed 's/.*/new/' f`, `./sed 's/.*/new/' f`, `printf f | xargs sed 's/.*/new/'`
+- `sed -e 's/.*/new/' -e 'w .monarch/ledger/x' f` (zwei Skripte)
+
+Jeder neue Fall wird vor der Umsetzung gegen `d45e6b9` als deny gegengeprüft. Ein dort schon erlaubter Fall ist ein eigener Befund und nicht Teil dieser Quest.
+
+### Teststrategie
+
+`Adr0014Tests.cs`: Die zwei Allow-Fälle vorher rot, danach grün. Die Deny-Listen oben sind Regressionswächter und vorher grün; sie sichern, dass die Ausnahme nicht weiter reicht. Bestehende Tests bleiben unverändert. Latenz: Die Prüfung läuft nur für `sed` und nur vor der Skriptprüfung.
