@@ -65,6 +65,7 @@ internal static class AwakenCommand
             }
         }
 
+        env.Out.WriteLine($"  Secret-Scan-Hook: {SecretScanHook.Detect(root).Text}");
         var ledger = new ProjectLedger(paths, env.Clock);
         ledger.Append(ledger.SessionId(), "cli", "Awakened", ("plan", plan ?? "pro"), ("root", root), ("git_top_level", top), ("origin", origin), ("head", head), ("dirty", dirty));
         return 0;

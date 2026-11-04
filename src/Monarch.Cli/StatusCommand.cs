@@ -42,10 +42,11 @@ internal static class StatusCommand
         var limits = ManaSupport.Resolve(paths.Root, config).Limits;
         ManaDecision? guard = snapshot is null ? null : ManaGuard.Decide(snapshot, StepEstimate5h, StepEstimate7d, QuestCommands.RecapReservePct, limits, env.Clock.UtcNow);
         var ledger = LedgerVerifier.Verify(paths.Root);
+        var hook = SecretScanHook.Detect(env.Cwd);
 
         if (json)
         {
-            WriteJson(env, active, counts, xp, level, snapshot, limits, guard, ledger.Ok);
+            WriteJson(env, active, counts, xp, level, snapshot, limits, guard, ledger.Ok, hook);
             return 0;
         }
 
@@ -64,6 +65,7 @@ internal static class StatusCommand
         }
 
         sb.AppendLine("Penalty zone: off (not computed in phase 0)");
+        sb.AppendLine($"Secret-Scan-Hook: {hook.Text}");
         sb.AppendLine($"Plan: {config.Plan} · theme: {config.Theme}");
         sb.Append(ledger.Ok ? "Ledger: ok" : $"Ledger: {ledger.Violations.Count} violation(s) - run the verifier");
         env.Out.WriteLine(sb.ToString());
@@ -107,7 +109,7 @@ internal static class StatusCommand
         return xp;
     }
 
-    private static void WriteJson(CliEnv env, ActiveFile? active, (string Name, int Count)[] counts, long xp, long level, ManaSnapshot? s, ManaLimits limits, ManaDecision? guard, bool ledgerOk)
+    private static void WriteJson(CliEnv env, ActiveFile? active, (string Name, int Count)[] counts, long xp, long level, ManaSnapshot? s, ManaLimits limits, ManaDecision? guard, bool ledgerOk, SecretScanResult hook)
     {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
@@ -137,6 +139,10 @@ internal static class StatusCommand
             if (guard is null) w.WriteNull("guard"); else w.WriteString("guard", guard.ToString());
             w.WriteBoolean("penaltyZone", false);
             w.WriteBoolean("ledgerOk", ledgerOk);
+            w.WriteStartObject("secretScanHook");
+            w.WriteString("state", hook.Code);
+            if (hook.Path is null) w.WriteNull("path"); else w.WriteString("path", hook.Path);
+            w.WriteEndObject();
             w.WriteEndObject();
         }
 

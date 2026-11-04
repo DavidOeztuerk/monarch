@@ -61,6 +61,12 @@ Grundlage ist ADR-0011 (Bedrohungsmodell Phase 0). Der Hook ist eine **Leitplank
 - G2: die Policy ist auf plausiblen Wegen nicht still abschaltbar (`.monarch/system.yaml`, `quests/`, `gates/`, `local/`, `~/.monarch/**`, `~/.claude/settings*.json`, `~/.claude/plugins/**`, `<projekt>/.claude/settings*.json`).
 - G3: Ledger-Manipulation ist gegen plausible Fehlgriffe erkennbar. `ledger verify` laeuft vor `quest clear` und `evidence sync`; bei Befunden wird nicht geclear't (Event `ClearRefusedLedgerInvalid`). Anker-Resets quittiert nur der Owner im Terminal (`monarch ledger ack-reset <hash>` verlangt ein TTY auf stdin).
 
+### Secret-Scan-Hinweis (Q-0139)
+
+`monarch awaken` und `monarch status` (Text, `--json`, MCP `system_status`) melden, ob im Repo ein gitleaks-pre-commit-Hook aktiv ist, mit Zustand und Pfad: `aktiv`, `pre-commit-Hook ohne erkennbaren gitleaks-Aufruf`, `pre-commit-Hook nicht ausfuehrbar`, `kein pre-commit-Hook` oder `unbekannt` (kein git bzw. kein Repo). Monarch installiert den Hook nicht, schreibt nie in Hook-Verzeichnisse und ruft gitleaks nicht selbst auf.
+
+Grenze: Geprueft wird nur die Datei `pre-commit` (`core.hooksPath`, sonst `<git-common-dir>/hooks`), ihre ersten 64 KiB auf den Text `gitleaks`. Hook-Manager wie pre-commit oder lefthook werden nicht aufgeloest; ein Aufruf in einer von dort geladenen Konfiguration bleibt unsichtbar. `aktiv` heisst, `gitleaks` kommt im Hook vor, nicht dass der Hook wirksam ist.
+
 ### Merge-Policy (ADR-0007, Q-0113)
 
 - Regel `protect_branches` im PreToolUse-Hook, fuer Main und Shadows: `git push` auf `git.protected_branches` (Default main, master; `system.yaml` kann nur ergaenzen) wird verweigert, in jeder Schreibweise (Refspec, `HEAD`, `+`, `:ziel`, `--delete`, `--all`, `--mirror`, Wildcards, `-C`, `--git-dir`, `GIT_DIR=`, Worktrees, `bash -c`, `eval`). Ein Push ohne Refspec liest HEAD, Upstream und `remote.<r>.push`/`mirror` per Dateizugriff. Ein direkter Push auf `git.integration_branch` (Default develop) fragt nach (`ask`).
