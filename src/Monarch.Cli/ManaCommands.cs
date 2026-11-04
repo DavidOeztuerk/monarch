@@ -263,9 +263,9 @@ internal static class ManaCommands
         {
             rows = LedgerScan.All(paths.Root);
         }
-        catch (System.Text.Json.JsonException)
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
-            rows = []; // a corrupt line is a verify finding below, not a reason to crash
+            rows = []; // a corrupt or non-object line is a verify finding below, not a reason to crash
         }
 
         foreach (var cleared in rows.Where(r => r.Type == "QuestCleared" && r.Num("pr") is not null))

@@ -212,9 +212,6 @@ internal static class ManaSupport
     /// <summary>Default next step in the 7d window.</summary>
     public const double Step7d = 1;
 
-    /// <summary>Guard-rail below the start value for adaptive limits, in percentage points.</summary>
-    public const double AdaptiveFloorBelowStart = 15;
-
     /// <summary>Resolved limits.</summary>
     /// <param name="Limits">Limits per window.</param>
     /// <param name="Source">"plan default" or "adaptive".</param>
@@ -222,27 +219,44 @@ internal static class ManaSupport
     /// <param name="Recap7d">EWMA of recap costs in the 7d window.</param>
     public sealed record Resolved(ManaLimits Limits, string Source, int Recaps, double Recap7d);
 
-    /// <summary>Adaptive limits from at least three <c>RecapWritten</c> costs and step costs between consecutive snapshots; else the plan limits.</summary>
+    /// <summary>
+    /// The limit in force per window (ADR-0012, Q-0142): with <c>w</c> = work_until_pct and <c>min</c> = lower clamp value (else <c>w</c>), fewer than
+    /// three recaps or an unreadable ledger give <c>max(w, min)</c>; otherwise the adaptive value clamped to [min, max(w, min)].
+    /// </summary>
     public static Resolved Resolve(string root, SystemConfig config)
     {
-        var rows = LedgerScan.All(root);
+        List<LedgerRow> rows;
+        try
+        {
+            rows = LedgerScan.All(root);
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
+        {
+            rows = []; // a corrupt or non-object line is a finding of 'ledger verify', not a reason to abort
+        }
+
+        var start = config.Limits;
+        var min = config.ClampMin ?? start;
+        var top = new ManaLimits(Math.Max(start.FiveHourPct, min.FiveHourPct), Math.Max(start.SevenDayPct, min.SevenDayPct));
         var recaps = rows.Where(r => r.Type == "RecapWritten").ToList();
         var r5 = recaps.Select(r => r.Num("cost5h") ?? 0).ToList();
         var r7 = recaps.Select(r => r.Num("cost7d") ?? 0).ToList();
         if (recaps.Count < AdaptiveLimit.MinRecaps)
         {
-            return new Resolved(config.Limits, "plan default", recaps.Count, AdaptiveLimit.Ewma(r7));
+            return new Resolved(top, "plan default", recaps.Count, AdaptiveLimit.Ewma(r7));
         }
 
         var snaps = rows.Where(r => r.Type == "ManaSnapshotTaken" && r.Num("fiveHourUsedPct") is not null).ToList();
         var s5 = Steps(snaps, "fiveHourUsedPct", "fiveHourResetsAt");
         var s7 = Steps(snaps, "sevenDayUsedPct", "sevenDayResetsAt");
-        var start = config.Limits;
         var limits = new ManaLimits(
-            AdaptiveLimit.Compute(r5, s5, start.FiveHourPct, start.FiveHourPct - AdaptiveFloorBelowStart, start.FiveHourPct),
-            AdaptiveLimit.Compute(r7, s7, start.SevenDayPct, start.SevenDayPct - AdaptiveFloorBelowStart, start.SevenDayPct));
+            AdaptiveLimit.Compute(r5, s5, top.FiveHourPct, min.FiveHourPct, top.FiveHourPct),
+            AdaptiveLimit.Compute(r7, s7, top.SevenDayPct, min.SevenDayPct, top.SevenDayPct));
         return new Resolved(limits, "adaptive", recaps.Count, AdaptiveLimit.Ewma(r7));
     }
+
+    /// <summary>Formats a limit or usage value the same way everywhere (<c>0.#</c>, invariant).</summary>
+    public static string Num(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
 
     private static List<double> Steps(List<LedgerRow> snaps, string used, string reset)
     {

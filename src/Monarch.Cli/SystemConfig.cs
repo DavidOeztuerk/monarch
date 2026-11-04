@@ -15,6 +15,9 @@ internal sealed record SystemConfig(
     /// <summary>Opt-in of the out-of-session wake call (ADR-0008): <c>launchd</c>, <c>systemd</c> or <c>off</c> (default). Owner decision in the protected system.yaml.</summary>
     public string Wake { get; init; } = "off";
 
+    /// <summary>Lower <c>clamp</c> bound per window (ADR-0012, Q-0142); <see langword="null"/> means the limit never moves down (floor = <see cref="Limits"/>).</summary>
+    public ManaLimits? ClampMin { get; init; }
+
     /// <summary>Built-in risk tags (from the concept).</summary>
     public static IReadOnlyList<RiskTagRule> DefaultRiskTags { get; } =
     [
@@ -73,12 +76,15 @@ internal static class SystemConfigReader
         var plan = ParsePlan(mana?.GetString("plan"));
         var d = SystemConfig.Create(plan);
         var limits = mana?.Get("limits") as YamlMap;
-        var five = Num((limits?.Get("five_hour") as YamlMap)?.GetString("work_until_pct")) ?? d.Limits.FiveHourPct;
-        var seven = Num((limits?.Get("seven_day") as YamlMap)?.GetString("work_until_pct")) ?? d.Limits.SevenDayPct;
+        var fiveMap = limits?.Get("five_hour") as YamlMap;
+        var sevenMap = limits?.Get("seven_day") as YamlMap;
+        var five = Num(fiveMap?.GetString("work_until_pct")) ?? d.Limits.FiveHourPct;
+        var seven = Num(sevenMap?.GetString("work_until_pct")) ?? d.Limits.SevenDayPct;
         var config = d with
         {
             Theme = root.GetString("theme") is { Length: > 0 } t ? t : d.Theme,
             Limits = new ManaLimits(five, seven),
+            ClampMin = new ManaLimits(ClampMinimum(fiveMap) ?? five, ClampMinimum(sevenMap) ?? seven),
             Wake = ParseWake(mana?.GetString("wake")),
             PenaltyZone = string.Equals(policy?.GetString("penalty_zone"), "warn", StringComparison.OrdinalIgnoreCase) ? PenaltyMode.Warn : PenaltyMode.Block,
             ScopeLock = Bool(policy?.GetString("scope_lock"), d.ScopeLock),
@@ -133,7 +139,20 @@ internal static class SystemConfigReader
         _ => "off",
     };
 
-    private static double? Num(string? t) => double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null;
+    private static double? Num(string? t) => double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && double.IsFinite(v) ? v : null;
+
+    /// <summary>The lower <c>clamp</c> value of a window; valid only with exactly two finite entries and 0 &lt;= min &lt;= max &lt;= 100.</summary>
+    private static double? ClampMinimum(YamlMap? window)
+    {
+        if (window?.Get("clamp") is not YamlList { Items.Count: 2 } list
+            || list.Items[0] is not YamlScalar a || list.Items[1] is not YamlScalar b
+            || Num(a.Text) is not { } min || Num(b.Text) is not { } max)
+        {
+            return null;
+        }
+
+        return min >= 0 && min <= max && max <= 100 ? min : null;
+    }
 
     private static bool Bool(string? t, bool fallback) => bool.TryParse(t, out var b) ? b : fallback;
 
