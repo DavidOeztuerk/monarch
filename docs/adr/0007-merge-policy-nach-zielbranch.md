@@ -167,7 +167,7 @@ Ein Merge auf einen roten Integrations-Branch verdeckt, wer ihn gebrochen hat.
 
 ## Q-0137 (G-0105): Roter develop, abgebrochene Läufe, Laufzeit
 
-**Datum:** 04.11.2026 · **Status:** Entwurf (Design-Review Warden ausstehend) · **Issues:** 34, 33
+**Datum:** 04.11.2026 · **Status:** angenommen (Design-Review Warden G-0105, Auflagen eingearbeitet) · **Issues:** 34, 33
 
 Dieser Nachtrag ändert den Abschnitt Q-0132 an den drei unten genannten Stellen.
 
@@ -190,7 +190,7 @@ Schritt 5 bleibt: Die PR-CI muss grün sein. Danach wertet Schritt 5b `CheckCi` 
 
 `cancelled` hat Vorrang vor rot: Ohne Beleg lässt sich nicht sagen, ob der PR alles behebt. `failure`, `timed_out`, `skipped`, `neutral` und `action_required` zählen hier als rot. `IsSuccess` bleibt strikt (`IEvidenceSource.cs:19`); neu ist nur `IsCancelled` für die Unterscheidung.
 
-**Lauf-ID.** Die Check-Run-ID ist keine Lauf-ID. Die Lauf-ID steht in `Evidence.Source`, der `html_url` des Checks (`…/actions/runs/40721744761/job/122946762702`), und wird per `/actions/runs/(\d+)` gelesen. In den Befehl kommen nur diese Ziffern. Ohne Treffer bleibt der Stopp; die Meldung nennt dann Check-Name und URL und keinen `gh run rerun`.
+**Lauf-ID.** Die Check-Run-ID ist keine Lauf-ID. Die Lauf-ID steht in `Evidence.Source`, der `html_url` des Checks (`…/actions/runs/40721744761/job/122946762702`), und wird per `/actions/runs/(\d+)` gelesen. In den Befehl kommen nur diese Ziffern. Ohne Treffer bleibt der Stopp; die Meldung nennt dann Check-Name und URL und keinen `gh run rerun`. Dieser Rückfall gilt vor dem Merge und ebenso nach dem Merge (Ergebnis `cancelled`).
 
 **Belegter Fix-PR (Owner-Entscheid V1 vom 30.10.).** Der Merge läuft trotz rotem develop nur, wenn alle drei Belege vorliegen:
 
@@ -200,7 +200,7 @@ Schritt 5 bleibt: Die PR-CI muss grün sein. Danach wertet Schritt 5b `CheckCi` 
 
 **Warum das reicht.** Enthält der PR-Head den develop-Head und bewegt sich develop nicht, ist der Baum des Merges der getestete Baum des PR-Heads. Die Checks am PR-Head belegen also den Stand, den develop nach dem Merge hat. Das gilt für Squash und für Merge-Commit.
 
-**develop darf sich nicht bewegen.** Die `sha`-Bindung sichert nur den PR-Head, GitHub bindet die Base nicht. Direkt vor dem PUT liest Monarch im Fix-PR-Pfad den develop-Head erneut; hat er sich geändert, verweigert der Befehl ohne PUT. Nach dem PUT prüft Monarch den ersten Elternteil des Merge-Commits gegen `integration_head`. Weicht er ab, bleibt der Merge bestehen, und der Befehl endet mit Warnung und Exit ≠ 0.
+**develop darf sich nicht bewegen.** Die `sha`-Bindung sichert nur den PR-Head, GitHub bindet die Base nicht. Direkt vor dem PUT liest Monarch im Fix-PR-Pfad den develop-Head erneut; hat er sich geändert, verweigert der Befehl ohne PUT. Nach dem PUT prüft Monarch den ersten Elternteil des Merge-Commits gegen `integration_head`. Dieses Lesen ist ein Forge-Aufruf und liegt deshalb unter der Frist von Phase C (siehe Abschnitt 3). Weicht der Elternteil ab oder ist er nicht lesbar (Fehler, Frist, keine Elternangabe), bleibt der Merge bestehen, der Befehl warnt und endet mit Exit ≠ 0. Phase C läuft trotzdem weiter. Die Abweichung steht im Ledger: `IntegrationRunChecked` trägt dann `parent_check` (`mismatch` oder `unreadable`) und bei `mismatch` `first_parent`.
 
 **Nachweis.** `GateMerged` erhält in diesem Pfad zwei zusätzliche Felder: `overridden` (JSON-Array der überstimmten Check-Namen; Matrixnamen enthalten Kommas) und `integration_head` (der rote develop-SHA). Die Ausgabe nennt beide. Der grüne Pfad schreibt `GateMerged` unverändert.
 
@@ -216,11 +216,15 @@ Schritt 5 bleibt: Die PR-CI muss grün sein. Danach wertet Schritt 5b `CheckCi` 
 |---|---|---|
 | A: alle Aufrufe vor dem PUT | 20 s | Verweigerung ohne PUT |
 | B: PUT und erneutes Lesen des PR | 20 s | siehe unten |
-| Reserve: ein letztes Lesen des PR nach Ablauf von B | 10 s | Status unbekannt: Exit ≠ 0, Meldung „auf der Forge prüfen“ |
-| C: Warten auf den Lauf am Merge-Commit | 60 s | `pending` |
+| Reserve: ein letztes Lesen des PR nach Ablauf von B | 10 s (die Hälfte von A/B, mindestens 1 s) | Status unbekannt: Exit ≠ 0, Meldung „auf der Forge prüfen“ |
+| C: Lesen des ersten Elternteils (nur Fix-PR) und Warten auf den Lauf am Merge-Commit | 60 s | Elternteil unlesbar: Warnung, Exit ≠ 0, Abweichung im Ledger; Lauf: `pending` |
 
-- Schlechtester Fall: 110 s. `DefaultWaitSeconds` ist 60 (die DoD erlaubt bis 90, mehr passt mit den Fristen nicht unter 120 s), Polling bleibt 30 s. `MONARCH_MERGE_WAIT_SECONDS` und `MONARCH_MERGE_POLL_SECONDS` bleiben, neu ist `MONARCH_MERGE_FORGE_SECONDS` für die Fristen A und B.
-- **Kein Merge ohne `GateMerged`.** Läuft Frist B ab, liest Monarch den PR ein letztes Mal. Ist er gemergt, wird `GateMerged` geschrieben, und es geht mit Phase C weiter. Ist er nicht gemergt, verweigert der Befehl.
+- Schlechtester Fall: 110 s **Forge-Zeit**. `DefaultWaitSeconds` ist 60 (die DoD erlaubt bis 90, mehr passt mit den Fristen nicht unter 120 s), Polling bleibt 30 s. `MONARCH_MERGE_WAIT_SECONDS` und `MONARCH_MERGE_POLL_SECONDS` bleiben, neu ist `MONARCH_MERGE_FORGE_SECONDS` für die Fristen A und B (und die Reserve).
+- **Die 110 s gelten nur für Forge-Zeit.** Das lokale `git` in `LedgerVerifier` (Schritt 1) liegt außerhalb der Fristen; dort gilt sein eigener Grenzwert von 10 s je Aufruf. Wer die Gesamtlaufzeit schätzt, rechnet diese lokale Zeit dazu.
+- **Mindestens ein Poll.** Die Frist von Phase C ist `max(Wartezeit, Forge-Frist)`. Ein Wert von 0 für `MONARCH_MERGE_WAIT_SECONDS` (so setzen es die Tests) bricht den einzigen Poll also nicht ab; ohne diese Untergrenze würden grüne Tests zu `pending`.
+- **Letzter Poll.** Bei 60/30 wird nach 0 s und etwa 30 s gepollt; ein dritter Poll bei 60 s hätte keine Frist mehr. Die Meldung sagt deshalb „letzter Abruf nach N s“ statt der Wartezeit.
+- **Kein Merge ohne `GateMerged`.** Läuft Frist B ab, liest Monarch den PR ein letztes Mal. Ist er gemergt, wird `GateMerged` geschrieben, und es geht mit Phase C weiter. Ist er nicht gemergt, verweigert der Befehl mit der Meldung „Status unbekannt“, nicht mit einer schlichten Verweigerung: Das PUT kann nach dem letzten Lesen noch ankommen.
+- **PUT geantwortet, Lesen scheitert.** Scheitern danach beide Lesevorgänge (Frist B und Reserve, ob durch Frist oder HTTP-Fehler), steht `mergeSha` aus der Antwort fest. Monarch schreibt `GateMerged` mit diesem SHA (ohne `base`), meldet „Status unbekannt“ und endet mit Exit ≠ 0. `gate check` holt den Lauf später nach.
 - `OperationCanceledException` kommt zu `IsExpected` (`GateMergeCommands.cs:72`).
 - Neuer Befehl `monarch gate check <G-xxxx>`: liest das letzte `GateMerged` des Gates direkt aus dem Ledger (nicht über `Resolve`, das geschlossene Gates ablehnt), prüft den Lauf auf `merge_commit_sha` mit derselben Funktion und Phase C und hängt `IntegrationRunChecked` an. Exit wie bei `gate merge`. Ohne `GateMerged`: Fehler, kein Ledger-Eintrag. Mehrfachaufrufe sind harmlos. Der Befehl braucht das Ledger, in dem `GateMerged` steht, läuft also im selben Checkout wie `gate merge`, vor dem Aufräumen der Worktree.
 - Nur der Main: Die wirksame Sperre ist die Hook-Regel (`ProtectBranchesRule.cs:49`), sie gilt jetzt auch für `gate check`, weil er ins Ledger schreibt. Zusätzlich bekommt der Befehl die Sperre bei `MONARCH_AGENT_TYPE` nach dem Muster von `WakeCommands.cs:266`; `gate merge` hat sie heute nicht, und in `src` und `plugin` setzt niemand die Variable.
@@ -233,6 +237,8 @@ Der Zweck der Regel ist, dass kein Merge einen Bruch verdeckt. Bei einem belegte
 
 - Ein PR könnte einen Check gleichen Namens inhaltlich aushöhlen. Das fängt der Fix-PR-Pfad nicht ab. Dagegen stehen der Warden und der Risk-Tag `infra` für `.github/workflows/**`.
 - Zwischen dem letzten Lesen des develop-Heads und dem PUT bleibt ein kleines Fenster, weil GitHub die Base nicht bindet. Die Prüfung des ersten Elternteils macht einen Treffer sichtbar, verhindert ihn aber nicht.
+- Ein abgelaufenes PUT kann nach dem letzten Lesen noch ankommen. Der Befehl kann dann nicht wissen, ob der PR gemergt wird, und meldet „Status unbekannt“ statt einer Verweigerung; der Test „PUT hängt, PR nicht gemergt“ macht den Fall sichtbar. Wer die Meldung sieht, prüft auf der Forge, bevor er den Befehl wiederholt.
+- Die Laufzeitgrenze von 110 s gilt für Forge-Zeit, nicht für lokales `git` (siehe Abschnitt 3).
 - Je Check-Name zählt der jüngste Lauf (`EvidenceCommands.cs:161-162`). Da `ci.yml` auf `push` und `pull_request` läuft, kann ein grüner Lauf einen älteren roten gleichen Namens am PR-Head verdecken. Das gilt heute schon für jeden Merge.
 
 ### Teststrategie

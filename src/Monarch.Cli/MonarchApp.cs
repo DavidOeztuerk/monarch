@@ -105,7 +105,7 @@ internal static class MonarchApp
         evidence.Subcommands.Add(evSync);
         root.Subcommands.Add(evidence);
 
-        var gate = new Command("gate", "Gates: import, list, show, sync, verdict, merge.");
+        var gate = new Command("gate", "Gates: import, list, show, sync, verdict, merge, check.");
         var importDir = new Argument<string>("dir") { Description = "Backlog directory with G-*.md and Q-*.md." };
         var importRepo = new Option<string?>("--repo") { Description = "Only quests whose scope.repo equals this name (case-insensitive) and their gates." };
         var import = new Command("import", "Import backlog files into .monarch/gates and .monarch/quests.");
@@ -140,10 +140,15 @@ internal static class MonarchApp
         gateVerdict.SetAction(r => GateMergeCommands.Verdict(env, r.GetValue(verdictGate)!, r.GetValue(verdictValue)!, r.GetValue(verdictSource)!));
         gate.Subcommands.Add(gateVerdict);
         var mergeGate = new Argument<string>("id") { Description = "Gate id." };
-        var gateMerge = new Command("merge", "Squash-merge the gate's pull request into the integration branch after base, rank, CI, verdict and warden run check out (main only).");
+        var gateMerge = new Command("merge", "Squash-merge the gate's pull request into the integration branch after base, rank, CI, verdict and warden run check out (main only). A red integration branch blocks the merge unless the pull request is a proven fix (ancestor, green checks, the red checks green at its head); a cancelled run is no evidence and stops. Waits 60 s for the run on the merge commit; if it is still running, 'gate check' reads it later.");
         gateMerge.Arguments.Add(mergeGate);
         gateMerge.SetAction(r => GateMergeCommands.Merge(env, r.GetValue(mergeGate)!));
         gate.Subcommands.Add(gateMerge);
+        var checkGate = new Argument<string>("id") { Description = "Gate id." };
+        var gateCheck = new Command("check", "Check the run on the merge commit of the gate's last GateMerged (waits up to 60 s) and record IntegrationRunChecked: green, red, cancelled or pending (main only; exit 1 unless green).");
+        gateCheck.Arguments.Add(checkGate);
+        gateCheck.SetAction(r => GateMergeCommands.Check(env, r.GetValue(checkGate)!));
+        gate.Subcommands.Add(gateCheck);
         root.Subcommands.Add(gate);
 
         var next = new Option<string?>("--next") { Description = "The next concrete step." };

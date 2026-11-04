@@ -41,8 +41,23 @@ internal sealed partial class FakeForge : HttpMessageHandler
     /// <summary>Branch heads for <c>GET …/git/ref/heads/{branch}</c> (default: <see cref="DevelopSha"/>).</summary>
     public Dictionary<string, string> Refs { get; } = [];
 
-    public static string Run(int id, string name, string conclusion, string status = "completed") =>
-        $$"""{"id":{{id}},"name":"{{name}}","head_sha":"{{Sha}}","status":"{{status}}","conclusion":{{(conclusion == "" ? "null" : $"\"{conclusion}\"")}},"completed_at":{{(status == "completed" ? "\"2026-10-27T09:05:00Z\"" : "null")}},"html_url":"https://github.com/o/r/runs/{{id}}"}""";
+    /// <summary>Compare results by <c>base...head</c> (Q-0137); default <c>diverged</c>, so that no PR counts as a fix PR unless a test says so.</summary>
+    public Dictionary<string, string> Compare { get; } = [];
+
+    /// <summary>When set, <c>GET …/compare/…</c> fails with this status.</summary>
+    public int CompareFailsWith { get; set; }
+
+    /// <summary>First parent per commit sha (Q-0137); a commit without entry reports no parents.</summary>
+    public Dictionary<string, string> Parents { get; } = [];
+
+    /// <summary>When non-empty, the next reads of the <c>develop</c> ref return these shas in order (a moving branch); afterwards the normal value.</summary>
+    public Queue<string> DevelopReads { get; } = new();
+
+    /// <summary>Test hook before the normal routing: returns a response to short-circuit, or null. May wait on the token to simulate a hanging forge.</summary>
+    public Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage?>>? Intercept { get; set; }
+
+    public static string Run(int id, string name, string conclusion, string status = "completed", string? url = null) =>
+        $$"""{"id":{{id}},"name":"{{name}}","head_sha":"{{Sha}}","status":"{{status}}","conclusion":{{(conclusion == "" ? "null" : $"\"{conclusion}\"")}},"completed_at":{{(status == "completed" ? "\"2026-10-27T09:05:00Z\"" : "null")}},"html_url":"{{url ?? $"https://github.com/o/r/runs/{id}"}}"}""";
 
     public void SetChecks(params string[] runs) => Checks[Sha] = $$"""{"total_count":{{runs.Length}},"check_runs":[{{string.Join(",", runs)}}]}""";
 
@@ -50,6 +65,22 @@ internal sealed partial class FakeForge : HttpMessageHandler
     {
         var path = request.RequestUri!.AbsolutePath;
         Paths.Add(request.Method.Method + " " + path);
+        if (Intercept is not null && await Intercept(request, cancellationToken) is { } intercepted)
+        {
+            return intercepted;
+        }
+
+        if (CompareRoute().Match(path) is { Success: true } cmp)
+        {
+            if (CompareFailsWith != 0)
+            {
+                return new HttpResponseMessage((HttpStatusCode)CompareFailsWith);
+            }
+
+            var status = Compare.GetValueOrDefault(cmp.Groups[1].Value + "..." + cmp.Groups[2].Value, "diverged");
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($$$"""{"status":"{{{status}}}"}""", Encoding.UTF8, "application/json") };
+        }
+
         if (request.Method == HttpMethod.Put && PullMergePath().Match(path) is { Success: true } mm)
         {
             var n = int.Parse(mm.Groups[1].Value);
@@ -67,14 +98,14 @@ internal sealed partial class FakeForge : HttpMessageHandler
         if (RefPath().Match(path) is { Success: true } rm)
         {
             var branch = Uri.UnescapeDataString(rm.Groups[1].Value);
-            var sha = Refs.GetValueOrDefault(branch, DevelopSha);
+            var sha = branch == "develop" && DevelopReads.Count > 0 ? DevelopReads.Dequeue() : Refs.GetValueOrDefault(branch, DevelopSha);
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($$$"""{"ref":"refs/heads/{{{branch}}}","object":{"sha":"{{{sha}}}","type":"commit"}}""",Encoding.UTF8, "application/json") };
         }
 
         var cm = CommitPath().Match(path);
         if (cm.Success)
         {
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"sha\":\"" + cm.Groups[1].Value + "\",\"commit\":{\"committer\":{\"date\":\"" + CommitDate + "\"},\"author\":{\"date\":\"" + CommitDate + "\"}}}", Encoding.UTF8, "application/json") };
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"sha\":\"" + cm.Groups[1].Value + "\",\"commit\":{\"committer\":{\"date\":\"" + CommitDate + "\"},\"author\":{\"date\":\"" + CommitDate + "\"}}" + (Parents.TryGetValue(cm.Groups[1].Value, out var parent) ? ",\"parents\":[{\"sha\":\"" + parent + "\"}]" : "") + "}", Encoding.UTF8, "application/json") };
         }
 
         var m = PullPath().Match(path);
@@ -99,6 +130,9 @@ internal sealed partial class FakeForge : HttpMessageHandler
 
         return await new HttpMessageInvoker(Board).SendAsync(request, cancellationToken);
     }
+
+    [GeneratedRegex(@"/repos/o/r/compare/([^./]+)\.\.\.([^./]+)$")]
+    private static partial Regex CompareRoute();
 
     [GeneratedRegex(@"/repos/o/r/pulls/(\d+)$")]
     private static partial Regex PullPath();

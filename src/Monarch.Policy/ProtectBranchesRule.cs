@@ -46,7 +46,7 @@ public static partial class ToolCallPolicy
             if (Path.GetFileName(t[i]) != "monarch") continue;
             var sub = new List<string>(2);
             for (var j = i + 1; j < t.Length && sub.Count < 2; j++) if (!t[j].StartsWith('-')) sub.Add(t[j]);
-            if (sub.Count > 1 && sub[0] == "gate" && sub[1] is "merge" or "verdict")
+            if (sub.Count > 1 && sub[0] == "gate" && sub[1] is "merge" or "verdict" or "check")
                 return BranchDeny($"'monarch gate {sub[1]}' führt nur der Main aus, kein Shadow (ADR-0007).");
             if (sub.Count > 1 && sub[0] == "wake" && sub[1] is "schedule" or "cancel" or "fire")
                 return BranchDeny($"'monarch wake {sub[1]}' führt nur der Main aus, kein Shadow (ADR-0008).");

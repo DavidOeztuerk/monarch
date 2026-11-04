@@ -17,6 +17,9 @@ public sealed record CheckEvidence(Evidence Evidence, string Name, string Conclu
     /// <c>neutral</c>, <c>skipped</c>, <c>cancelled</c>, <c>timed_out</c>, <c>failure</c> and <c>action_required</c> do not count as green (strict).
     /// </summary>
     public bool IsSuccess => IsCompleted && Conclusion == "success";
+
+    /// <summary>Gets a value indicating whether the run completed with conclusion <c>cancelled</c>: no result, neither green nor evidence of red (Q-0137).</summary>
+    public bool IsCancelled => IsCompleted && Conclusion == "cancelled";
 }
 
 /// <summary>Port for sources of verification evidence such as CI checks.</summary>
