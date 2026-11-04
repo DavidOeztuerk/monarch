@@ -208,7 +208,6 @@ public sealed class Adr0014Tests
     [InlineData("sed 's/.*/new/' f")]
     [InlineData("sed -e 's/.*/e/' f")]
     [InlineData("sed 's/.*/new/' src/a.txt")]
-    [InlineData("sed 's/.*/new/' .")]
     public void Issue55_sed_substitute_dot_star_single_operand_is_allowed(string cmd) => Allowed(cmd);
 
     [Theory]
@@ -248,6 +247,14 @@ public sealed class Adr0014Tests
     [InlineData("sed 's/.*/new/' -- f")]
     [InlineData("sed 's/.*/new/' -")]
     [InlineData("sed 's/.*/new/' {f,-i}")]
+    // Warden Code-Runde: Vorfahren und Root als Operand, fd-Umleitungen, Subshell, Here-String
+    [InlineData("sed 's/.*/new/' .")]
+    [InlineData("sed 's/.*/new/' ..")]
+    [InlineData("sed 's/.*/new/' /")]
+    [InlineData("sed 's/.*/new/' f 2>&1")]
+    [InlineData("sed 's/.*/new/' f >&2")]
+    [InlineData("( sed 's/.*/new/' f )")]
+    [InlineData("sed 's/.*/new/' f <<< x")]
     // Umleitung, Pipe, Subshell, Gruppe, Verkettung
     [InlineData("sed 's/.*/new/' f > out")]
     [InlineData("sed 's/.*/new/' f > $T")]
