@@ -3,7 +3,7 @@ id: Q-0141
 gate: G-0105
 kind: main
 rank: A
-state: proposed
+state: abandoned
 dod:
   - Design zuerst (einfache Sprache, im PR): docs/adr/0015-relatives-latenz-gate.md beschreibt den A/B-Vergleich PR-Binary gegen Basis-Binary auf demselben Runner, verschränkt gemessen; Basis je Ereignis (pull_request: Base-SHA; push: merge-base mit develop bzw. Vorgänger auf develop); Schwelle aus gemessenen A/A-Läufen mit Zahlen und Run-IDs (u. a. Run 41038797796: Versuch 1 rot mit p50 10-12 ms statt ~7, Rerun grün); Nachweis, dass echte Regressionen auffallen; p99 <= 20 ms bleibt Kriterium auf dem echten Mac (MVP-Gate C1); permissions bleiben contents: read (ci.yml:8-10), kein Artefakt-Download aus fremden Läufen; beide Varianten zum absoluten CI-Gate beschrieben (Owner-Entscheid). Eine Warden-Runde + höchstens eine Delta-Runde
   - bench/test-gate.sh erweitert, vorher rot, danach grün: Fehler-Injektion (synthetische Regression auf den PR-Samples) -> A/B rot; A/A mit gleicher Verteilung und Einzelausreißern -> grün; bestehende Prüfungen (p95 besteht, p99 fällt, Ausgabe mit p95-Spalte) unverändert
