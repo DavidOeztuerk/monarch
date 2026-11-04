@@ -266,6 +266,7 @@ public sealed class ProtectBranchesTests : IDisposable
 
     [Theory]
     [InlineData("monarch gate merge G-0101")]
+    [InlineData("monarch gate check G-0101")]
     [InlineData("~/.monarch/bin/monarch gate merge G-0101")]
     [InlineData("monarch gate verdict G-0101 --verdict approve --source https://x")]
     [InlineData("bash -c 'monarch gate merge G-0101'")]

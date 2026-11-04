@@ -72,7 +72,16 @@ internal static class ManaCommands
     {
         var board = new LocalFileBoard(paths.Root);
         var quests = board.ListQuestsAsync().GetAwaiter().GetResult();
-        var rows = LedgerScan.All(paths.Root);
+        List<LedgerRow> rows;
+        try
+        {
+            rows = LedgerScan.All(paths.Root);
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
+        {
+            rows = []; // a corrupt or non-object line is a finding of 'ledger verify', not a reason to abort the recap
+        }
+
         var limits = ManaSupport.Resolve(paths.Root, config);
         var forge = Forge.Resolve(paths);
         ActiveFile? active = null;
@@ -263,9 +272,9 @@ internal static class ManaCommands
         {
             rows = LedgerScan.All(paths.Root);
         }
-        catch (System.Text.Json.JsonException)
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
-            rows = []; // a corrupt line is a verify finding below, not a reason to crash
+            rows = []; // a corrupt or non-object line is a verify finding below, not a reason to crash
         }
 
         foreach (var cleared in rows.Where(r => r.Type == "QuestCleared" && r.Num("pr") is not null))

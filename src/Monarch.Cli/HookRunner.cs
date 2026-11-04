@@ -379,8 +379,9 @@ internal static class Briefing
         var mana = ManaStore.Read(env.Home);
         if (ManaStore.ToSnapshot(mana, env.Clock.UtcNow) is { } s)
         {
+            var limits = ManaSupport.Resolve(paths.Root, config).Limits;
             sb.AppendLine(FormattableString.Invariant(
-                $"- Mana 5h: {s.FiveHourUsedPct:0}% (Limit {config.Limits.FiveHourPct:0}%, Reset {s.FiveHourResetsAt:HH:mm} UTC); 7d: {s.SevenDayUsedPct:0}% (Limit {config.Limits.SevenDayPct:0}%){(s.IsStale ? " [veraltet]" : "")}."));
+                $"- Mana 5h: {s.FiveHourUsedPct:0}% (Limit {ManaSupport.Num(limits.FiveHourPct)}%, Reset {s.FiveHourResetsAt:HH:mm} UTC); 7d: {s.SevenDayUsedPct:0}% (Limit {ManaSupport.Num(limits.SevenDayPct)}%){(s.IsStale ? " [veraltet]" : "")}."));
         }
         else
         {

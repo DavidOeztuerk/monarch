@@ -12,7 +12,7 @@ namespace Monarch.Infrastructure.Evidence;
 public sealed record PullInfo(int Number, string HeadSha, string BaseRef, bool Merged, string? MergeCommitSha);
 
 /// <summary>
-/// GitHub pull request reads and the one merge call Monarch makes itself (<c>PUT …/pulls/{n}/merge</c>, squash, bound to the checked head sha).
+/// GitHub pull request reads and the one merge call Monarch makes itself (<c>PUT …/pulls/{n}/merge</c>, squash or merge, bound to the checked head sha).
 /// The hook denies every other route to that endpoint (ADR-0007).
 /// </summary>
 public sealed class GitHubPulls
@@ -68,19 +68,45 @@ public sealed class GitHubPulls
         return commit.Commit?.Committer?.Date ?? commit.Commit?.Author?.Date ?? throw new InvalidOperationException($"Commit {sha} has no date.");
     }
 
-    /// <summary>Squash-merges a pull request; GitHub refuses when the head moved away from <paramref name="headSha"/>.</summary>
+    /// <summary>Compares two commits (<c>GET …/compare/{base}...{head}</c>) and returns the forge's status of the head relative to the base.</summary>
+    /// <param name="owner">Repository owner.</param>
+    /// <param name="repo">Repository name.</param>
+    /// <param name="baseSha">Base commit sha.</param>
+    /// <param name="headSha">Head commit sha.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>ahead</c> (base is a proper ancestor of head), <c>identical</c>, <c>behind</c> or <c>diverged</c>.</returns>
+    public async Task<string> CompareAsync(string owner, string repo, string baseSha, string headSha, CancellationToken cancellationToken = default)
+    {
+        var compare = await _api.GetAsync($"{Repo(owner, repo)}/compare/{Uri.EscapeDataString(baseSha)}...{Uri.EscapeDataString(headSha)}", EvidenceJsonContext.Default.CompareDto, cancellationToken).ConfigureAwait(false);
+        return compare.Status ?? throw new InvalidOperationException("The compare response has no status.");
+    }
+
+    /// <summary>Reads the first parent of a commit.</summary>
+    /// <param name="owner">Repository owner.</param>
+    /// <param name="repo">Repository name.</param>
+    /// <param name="sha">Commit sha.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The sha of the first parent, or <see langword="null"/> when the forge reports none.</returns>
+    public async Task<string?> GetFirstParentAsync(string owner, string repo, string sha, CancellationToken cancellationToken = default)
+    {
+        var commit = await _api.GetAsync($"{Repo(owner, repo)}/commits/{Uri.EscapeDataString(sha)}", EvidenceJsonContext.Default.CommitDto, cancellationToken).ConfigureAwait(false);
+        return commit.Parents is { Count: > 0 } parents ? parents[0].Sha : null;
+    }
+
+    /// <summary>Merges a pull request with the given method; GitHub refuses when the head moved away from <paramref name="headSha"/>.</summary>
     /// <param name="owner">Repository owner.</param>
     /// <param name="repo">Repository name.</param>
     /// <param name="number">Pull request number.</param>
+    /// <param name="method">The merge method, <c>squash</c> or <c>merge</c>.</param>
     /// <param name="headSha">The head sha that was checked.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The merge commit sha.</returns>
-    public async Task<string> MergeSquashAsync(string owner, string repo, int number, string headSha, CancellationToken cancellationToken = default)
+    public async Task<string> MergeAsync(string owner, string repo, int number, string method, string headSha, CancellationToken cancellationToken = default)
     {
         var response = await _api.SendJsonAsync(
             HttpMethod.Put,
             $"{Repo(owner, repo)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/merge",
-            new MergeRequestDto { MergeMethod = "squash", Sha = headSha },
+            new MergeRequestDto { MergeMethod = method, Sha = headSha },
             EvidenceJsonContext.Default.MergeRequestDto,
             EvidenceJsonContext.Default.MergeResponseDto,
             cancellationToken).ConfigureAwait(false);

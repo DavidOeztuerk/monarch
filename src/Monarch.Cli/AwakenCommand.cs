@@ -42,7 +42,8 @@ internal static class AwakenCommand
             Directory.CreateDirectory(Path.Combine(paths.MonarchDir, d));
         }
 
-        Files.WriteAtomic(paths.SystemYaml, Render(Path.GetFileName(root), planKind, plan ?? "pro", tags));
+        var mergeChoice = MergeMethodResolver.Derive(root, SystemConfig.Default.IntegrationBranch);
+        Files.WriteAtomic(paths.SystemYaml, Render(Path.GetFileName(root), planKind, plan ?? "pro", tags, mergeChoice.Method, mergeChoice.Fallback));
         var ignored = EnsureGitignore(root);
 
         var top = Git.Run(root, "rev-parse", "--show-toplevel");
@@ -65,6 +66,8 @@ internal static class AwakenCommand
             }
         }
 
+        env.Out.WriteLine($"  git.merge_method: {mergeChoice.Method}, {mergeChoice.Source}; bitte vom Owner bestätigen (system.yaml).");
+        env.Out.WriteLine($"  Secret-Scan-Hook: {SecretScanHook.Detect(root).Text}");
         var ledger = new ProjectLedger(paths, env.Clock);
         ledger.Append(ledger.SessionId(), "cli", "Awakened", ("plan", plan ?? "pro"), ("root", root), ("git_top_level", top), ("origin", origin), ("head", head), ("dirty", dirty));
         return 0;
@@ -98,7 +101,7 @@ internal static class AwakenCommand
 
     private static string List(IEnumerable<string> items) => "[" + string.Join(", ", items.Select(Q)) + "]";
 
-    private static string Render(string name, PlanKind plan, string planName, IReadOnlyList<RiskTagRule> tags)
+    private static string Render(string name, PlanKind plan, string planName, IReadOnlyList<RiskTagRule> tags, string mergeMethod, bool mergeFallback)
     {
         var limits = ManaLimits.ForPlan(plan);
         var p = new PolicyOptions();
@@ -128,6 +131,9 @@ internal static class AwakenCommand
         sb.AppendLine($"  protect_paths: {List(p.ProtectPaths)}");
         sb.AppendLine("  protect_secrets_extra: []");
         sb.AppendLine($"  read_only_shadows: {List(p.ReadOnlyShadowTypes)}");
+        sb.AppendLine("git:");
+        sb.AppendLine($"  integration_branch: {SystemConfig.Default.IntegrationBranch}");
+        sb.AppendLine($"  merge_method: {mergeMethod}                  # squash | merge; {(mergeFallback ? "Standard (Historie nicht lesbar)" : "aus der Historie abgeleitet")}, vom Owner bestätigen");
         sb.AppendLine("recap:");
         sb.AppendLine("  path: .monarch/recap/");
         return sb.ToString();

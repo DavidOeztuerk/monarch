@@ -277,6 +277,30 @@ public static partial class ToolCallPolicy
         return false;
     }
 
+    /// <summary>
+    /// ADR-0014 Nachtrag Q-0138 (Issue 55, Owner-Entscheid STRENG): genau <c>sed s/.*/R/ datei</c> und <c>sed -e s/.*/R/ datei</c> (R alphanumerisch) ist kein
+    /// Schreiber, obwohl R ein <c>e</c> oder <c>w</c> enthalten kann. Wörtlich wie <see cref="IsIndexOnlyGit"/>: geprüft auf dem Segment, nicht auf
+    /// <c>Effective()</c>; einziges Segment ohne Subshell/Gruppe, ohne Umleitung, Pipe, Heredoc, Zuweisung, Substitution; der Operand beginnt nicht mit
+    /// <c>-</c>, hat kein <c>$</c>/Glob/Brace und trifft weder eine Zone noch ein weiteres .monarch.
+    /// </summary>
+    private static bool IsPlainSedSubstitute(string cmd, BashAnalysis.Segment seg, List<BashAnalysis.Segment> all, bool hasSubstitution, List<Zone> zones, Canon paths)
+    {
+        var raw = seg.RawWords;
+        if (all.Count != 1 || seg.Events.Length != 0 || hasSubstitution || cmd.AsSpan().IndexOfAny('<', '>', '&') >= 0) return false; // fd-Umleitungen (2>&1, >&2) erzeugen keine OutRedirects
+        if (raw.Length is not (3 or 4) || raw[0] != "sed" || !raw.SequenceEqual(seg.Tokens) || seg.Assignments.Count > 0) return false;
+        if (seg.OutRedirects.Count > 0 || seg.InRedirects.Count > 0 || seg.Heredoc is not null || seg.PipesToNext) return false;
+        if (raw.Length == 4 && raw[1] != "-e") return false;
+        var script = raw[^2];
+        var operand = raw[^1];
+        if (operand.Length == 0 || operand[0] == '-' || operand.AsSpan().IndexOfAny("$*?[]{}") >= 0) return false;
+        if (!script.StartsWith("s/.*/", StringComparison.Ordinal) || script.Length < 7 || script[^1] != '/') return false;
+        foreach (var c in script.AsSpan(5, script.Length - 6))
+            if (!char.IsAsciiLetterOrDigit(c)) return false;
+        foreach (var t in PathCandidates(operand))
+            if (Find(zones, paths, t, destructive: true) is not null || IsDecoyMonarch(paths, t)) return false;
+        return true;
+    }
+
     private static PolicyDecision? BashProtect(string cmd, PolicyContext ctx, List<BashAnalysis.Segment> segments, Canon paths)
     {
         // Interpreter mit Inline- oder stdin-Code, der .monarch/.claude erwähnt (auch zerlegt wie '.mon' + 'arch').
@@ -359,7 +383,7 @@ public static partial class ToolCallPolicy
             if (TargetDirectoryHit(zones, paths, word, tokens, si) is { } target)
                 return PolicyDecision.Deny(PolicyRules.ProtectPaths,
                     $"Regel 3 (ADR-0011): '{word}' schreibt in das Zielverzeichnis '{target.Dir}' ('{target.Abs}'), das in einer Schutzzone liegt oder sie enthält (protect_paths: {target.Pattern}); wähle ein Verzeichnis außerhalb.");
-            if (ScriptWriterHit(zones, paths, word, tokens) is { } script)
+            if (!IsPlainSedSubstitute(cmd, seg, segments, hasSubstitution, zones, paths) && ScriptWriterHit(zones, paths, word, tokens) is { } script)
                 return PolicyDecision.Deny(PolicyRules.ProtectPaths,
                     $"Regel 2 (ADR-0011): Das Skript von '{word}' schreibt in den geschützten Pfad '{script.Path}' (protect_paths: {script.Pattern}).");
 

@@ -55,6 +55,18 @@ internal sealed class PullBaseDto
 internal sealed class CommitDto
 {
     public CommitDetailDto? Commit { get; set; }
+
+    public List<CommitParentDto>? Parents { get; set; }
+}
+
+internal sealed class CommitParentDto
+{
+    public string? Sha { get; set; }
+}
+
+internal sealed class CompareDto
+{
+    public string? Status { get; set; }
 }
 
 internal sealed class CommitDetailDto
@@ -104,6 +116,7 @@ internal sealed class GitRefObjectDto
 [JsonSerializable(typeof(CheckRunsPage))]
 [JsonSerializable(typeof(PullDto))]
 [JsonSerializable(typeof(CommitDto))]
+[JsonSerializable(typeof(CompareDto))]
 [JsonSerializable(typeof(GitRefDto))]
 [JsonSerializable(typeof(MergeRequestDto))]
 [JsonSerializable(typeof(MergeResponseDto))]

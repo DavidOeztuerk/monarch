@@ -86,11 +86,12 @@ internal static class QuestCommands
             pairLine = ManaCalibrator.Display(pair, factor);
             if (snapshot is not null)
             {
-                var decision = ManaGuard.Decide(snapshot, scaled.SessionPct, scaled.WeeklyPct, RecapReservePct, config.Limits, env.Clock.UtcNow);
+                var limits = ManaSupport.Resolve(paths.Root, config).Limits;
+                var decision = ManaGuard.Decide(snapshot, scaled.SessionPct, scaled.WeeklyPct, RecapReservePct, limits, env.Clock.UtcNow);
                 if (decision != ManaDecision.Proceed)
                 {
                     return Refuse(env, FormattableString.Invariant(
-                        $"Mana does not fit ({decision}): 5h {snapshot.Effective5h:0}% + step {scaled.SessionPct:0.#}% + recap {RecapReservePct:0}% exceeds limit {config.Limits.FiveHourPct:0}% (or 7d {snapshot.Effective7d:0}% + {scaled.WeeklyPct:0.#}% vs {config.Limits.SevenDayPct:0}%). {pairLine}"));
+                        $"Mana does not fit ({decision}): 5h {snapshot.Effective5h:0}% + step {scaled.SessionPct:0.#}% + recap {RecapReservePct:0}% exceeds limit {ManaSupport.Num(limits.FiveHourPct)}% (or 7d {snapshot.Effective7d:0}% + {scaled.WeeklyPct:0.#}% vs {ManaSupport.Num(limits.SevenDayPct)}%). {pairLine}"));
                 }
             }
 

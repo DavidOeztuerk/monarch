@@ -156,9 +156,9 @@ internal static class EvidenceCommands
     /// The one CI rule, shared by <c>quest verify</c> and <c>gate merge</c> (ADR-0007 B2): only conclusion <c>success</c> counts, the latest run per check name
     /// counts, and <c>evidence.required</c> from system.yaml narrows the set. Pending: checks missing or still running; Refused: a check is not green.
     /// </summary>
-    internal static (StepResult Result, List<CheckEvidence> Relevant) CheckCi(CliEnv env, ProjectPaths paths, ForgeRef forge, string head)
+    internal static (StepResult Result, List<CheckEvidence> Relevant) CheckCi(CliEnv env, ProjectPaths paths, ForgeRef forge, string head, CancellationToken cancellationToken = default)
     {
-        var latest = Forge.Evidence(env).GetChecksAsync(forge.Owner, forge.Repo, head).GetAwaiter().GetResult()
+        var latest = Forge.Evidence(env).GetChecksAsync(forge.Owner, forge.Repo, head, cancellationToken).GetAwaiter().GetResult()
             .GroupBy(c => c.Name).Select(g => g.OrderBy(c => c.IsCompleted ? c.Evidence.At : DateTimeOffset.MaxValue).Last()).OrderBy(c => c.Name, StringComparer.Ordinal).ToList();
         var required = Forge.Required(paths);
         List<CheckEvidence> relevant;
