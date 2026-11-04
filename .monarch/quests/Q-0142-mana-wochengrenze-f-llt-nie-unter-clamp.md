@@ -3,7 +3,7 @@ id: Q-0142
 gate: G-0105
 kind: main
 rank: A
-state: proposed
+state: in_review
 dod:
   - Design zuerst (einfache Sprache, im PR): Nachtrag in docs/adr/0012-mana-nach-modell-und-effort.md mit belegter Ursache: clamp aus system.yaml wird nie gelesen (SystemConfig.cs:76-77), die adaptive Untergrenze ist fest Start minus 15 (Support.cs:216, :242-243), fünf Recaps mit Kosten 0 und p90 der Wochenschritte 8 ergeben 100 - (1,5 * 0 + 8) = 92; Briefing, status und quest accept nutzen config.Limits statt Resolve (HookRunner.cs:383, StatusCommand.cs:42/61/122/124, QuestCommands.cs:89); eine Warden-Runde, höchstens eine Delta-Runde, Verdict vor dem ersten Code-Commit
   - Fix: SystemConfigReader liest clamp je Fenster; die adaptive Grenze und die Plan-Grenze fallen nie unter das clamp-Minimum; AdaptiveFloorBelowStart entfällt; fehlt clamp oder ist es ungültig, ist work_until_pct die Untergrenze; nach oben bleibt die Grenze bei work_until_pct (kein automatisches Anheben, das wäre eine Owner-Entscheidung); Limits aus ConfigTests.cs bleibt unverändert (Rohwert)
