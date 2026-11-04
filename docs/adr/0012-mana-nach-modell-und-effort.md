@@ -96,11 +96,15 @@ Je Fenster gilt mit `w = work_until_pct` und `clamp: [min, max]`:
 |---|---|
 | Weniger als drei Recaps | `max(w, min)` |
 | Ab drei Recaps | `Clamp(adaptiv, min, max(w, min))` |
-| `clamp` fehlt oder ist ungültig (nicht zwei Zahlen, `min > max`) | wie oben mit `min = w` |
+| `clamp` fehlt oder ist ungültig | wie oben mit `min = w` |
+| Ledger nicht lesbar (defekte Zeile, Nicht-Objekt-Zeile) | `max(w, min)` |
 
+- **Gültig** ist `clamp` nur mit genau zwei Einträgen, beide endlich, und `0 ≤ min ≤ max ≤ 100`. Ein nicht endliches `work_until_pct` (`NaN`, `Infinity`) zählt als fehlend, es gilt der Plan-Wert.
 - `AdaptiveFloorBelowStart` entfällt.
-- `SystemConfig.Limits` bleibt der Rohwert aus der Datei; `ManaSupport.Resolve()` ist die einzige Stelle, die die geltende Grenze bestimmt.
-- Briefing, `status` (Text, `--json`, damit auch MCP `system_status`) und `quest accept` rufen `Resolve()` auf. Damit nennen alle Befehle in demselben Zustand denselben Wert. Die Aussage aus Punkt 7 oben („Grenzen bleiben“) gilt jetzt auch im Code.
+- `SystemConfig.Limits` bleibt der Rohwert aus der Datei; `ManaSupport.Resolve()` ist die einzige Stelle, die die geltende Grenze bestimmt. Die Zeile `start limits` von `mana` (`ManaCommands.cs:218`) zeigt bewusst weiter den Rohwert, die Zeile `Limits in use` den geltenden Wert.
+- `Resolve()` wirft bei Lesefehlern nicht. Eine defekte Ledger-Zeile bleibt ein Befund von `ledger verify` und `status` (`StatusCommand.cs:67`) und darf `status`, das Briefing oder `quest accept` nicht abbrechen. Dasselbe Muster steht schon in `ManaCommands.cs:266-268`.
+- Briefing, `status` (Text, `--json`, damit auch MCP `system_status`) und `quest accept` (Guard `QuestCommands.cs:89` und Ablehnungstext `:93`) rufen `Resolve()` auf. Damit nennen alle Befehle in demselben Zustand denselben Wert. Die Aussage aus Punkt 7 oben („Grenzen bleiben“) gilt jetzt auch im Code.
+- Alle Ausgaben formatieren Grenzen gleich (`0.#`), damit 96,8 nicht an einer Stelle als 97 erscheint.
 - Der obere `clamp`-Wert bleibt ungenutzt. Als Deckel würde er die Woche bis 99 % steigen lassen, über die Owner-Vorgabe 96–98 % hinaus. Ein automatisches Anheben ist eine Owner-Entscheidung.
 
 ### Warum das keine Lockerung ist
@@ -109,8 +113,10 @@ Der Mana-Guard schützt vor dem Überziehen des Budgets und sichert die Recap-Re
 
 ### Teststrategie
 
-- `ManaLimitTests.cs`: `clamp [96, 99]`, fünf Recaps mit Kosten 0, Schritt 8 → 7d 96 statt 92 (Fehlerfall vom 30.10.); hohe Recap-Kosten → weiter 96; 5h `clamp [90, 97]` → nie unter 90; `w` unter `min` → `min`; fehlendes oder ungültiges `clamp` → `w`.
-- Gleicher Wert: `mana`, `rest`, `status` (Text und `--json`), Briefing und der Guard von `quest accept` im selben Zustand, auch in einem Fall, in dem adaptiv und `w` auseinanderlägen (`work_until_pct: 98`, `clamp: [96, 99]`).
+- `ManaLimitTests.cs`: `clamp [96, 99]`, fünf Recaps mit Kosten 0, Schritt 8 → 7d 96 statt 92 (Fehlerfall vom 30.10.); hohe Recap-Kosten → weiter 96; 5h `clamp [90, 97]` mit Schritten, die adaptiv unter 90 ergeben → 90; `w` unter `min` → `min`.
+- Fehlendes oder ungültiges `clamp` → `w`, jeweils mit mindestens drei Recaps und adaptiv unter `w`, damit der Test vorher rot ist. Ungültig sind `[-Infinity, 99]`, `[960, 990]`, `[99, 96]`, ein Skalar, drei Einträge; die Blockliste ist gültig. `w: NaN` → Plan-Wert.
+- Gleicher Wert: `mana`, `rest`, `recap`, `status` (Text und `--json`), Briefing, Guard und Ablehnungstext von `quest accept` im selben Zustand, auch in einem Fall, in dem adaptiv und `w` auseinanderlägen (`work_until_pct: 98`, `clamp: [96, 99]`) und mit Bruchwert (96,8).
+- Defektes Ledger: `status`, `session-start` und `quest accept` laufen mit einer defekten und einer Nicht-Objekt-Zeile weiter und nennen `max(w, min)`.
 - `ConfigTests.cs` bleibt unverändert (`Limits` ist der Rohwert 91/95).
 
 ### Folgen
@@ -118,3 +124,4 @@ Der Mana-Guard schützt vor dem Überziehen des Budgets und sichert die Recap-Re
 - Die Formel läuft weiter, kann in Repos mit `min = w` aber nichts mehr ändern. Das gilt heute für Monarch, Noelia und Workertransfer.
 - Zwei Messschwächen bleiben: Recaps mit Kosten 0 zählen als gemessen, und ein Sprung über eine Pause zählt als ein Schritt. Beide wirken nur noch innerhalb von `clamp`.
 - Das Briefing liest bei SessionStart zusätzlich das Ledger. Der Hook-Hot-Path (`PreToolUse`) ist nicht betroffen.
+- Die Woche hat keine eigene Recap-Reserve: Kein Aufrufer übergibt `recapEstimate7d`, `Resolved.Recap7d` wird nicht gelesen. Ihr Puffer ist der Abstand von 96 zu 100. Das ist heute schon so und ändert sich hier nicht.
