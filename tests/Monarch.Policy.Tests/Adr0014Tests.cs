@@ -202,4 +202,71 @@ public sealed class Adr0014Tests
     [InlineData("s/.*x", ".monarch/", false)]
     public void FlatPattern_can_start_with(string pattern, string text, bool expected) =>
         Assert.Equal(expected, FlatPattern.Parse(pattern).CanStartWith(text));
+
+    // ---- Q-0138 / Issue 55: genau eine sed-Form wieder frei (ADR-0014 Nachtrag, Owner-Entscheid STRENG)
+    [Theory]
+    [InlineData("sed 's/.*/new/' f")]
+    [InlineData("sed -e 's/.*/e/' f")]
+    [InlineData("sed 's/.*/new/' src/a.txt")]
+    [InlineData("sed 's/.*/new/' .")]
+    public void Issue55_sed_substitute_dot_star_single_operand_is_allowed(string cmd) => Allowed(cmd);
+
+    [Theory]
+    [InlineData("awk '/.*/ {print | \"sort\"}' f")]
+    [InlineData("rm -rf dist/.*")]
+    [InlineData("rm -rf .?/*")]
+    [InlineData("rm -rf dist/.?/.monarch/ledger")]
+    [InlineData("rm -rf dist/.*/.monarch")]
+    [InlineData("cp -R x/ledger dist/.?/.monarc?")]
+    [InlineData("chmod -R 000 dist/.*")]
+    [InlineData("sed 's/x/y/w s/.?/.monarch/ledger/x' f")]
+    [InlineData("sed -i 's/a/b/' dist/.?/.monarch/ledger/x")]
+    public void Issue55_known_false_alarms_and_protection_stay_denied(string cmd) => Denied(cmd);
+
+    [Theory]
+    // Operand
+    [InlineData("sed 's/.*/new/' .monarch/ledger/x")]
+    [InlineData("sed 's/.*/new/' sub/.monarch/x")]
+    [InlineData("sed 's/.*/new/' .monarch")]
+    [InlineData("sed 's/.*/new/' .claude")]
+    [InlineData("sed 's/.*/new/'")]
+    // Skript
+    [InlineData("sed 's/.*/new/w .monarch/ledger/x' f")]
+    [InlineData("sed 's/.*/new/e' f")]
+    [InlineData("sed 's/.*/new/;w .monarch/ledger/x' f")]
+    [InlineData("sed -e 's/.*/new/' -e 'w .monarch/ledger/x' f")]
+    [InlineData("sed -i 's/.*/new/' f")]
+    [InlineData("sed -n 's/.*/new/p' f")]
+    [InlineData("sed -E 's/.*/new/' f")]
+    [InlineData("sed 's/.*/new/' a b")]
+    [InlineData("sed -n '/private static .*Foo/,/^}/p' f")]
+    // Optionen hinter dem Operanden
+    [InlineData("sed 's/.*/new/' f -i")]
+    [InlineData("sed 's/.*/new/' f --in-place")]
+    [InlineData("sed 's/.*/new/' f -n")]
+    [InlineData("sed 's/.*/new/' f -e 'w .monarch/ledger/x'")]
+    [InlineData("sed 's/.*/new/' -- f")]
+    [InlineData("sed 's/.*/new/' -")]
+    [InlineData("sed 's/.*/new/' {f,-i}")]
+    // Umleitung, Pipe, Subshell, Gruppe, Verkettung
+    [InlineData("sed 's/.*/new/' f > out")]
+    [InlineData("sed 's/.*/new/' f > $T")]
+    [InlineData("sed 's/.*/new/' f | sh")]
+    [InlineData("sed 's/.*/new/' f | sort")]
+    [InlineData("sed 's/.*/new/' f < g")]
+    [InlineData("cat g | sed 's/.*/new/' f")]
+    [InlineData("( sed 's/.*/new/' f ) > out")]
+    [InlineData("( sed 's/.*/new/' f ) | sh")]
+    [InlineData("{ true; sed 's/.*/new/' f; } > out")]
+    [InlineData("cd x && sed 's/.*/new/' f")]
+    // Nicht wörtlich
+    [InlineData("sed 's/.*/$NEW/' f")]
+    [InlineData("sed \"s/.*/$(cat g)new/\" f")]
+    [InlineData("sed 's/.*/new/' $F")]
+    [InlineData("sed 's/.*/new/' *")]
+    // Wrapper
+    [InlineData("env sed 's/.*/new/' f")]
+    [InlineData("./sed 's/.*/new/' f")]
+    [InlineData("printf f | xargs sed 's/.*/new/'")]
+    public void Issue55_sed_exception_does_not_reach_further(string cmd) => Denied(cmd);
 }

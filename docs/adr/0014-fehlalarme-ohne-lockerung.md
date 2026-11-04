@@ -218,7 +218,7 @@ Dateien: `tests/Monarch.Policy.Tests/Adr0011Tests.cs` (Regel 2, Globs, sed, gh, 
 
 ## Nachtrag Q-0138 (G-0105): `sed 's/.*/new/' f` wieder frei, sonst nichts
 
-**Datum:** 04.11.2026 · **Status:** Entwurf (Design-Review Warden ausstehend) · **Issue:** 55
+**Datum:** 04.11.2026 · **Status:** angenommen (Design-Review Warden G-0105, Auflagen eingearbeitet) · **Issue:** 55
 
 ### Kurz in einfacher Sprache
 
@@ -236,9 +236,9 @@ Dateien: `tests/Monarch.Policy.Tests/Adr0011Tests.cs` (Regel 2, Globs, sed, gh, 
 
 1. **Exakte Tokenform.** Das Segment hat genau die Tokens `sed <Skript> <Datei>` (drei) oder `sed -e <Skript> <Datei>` (vier). Damit gibt es genau ein Skript und genau einen Operanden. Keine weitere Option an irgendeiner Stelle, auch nicht hinter dem Operanden, wo GNU-sed sie noch liest (`f -i`, `f --in-place`, `f -n`, `f -e …`).
 2. **Das Skript** ist genau `s/.*/R/`: Trennzeichen `/`, Regex genau `.*`, keine Flags, `R` besteht aus mindestens einem Buchstaben oder einer Ziffer (`[A-Za-z0-9]+`).
-3. **Der Operand** beginnt nicht mit `-` (auch nicht `-` allein oder `--`), enthält kein `$` und kein Glob- oder Brace-Zeichen, und die Operandenprüfung wie in `ProtectPathsRule.cs:374-381` (`PathCandidates`, `Find`, `IsDecoyMonarch`) findet nichts. Damit bleiben auch `sub/.monarch/x` und Vorfahren gesperrt.
-4. **Nichts außer stdout.** Das Segment hat keine `OutRedirects`, `InRedirects`, keinen `Heredoc`, kein `PipesToNext`, und es bekommt keine Pipe-Eingabe. Wie bei `ProtectPathsRule.cs:244` zählt die Umleitung also nicht als harmlos.
-5. **Wörtlich wie bei #47.** Geprüft wird am Aufrufer (`ProtectPathsRule.cs:362`) auf `seg`, nicht auf dem Ergebnis von `Effective()`, das bei `xargs` auch `sed` liefert: `seg.Tokens[0]` und `RawWords` sind genau `sed` (kein `env`, `command`, `xargs`, `./sed`), und im Kommando steht keine Substitution.
+3. **Der Operand** beginnt nicht mit `-` (auch nicht `-` allein oder `--`), enthält kein `$` und kein Glob- oder Brace-Zeichen, und die Operandenprüfung wie in `ProtectPathsRule.cs:374-381` (`PathCandidates`, `Find`, `IsDecoyMonarch`) findet nichts. Damit bleiben auch `sub/.monarch/x` und die Vorfahren `.monarch` und `.claude` gesperrt; ein einfaches `.` bleibt als Operand frei (`sed 's/.*/new/' .`, wie bei `ProtectPathsRule.cs:73`).
+4. **Nichts außer stdout, nichts drumherum.** Das Kommando besteht aus genau einem Segment (`segments.Count == 1`) und das Segment hat leere `Events` (keine Subshell, keine Gruppe). Der Lexer hängt Umleitung und Pipe einer Subshell oder Gruppe nicht ans sed-Segment (`( sed 's/.*/new/' f ) > out`, `( sed 's/.*/new/' f ) | sh`, `{ true; sed 's/.*/new/' f; } > out`); auch `cd x && sed 's/.*/new/' f` bleibt deshalb gesperrt. Zusätzlich keine `OutRedirects`, `InRedirects`, kein `Heredoc`, kein `PipesToNext`, keine Zuweisung. Wie bei `ProtectPathsRule.cs:244` zählt die Umleitung also nicht als harmlos.
+5. **Wörtlich wie bei #47.** Geprüft wird am Aufrufer (`ProtectPathsRule.cs:362`) auf `seg`, nicht auf dem Ergebnis von `Effective()`, das bei `xargs` auch `sed` liefert: `RawWords` ist gleich `seg.Tokens`, das erste Wort ist genau `sed` (kein `env`, `command`, `xargs`, `./sed`), und im Kommando steht keine Substitution.
 
 `NormalizeTail`, `Find`, `FlatPattern` und `DropSedScript` bleiben unverändert. Die Ausnahme sitzt ausschließlich vor der Skriptprüfung. Weitere Verschleierungen sind nach ADR-0011 eine Grenze, kein Blocker.
 
@@ -267,7 +267,7 @@ Unverändert: alle Fälle in `Adr0014Tests.cs:55-82` und `:148-159`, darunter sc
 - Operand: `sed 's/.*/new/' .monarch/ledger/x`, `sed 's/.*/new/' sub/.monarch/x`, `sed 's/.*/new/'` ohne Operand
 - Skript: `sed 's/.*/new/w .monarch/ledger/x' f`, `sed 's/.*/new/e' f`, `sed 's/.*/new/;w .monarch/ledger/x' f`
 - Optionen hinter dem Operanden: `sed 's/.*/new/' f -i`, `… f --in-place`, `… f -n`, `sed 's/.*/new/' f -e 'w .monarch/ledger/x'`, `sed 's/.*/new/' -- f`, `sed 's/.*/new/' -`, `sed 's/.*/new/' {f,-i}`
-- Umleitung und Pipe: `sed 's/.*/new/' f > out`, `… > $T`, `… f | sh`, `… f < g`, `cat g | sed 's/.*/new/' f`
+- Umleitung, Pipe, Subshell, Gruppe, Verkettung: `sed 's/.*/new/' f > out`, `… > $T`, `… f | sh`, `… f < g`, `cat g | sed 's/.*/new/' f`, `( sed 's/.*/new/' f ) > out`, `( sed 's/.*/new/' f ) | sh`, `{ true; sed 's/.*/new/' f; } > out`, `cd x && sed 's/.*/new/' f`
 - Nicht wörtlich: `sed 's/.*/$NEW/' f`, `sed "s/.*/$(cat g)new/" f`, `sed 's/.*/new/' $F`, `sed 's/.*/new/' *`
 - Wrapper: `env sed 's/.*/new/' f`, `./sed 's/.*/new/' f`, `printf f | xargs sed 's/.*/new/'`
 - Zwei Skripte: `sed -e 's/.*/new/' -e 'w .monarch/ledger/x' f`
