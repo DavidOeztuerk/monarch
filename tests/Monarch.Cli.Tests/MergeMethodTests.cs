@@ -357,8 +357,8 @@ public class MergeMethodTests
         {
             History(p.Root, "develop", 6, 0);
             var sw = new Stopwatch();
-            var r = MergeApprovedWith(p, new() { ["MONARCH_GIT_BIN"] = HangingGit(p.Home), ["MONARCH_MERGE_GIT_SECONDS"] = "10", ["MONARCH_MERGE_FORGE_SECONDS"] = "2" }, sw);
-            // two hanging refs would take 20 s at the git deadline alone; phase A (2 s) must cut in far earlier. Only the merge call is timed, not the approval steps.
+            var r = MergeApprovedWith(p, new() { ["MONARCH_GIT_BIN"] = HangingGit(p.Home), ["MONARCH_MERGE_GIT_SECONDS"] = "25", ["MONARCH_MERGE_FORGE_SECONDS"] = "2" }, sw);
+            // A single hanging ref alone takes 25 s at the git deadline, above the 15 s bound, so only the deadline of phase A (2 s) can end it in time. Only the merge call is timed, not the approval steps.
             Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15), sw.Elapsed.ToString());
             Assert.Equal(1, r.Code);
             Assert.Contains("Forge-Frist", r.Err, StringComparison.Ordinal);
