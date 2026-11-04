@@ -72,7 +72,16 @@ internal static class ManaCommands
     {
         var board = new LocalFileBoard(paths.Root);
         var quests = board.ListQuestsAsync().GetAwaiter().GetResult();
-        var rows = LedgerScan.All(paths.Root);
+        List<LedgerRow> rows;
+        try
+        {
+            rows = LedgerScan.All(paths.Root);
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
+        {
+            rows = []; // a corrupt or non-object line is a finding of 'ledger verify', not a reason to abort the recap
+        }
+
         var limits = ManaSupport.Resolve(paths.Root, config);
         var forge = Forge.Resolve(paths);
         ActiveFile? active = null;

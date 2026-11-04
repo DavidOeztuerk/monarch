@@ -14,13 +14,13 @@ public class ManaLimitTests
         FormattableString.Invariant($$"""{"seq":{{seq}},"at":"{{at.UtcDateTime:yyyy-MM-dd'T'HH:mm:ss'Z'}}","actor":"cli","type":"{{type}}","payload":{{payload}}}""");
 
     /// <summary>Seeds a ledger file (not the session file) with recaps (cost 5h 0) and two snapshots in one window: 5h +20, 7d +8.</summary>
-    private static void SeedLedger(TempProject p, int recaps, double recapCost7d = 0, IEnumerable<string>? extraLines = null)
+    private static void SeedLedger(TempProject p, int recaps, double recapCost7d = 0, IEnumerable<string>? extraLines = null, double step7 = 8)
     {
         var t = TempProject.Now.AddHours(-6);
         var lines = new List<string>
         {
             Row(1, "ManaSnapshotTaken", """{"reason":"mana","known":true,"fiveHourUsedPct":10,"fiveHourResetsAt":1000,"sevenDayUsedPct":10,"sevenDayResetsAt":2000,"stale":false}""", t),
-            Row(2, "ManaSnapshotTaken", """{"reason":"mana","known":true,"fiveHourUsedPct":30,"fiveHourResetsAt":1000,"sevenDayUsedPct":18,"sevenDayResetsAt":2000,"stale":false}""", t.AddHours(1)),
+            Row(2, "ManaSnapshotTaken", FormattableString.Invariant($$"""{"reason":"mana","known":true,"fiveHourUsedPct":30,"fiveHourResetsAt":1000,"sevenDayUsedPct":{{10 + step7}},"sevenDayResetsAt":2000,"stale":false}"""), t.AddHours(1)),
         };
         for (var i = 0; i < recaps; i++)
         {
@@ -152,17 +152,42 @@ public class ManaLimitTests
         Assert.Contains("Mana does not fit", accept.Out + accept.Err, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void Defective_ledger_lines_do_not_abort_status_briefing_or_accept_and_give_max_of_w_and_min()
+    [Theory]
+    [InlineData(1, "98")] // adaptive 99 -> capped at w, not at the clamp maximum
+    [InlineData(3, "97")] // adaptive 97 -> kept, not raised to w or lowered to the minimum
+    [InlineData(8, "96")] // adaptive 92 -> clamp minimum
+    public void Adaptive_value_is_capped_at_w_and_floored_at_the_clamp_minimum(int step7, string expected)
     {
         using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90, clamp: [90, 97]", "work_until_pct: 98, clamp: [96, 99]"));
-        SeedLedger(p, 5, extraLines: ["""{"seq":9,"type":"QuestCleared","payl""", """["QuestCleared"]""", "42"]);
+        SeedLedger(p, 5, step7: step7);
+        Assert.Contains($"7d {expected}%", LimitsInUse(p), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("[[1], 96, 99]")] // GetStrings would drop the nested list and leave two scalars
+    [InlineData("[96, [99]]")]
+    public void Nested_list_in_clamp_is_invalid(string clamp)
+    {
+        using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90", "work_until_pct: 98, clamp: " + clamp));
+        SeedLedger(p, 5, step7: 3); // adaptive 97
+        Assert.Contains("7d 98%", LimitsInUse(p), StringComparison.Ordinal); // invalid -> min = w = 98
+    }
+
+    [Theory]
+    [InlineData("""{"seq":9,"type":"QuestCleared","payl""")] // truncated: JsonException
+    [InlineData("""["QuestCleared"]""")] // non-object: InvalidOperationException
+    [InlineData("42")]
+    public void Defective_ledger_line_does_not_abort_status_briefing_accept_or_recap_and_gives_max_of_w_and_min(string bad)
+    {
+        using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90, clamp: [90, 97]", "work_until_pct: 98, clamp: [96, 99]"));
+        SeedLedger(p, 5, extraLines: [bad]);
         Seed.Quest(p, "Q-0003");
         Seed.Mana(p, 10, 98.5);
 
         var status = p.Run(["status"]);
         Assert.Equal(0, status.Code);
         Assert.Contains("7d: 99% / limit 98%", status.Out, StringComparison.Ordinal);
+        Assert.Contains("violation", status.Out, StringComparison.Ordinal);
         Assert.Equal(0, p.Run(["status", "--json"]).Code);
         var briefing = p.Hook("session-start", """{"session_id":"s1","hook_event_name":"SessionStart"}""");
         Assert.Equal(0, briefing.Code);
@@ -170,5 +195,8 @@ public class ManaLimitTests
         var accept = p.Run(["quest", "accept", "Q-0003"]);
         Assert.Equal(1, accept.Code);
         Assert.Contains("vs 98%", accept.Out + accept.Err, StringComparison.Ordinal);
+        var recap = p.Run(["recap"]);
+        Assert.True(recap.Code == 0, recap.Out + recap.Err);
+        Assert.Contains("(Limit 98%,", File.ReadAllText(Path.Combine(p.Root, ".monarch", "recap", "RECAP.md")), StringComparison.Ordinal);
     }
 }
