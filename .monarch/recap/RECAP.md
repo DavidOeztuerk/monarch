@@ -1,14 +1,14 @@
 # RECAP
 
 ## Stand
-- Zeitpunkt: 2026-10-30T23:10:01Z
+- Zeitpunkt: 2026-11-04T15:21:21Z
 - Plan: Pro
-- Mana 5h: 41% (Limit 90%, Reset 2026-10-31T02:20:00Z)
-- Mana 7d: 94% (Limit 92%, Reset 2026-11-04T11:00:00Z)
+- Mana 5h: 85% (Limit 90%, Reset 2026-11-04T18:10:00Z)
+- Mana 7d: 11% (Limit 92%, Reset 2026-11-11T11:00:00Z)
 - Limits: 5h 90%, 7d 92% (adaptive)
 
 ## Aktiv
-- keine aktive Quest
+- Gate G-0105 · Quest Q-0137 [A] · Phase in_progress
 
 ## Erledigt
 - Q-0113 [A] cleared: Merge-Policy nach Zielbranch - https://github.com/DavidOeztuerk/monarch/pull/15 - Evidence: https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122946762702, https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122946762600, https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122943422084, https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122943425111, https://github.com/DavidOeztuerk/monarch/actions/runs/40721758194/job/122934234801, https://github.com/DavidOeztuerk/monarch/pull/15
@@ -18,10 +18,17 @@
 - Q-0130 [A] cleared: gate merge nie in einen geschützten Branch - https://github.com/DavidOeztuerk/monarch/pull/15 - Evidence: https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122946762702, https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122946762600, https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122943422084, https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122943425111, https://github.com/DavidOeztuerk/monarch/actions/runs/40721758194/job/122934234801, https://github.com/DavidOeztuerk/monarch/pull/15
 
 ## Offen
-- keine offenen DoD-Punkte
+- Q-0137: Design zuerst (einfache Sprache, im PR): Nachtrag in docs/adr/0007-merge-policy-nach-zielbranch.md (Abschnitt :138-175) zu (a) rotem develop nach Owner-Entscheid V1: ein belegter Fix-PR wird automatisch gemergt, (b) cancelled ist nicht rot, sondern unbelegt, (c) Laufzeit unter 120 s und Nachprüf-Befehl; eine Warden-Runde, höchstens eine Delta-Runde, Verdict vor dem ersten Code-Commit
+- Q-0137: Belegter Fix-PR (Owner-Entscheid V1, automatisch, kein Schalter, keine Selbstauskunft): Merge trotz rotem develop nur, wenn (1) der develop-Head Vorfahr des PR-Heads ist (Forge-Compare: neue Methode in GitHubPulls.cs, Compare-Route im FakeForge Part2Support.cs), (2) alle Checks am PR-Head abgeschlossen und grün sind (CheckCi wie heute, GateMergeCommands.cs:134) und (3) jeder am develop-Head rote Check gleichen Namens am PR-Head existiert und grün ist; GateMerged hält überstimmte Checks und develop-SHA fest; je fehlendem Beleg ein Refused-Test ohne PUT (develop nicht Vorfahr, Check am PR-Head fehlt, Check am PR-Head rot); develop läuft noch bleibt verweigert (GateMergeTests.cs:505-518 unverändert)
+- Q-0137: cancelled vor dem Merge: Ein abgebrochener Lauf am develop-Head ist nicht rot, sondern unbelegt, und bleibt ein Stopp; die Meldung nennt Lauf-ID und Rerun-Hinweis statt der Rot-Meldung; IsSuccess bleibt strikt (IEvidenceSource.cs:19); Test ohne PUT
+- Q-0137: cancelled nach dem Merge: IntegrationRunChecked trägt result cancelled statt red, die Ausgabe sagt abgebrochen statt ROT, Exit ungleich 0, der Merge bleibt; Test
+- Q-0137: Laufzeit: Default-Wartezeit nach dem Merge höchstens 90 s, gate merge endet im Default unter 120 s; pending bleibt Exit ungleich 0 und nennt den Nachprüf-Befehl; die Env-Variablen MONARCH_MERGE_WAIT_SECONDS und MONARCH_MERGE_POLL_SECONDS bleiben; Test
+- Q-0137: Nachprüf-Befehl (Name im ADR): liest GateMerged des Gates, prüft den Lauf auf merge_commit_sha (Wartezeit <= 90 s) und hängt IntegrationRunChecked (green/red/cancelled/pending) an; ohne GateMerged Fehler ohne Ledger-Eintrag; nur Main: Hook-Regel ProtectBranchesRule.cs:49-50 und Binary-Sperre bei MONARCH_AGENT_TYPE, Tests analog GateMergeTests.cs:426-433 und ProtectBranchesTests.cs
+- Q-0137: TDD: neue Tests vorher rot, danach grün; dotnet build/test -c Release grün; kein Test gelöscht oder gelockert; Doku nachgezogen: plugin/skills/gate/SKILL.md:13, plugin/README.md:68, Hilfetext MonarchApp.cs:143; Warden-Runde über den Code mit Verdict am Head-SHA
+- Q-0137: Abhängigkeit: nach Q-0142 (Owner-Reihenfolge)
 
 ## Nächster konkreter Schritt
-Nach Reset (Mi 04.11. 12:00): in Worktree .claude/worktrees/G-0105 (EnterWorktree path). (1) Q-0137-DoD ist in der Datei unvollständig (1. Punkt abgeschnitten vor dem Rautezeichen, 3 Punkte leer; Issue-Text für den Owner liegt vor) – zuerst Q-0137 per gate_plan neu schreiben (strategist, ganzes G-0105 mit Q-0137–Q-0141, DoD ohne Rautezeichen, Variante V1 und Q-0138 streng einarbeiten). (2) quest accept/start Q-0137, Knight: ADR-0007-Nachtrag (V1, cancelled, Laufzeit unter 120 s, Nachprüf-Befehl), eine Warden-Design-Runde, dann TDD. (3) Reihenfolge danach: Q-0138 + Q-0139, Q-0140, Q-0141 (ADR-0015; offen: bleibt das absolute p99-20-ms-Gate in CI blockierend – Owner fragen, falls das Design es ändern will).
+G-0105 weiter in .claude/worktrees/G-0105 (EnterWorktree path). (1) Q-0137 ist in_progress, Code b2437a1 (lokal, ungepusht): es fehlt nur die letzte Warden-Delta-Runde Code (Befunde 1-5 der Runde zu 05748d2: PUT 5xx und Transportfehler wie abgelaufen, mergeSha bei hinkendem Lesen, erster Elternteil in gate check, Timer nach ledger verify, Zweig ohne base). Bei approve: quest submit Q-0137, quest pr Q-0137 57. Kein approve: Owner fragen, keine dritte Runde. (2) Danach Q-0138 (Owner STRENG), Q-0139, Q-0140, Q-0141 in dieser Reihenfolge; Rank A: Design-Nachtrag, Warden, Knight TDD, Warden Code. (3) Lokal bauen mit -p:NuGetAudit=false (NU1903 am lokalen SDK 10.0.400; CI nutzt 10.0.403, nicht ins Repo schreiben). (4) Der letzte Commit vor gate merge darf kein [skip ci] tragen, sonst läuft am Head keine CI. (5) Sammel-Issue anlegen: ledger verify mit Nicht-Objekt-Zeile ungetestet, violation-Assertion ManaLimitTests.cs:190 schwach. (6) Q-0141: Owner fragen, falls das Design das absolute p99-Gate in CI ändern will. (7) Am Ende: PR-Text von 57 fortschreiben, gate merge, develop-Lauf mit allen Jobs grün, evidence sync, Aufräumen nach Standardregel 2, Owner-Aktion melden: SDK ab 10.0.401 nötig, sonst scheitert install-local an NU1903. Issue 56 (recap --decision) ist erledigt.
 
 ## Offene Entscheidungen
 - ENTSCHIEDEN vom Owner am 30.10.: (1) Q-0137/Issue 34: V1 – belegter Fix-PR wird trotz rotem develop automatisch gemergt (develop-Head Vorfahr des PR-Heads, alle Checks am PR-Head grün, jeder am develop-Head rote Check gleichen Namens dort grün; GateMerged hält überstimmte Checks und develop-SHA fest); cancelled vor dem Merge bleibt Stopp (Lauf-ID, Rerun-Hinweis), danach Ergebnis cancelled mit Exit ungleich 0; pending bleibt Exit ungleich 0. (2) Q-0138/Issue 55: STRENG – jede bei d45e6b9 gesperrte Variante bleibt gesperrt; frei werden nur sed 's/.*/new/' f und sed -e 's/.*/e/' f; awk-Beispiel und rm -rf dist/.* bleiben deny, im ADR-0014-Nachtrag als bekannte Fehlalarme.

@@ -16,5 +16,6 @@ scope:
   exclude: []
 estimate: { session_pct: 10, weekly_pct: 1.5, gold_usd: 0 }
 boss: "Test: clamp [96, 99], 5 Recaps mit Kosten 0, p90 Schritt 8 -> Limits in use 7d 96 %; rest, mana, status und quest accept nennen denselben Wert"
+board: { pr: 57 }
 ---
 # Mana: Wochengrenze fällt nie unter clamp, ein Wert für alle Befehle
