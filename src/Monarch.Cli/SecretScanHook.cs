@@ -37,6 +37,29 @@ internal static class SecretScanHook
 {
     private const int MaxRead = 64 * 1024;
 
+    // test(1) follows symlinks: -e false for a dangling link, -f true only for a regular file.
+    private static bool? TestPath(string flag, string path)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("/bin/test") { UseShellExecute = false };
+            psi.ArgumentList.Add(flag);
+            psi.ArgumentList.Add(path);
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p is null)
+            {
+                return null;
+            }
+
+            p.WaitForExit();
+            return p.ExitCode == 0 ? true : p.ExitCode == 1 ? false : null;
+        }
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Detects the hook for the repository containing <paramref name="cwd"/>; Unknown outside git or without git.</summary>
     public static SecretScanResult Detect(string cwd)
     {
@@ -63,9 +86,24 @@ internal static class SecretScanHook
             hook = Path.Combine(Path.GetFullPath(common, cwd), "hooks", "pre-commit");
         }
 
-        if (!File.Exists(hook))
+        // Probe with test(1) so that nothing is opened: a FIFO or device would block FileStream.
+        var exists = TestPath("-e", hook);
+        var isRegular = TestPath("-f", hook);
+        if (exists is null || isRegular is null)
         {
+            return new(SecretScanState.Unknown, hook);
+        }
+
+        if (!exists.Value)
+        {
+            // absent, or a dangling symlink: nothing runs, so no hook
             return new(SecretScanState.Missing, hook);
+        }
+
+        if (!isRegular.Value)
+        {
+            // directory, FIFO, device, socket: not a readable script
+            return new(SecretScanState.NoGitleaks, hook);
         }
 
         try

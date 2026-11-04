@@ -4,13 +4,6 @@ namespace Monarch.Cli.Tests;
 
 public sealed class SecretScanTests
 {
-    static SecretScanTests()
-    {
-        // hermetic: the developer's global git config (e.g. core.hooksPath) must not leak in
-        Environment.SetEnvironmentVariable("GIT_CONFIG_GLOBAL", "/dev/null");
-        Environment.SetEnvironmentVariable("GIT_CONFIG_NOSYSTEM", "1");
-    }
-
     private static string Repo(TempProject p)
     {
         Assert.NotNull(Git.Run(p.Root, "init", "-q"));
@@ -126,6 +119,110 @@ public sealed class SecretScanTests
                 Directory.Delete(wt, true);
             }
         }
+    }
+
+    [Fact]
+    public void Boss_worktree_without_hook_reports_missing_then_active_and_hook_dir_stays_unchanged()
+    {
+        using var p = new TempProject(awakened: false);
+        Repo(p);
+        var common = Path.Combine(p.Root, ".git", "hooks");
+        Directory.CreateDirectory(common);
+        var wt = p.Root + "-boss";
+        try
+        {
+            Assert.NotNull(Git.Run(p.Root, "worktree", "add", "-q", "-b", "boss", wt));
+            foreach (var d in new[] { "local", "ledger", "quests" })
+            {
+                Directory.CreateDirectory(Path.Combine(wt, ".monarch", d));
+            }
+
+            var before = Snapshot(common);
+            var text = p.Run(["status"], cwd: wt).Out;
+            var json = JsonDocument.Parse(p.Run(["status", "--json"], cwd: wt).Out).RootElement.GetProperty("secretScanHook");
+            Assert.Contains("kein pre-commit-Hook", text, StringComparison.Ordinal);
+            Assert.Equal("missing", json.GetProperty("state").GetString());
+            Assert.Equal(before, Snapshot(common));
+
+            WriteHook(common, "#!/bin/sh\ngitleaks git --staged\n");
+            before = Snapshot(common);
+            text = p.Run(["status"], cwd: wt).Out;
+            json = JsonDocument.Parse(p.Run(["status", "--json"], cwd: wt).Out).RootElement.GetProperty("secretScanHook");
+            Assert.Contains("aktiv", text, StringComparison.Ordinal);
+            Assert.Equal("active", json.GetProperty("state").GetString());
+            Assert.EndsWith(".git/hooks/pre-commit", json.GetProperty("path").GetString(), StringComparison.Ordinal);
+            Assert.Equal(before, Snapshot(common));
+        }
+        finally
+        {
+            if (Directory.Exists(wt))
+            {
+                Directory.Delete(wt, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void Git_common_dir_is_found_from_subdirectories()
+    {
+        using var p = new TempProject();
+        WriteHook(Path.Combine(Repo(p), ".git", "hooks"), "#!/bin/sh\ngitleaks git --staged\n");
+        var sub = Path.Combine(p.Root, "a", "b");
+        Directory.CreateDirectory(sub);
+        var r = SecretScanHook.Detect(sub);
+        Assert.Equal("active", r.Code);
+        Assert.EndsWith(".git/hooks/pre-commit", r.Path, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Symlinked_hook_is_followed()
+    {
+        using var p = new TempProject();
+        var hooks = Path.Combine(Repo(p), ".git", "hooks");
+        var real = WriteHook(Path.Combine(p.Root, "real"), "#!/bin/sh\ngitleaks git --staged\n");
+        Directory.CreateDirectory(hooks);
+        File.CreateSymbolicLink(Path.Combine(hooks, "pre-commit"), real);
+        Assert.Equal("active", SecretScanHook.Detect(p.Root).Code);
+    }
+
+    [Fact]
+    public void Dangling_symlink_hook_is_missing()
+    {
+        using var p = new TempProject();
+        var hooks = Path.Combine(Repo(p), ".git", "hooks");
+        Directory.CreateDirectory(hooks);
+        File.CreateSymbolicLink(Path.Combine(hooks, "pre-commit"), Path.Combine(p.Root, "nowhere"));
+        Assert.Equal("missing", SecretScanHook.Detect(p.Root).Code);
+        Assert.Contains("kein pre-commit-Hook", Status(p), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Directory_as_hook_is_not_a_gitleaks_hook()
+    {
+        using var p = new TempProject();
+        Directory.CreateDirectory(Path.Combine(Repo(p), ".git", "hooks", "pre-commit"));
+        var r = SecretScanHook.Detect(p.Root);
+        Assert.Equal("no-gitleaks-call", r.Code);
+        Assert.Equal("no-gitleaks-call", StatusJson(p).GetProperty("state").GetString());
+    }
+
+    [Fact(Timeout = 60000)]
+    public async Task Fifo_as_hook_does_not_hang()
+    {
+        using var p = new TempProject();
+        var hooks = Path.Combine(Repo(p), ".git", "hooks");
+        Directory.CreateDirectory(hooks);
+        using (var mk = System.Diagnostics.Process.Start("mkfifo", Path.Combine(hooks, "pre-commit")))
+        {
+            mk.WaitForExit();
+            Assert.Equal(0, mk.ExitCode);
+        }
+
+        var root = p.Root;
+        var t = Task.Run(() => SecretScanHook.Detect(root));
+        var done = await Task.WhenAny(t, Task.Delay(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken));
+        Assert.True(ReferenceEquals(done, t), "Detect hangs on a FIFO hook");
+        Assert.Equal("no-gitleaks-call", (await t).Code);
     }
 
     [Fact]

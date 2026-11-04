@@ -8,8 +8,6 @@ public sealed class SecretScanMcpTests
     [Fact]
     public void System_status_carries_the_secret_scan_hook_field()
     {
-        Environment.SetEnvironmentVariable("GIT_CONFIG_GLOBAL", "/dev/null");
-        Environment.SetEnvironmentVariable("GIT_CONFIG_NOSYSTEM", "1");
         using var p = new TempProject();
         Assert.NotNull(Git.Run(p.Root, "init", "-q"));
         var o = new StringWriter();
