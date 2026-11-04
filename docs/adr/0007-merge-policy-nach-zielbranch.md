@@ -149,12 +149,12 @@ Ein Merge auf einen roten Integrations-Branch verdeckt, wer ihn gebrochen hat.
   Check oder fehlt der Lauf, lautet die Begründung „develop läuft noch“.
 - **Nachher.** Nach dem erfolgreichen Merge fragt Monarch dieselbe Funktion
   für den Merge-Commit ab, bis sie entscheidet oder die Wartezeit abläuft
-  (Default 15 min, Polling 30 s; injizierbar über
+  (Default 90 s seit Q-0137, Polling 30 s; injizierbar über
   `MONARCH_MERGE_WAIT_SECONDS` und `MONARCH_MERGE_POLL_SECONDS`, damit Tests
   nicht warten). Ergebnis als Ledger-Event `IntegrationRunChecked`
   (`gate`, `sha`, `branch`, `result`):
   - `green`: Exit 0.
-  - `red` (rot oder abgebrochen): Ausgabe „develop ist ROT nach dem Merge –
+  - `red` (rot; abgebrochen siehe Q-0137): Ausgabe „develop ist ROT nach dem Merge –
     zuerst klären“, Exit ≠ 0.
   - `pending` (Timeout): Hinweis, die GitHub-Checks des Merge-Commits
     anzusehen, Exit ≠ 0.
@@ -164,3 +164,69 @@ Ein Merge auf einen roten Integrations-Branch verdeckt, wer ihn gebrochen hat.
   (`evidence.required` aus `system.yaml` schränkt sie ein, wie bei
   `quest verify`). Ein Branch ganz ohne CI wird als „nicht grün“ behandelt;
   wer das will, braucht eine CI auf dem Integrations-Branch.
+
+## Q-0137 (G-0105): Roter develop, abgebrochene Läufe, Laufzeit
+
+**Datum:** 04.11.2026 · **Status:** Entwurf (Design-Review Warden ausstehend) · **Issues:** 34, 33
+
+Dieser Nachtrag ändert den Abschnitt Q-0132 an den drei unten genannten Stellen.
+
+### Kurz in einfacher Sprache
+
+- **Roter develop:** Bisher blockierte ein roter develop jeden Merge, auch den PR, der ihn repariert. Künftig geht ein Fix-PR automatisch durch, wenn die Forge belegt, dass er den Fehler behebt: Er baut auf dem aktuellen develop auf, alle seine Checks sind grün, und genau die auf develop roten Checks sind bei ihm grün. Ein Schalter oder eine eigene Aussage reicht dafür nicht.
+- **Abgebrochener Lauf:** Abgebrochen ist nicht rot, sondern „kein Beleg“. Vor dem Merge bleibt das ein Stopp, aber die Meldung sagt jetzt, welcher Lauf abgebrochen ist und wie man ihn neu startet. Nach dem Merge steht „abgebrochen“ statt „ROT“.
+- **Laufzeit:** `gate merge` wartet höchstens 90 Sekunden auf den develop-Lauf und endet damit innerhalb des Bash-Timeouts von 2 Minuten. Läuft die CI noch, meldet der Befehl das und nennt `monarch gate check <G-xxxx>`. Damit prüft man später kurz nach.
+
+### 1. Vorher: Entscheidung am develop-Head (ändert Schritt „Vorher“)
+
+Schritt 5 bleibt: Die PR-CI muss grün sein. Danach wertet Schritt 5b `CheckCi` am develop-Head so aus:
+
+| Ergebnis am develop-Head | Entscheidung |
+|---|---|
+| Alle relevanten Checks `success` | weiter wie bisher |
+| Ein Check läuft oder fehlt | Verweigerung „develop läuft noch“, unverändert |
+| Mindestens ein nicht grüner Check ist `cancelled` | Stopp, kein PUT; Meldung nennt Check und Lauf-ID und den Befehl `gh run rerun <Lauf-ID>` |
+| Sonst (nicht grün, nicht abgebrochen) | Prüfung „belegter Fix-PR“ |
+
+`cancelled` hat Vorrang vor rot: Ohne Beleg lässt sich nicht sagen, ob der PR alles behebt. `failure`, `timed_out`, `skipped`, `neutral` und `action_required` zählen hier als rot. `IsSuccess` bleibt strikt (`IEvidenceSource.cs:19`); neu ist nur `IsCancelled` für die Unterscheidung.
+
+**Belegter Fix-PR (Owner-Entscheid V1 vom 30.10.).** Der Merge läuft trotz rotem develop nur, wenn alle drei Belege vorliegen:
+
+1. Der develop-Head ist Vorfahr des PR-Heads: `GET repos/{o}/{r}/compare/{develop-Head}...{PR-Head}` meldet `ahead` oder `identical`. Ein Fehler der Forge ist kein Beleg und verweigert.
+2. Alle Checks am PR-Head sind abgeschlossen und grün (Schritt 5).
+3. Jeder am develop-Head nicht grüne Check existiert am PR-Head unter demselben Namen und ist dort grün. Ein Check, der nur beim Push läuft, fehlt am PR-Head und verweigert deshalb.
+
+**Warum das reicht.** Enthält der PR-Head den develop-Head, ist der Baum des Merges der getestete Baum des PR-Heads. Die Checks am PR-Head belegen also den Stand, den develop nach dem Merge hat. Das gilt für Squash und für Merge-Commit.
+
+**develop darf sich nicht bewegen.** Die `sha`-Bindung sichert nur den PR-Head. Direkt vor dem PUT liest Monarch im Fix-PR-Pfad den develop-Head erneut; hat er sich geändert, verweigert der Befehl ohne PUT.
+
+**Nachweis.** `GateMerged` erhält in diesem Pfad zwei zusätzliche Felder: `overridden` (Namen der überstimmten Checks, kommagetrennt) und `integration_head` (der rote develop-SHA). Die Ausgabe nennt beide. Der grüne Pfad schreibt `GateMerged` unverändert.
+
+### 2. Nachher: Ergebnis `cancelled` (ändert „red (rot oder abgebrochen)“)
+
+`IntegrationRunChecked.result` kennt jetzt `green`, `red`, `cancelled`, `pending`. `cancelled` gilt, wenn alle nicht grünen Checks abgebrochen sind; ist einer davon wirklich rot, bleibt es `red`. Die Ausgabe sagt „abgebrochen, kein Beleg“ mit Lauf-ID und Rerun-Befehl. `cancelled` und `pending` enden mit Exit ≠ 0, wie `red`; der Merge bleibt bestehen.
+
+### 3. Laufzeit und Nachprüfung (ändert „Default 15 min“)
+
+- `DefaultWaitSeconds` ist 90, Polling bleibt 30 s. `MONARCH_MERGE_WAIT_SECONDS` und `MONARCH_MERGE_POLL_SECONDS` bleiben.
+- Neuer Befehl `monarch gate check <G-xxxx>`: liest das letzte `GateMerged` des Gates, prüft den Lauf auf `merge_commit_sha` mit derselben Funktion und Wartezeit und hängt `IntegrationRunChecked` an. Exit wie bei `gate merge`. Ohne `GateMerged`: Fehler, kein Ledger-Eintrag. Der Befehl braucht das Ledger, in dem `GateMerged` steht; er läuft also vor dem Aufräumen der Worktree.
+- Nur der Main: Die Hook-Regel (`ProtectBranchesRule.cs:49`) und die Sperre im Binary bei `MONARCH_AGENT_TYPE` gelten auch für `gate check`, weil er ins Ledger schreibt.
+
+### Warum keine Schutzregel fällt
+
+Der Zweck der Regel ist, dass kein Merge einen Bruch verdeckt. Bei einem belegten Fix-PR wird nichts verdeckt: Der Stand nach dem Merge ist getestet, und `GateMerged` hält fest, was überstimmt wurde. Die Lockerung hat der Owner entschieden; sie gilt nur mit allen drei Belegen. Verdict, Rank-Prüfung, `sha`-Bindung und `ledger verify` bleiben unverändert.
+
+**Grenze.** Ein PR könnte einen Check gleichen Namens inhaltlich aushöhlen. Das fängt der Fix-PR-Pfad nicht ab. Dagegen stehen der Warden und der Risk-Tag `infra` für `.github/workflows/**`.
+
+### Teststrategie
+
+`GateMergeTests.cs`, vorher rot:
+
+- Fix-PR gemergt: PUT mit `sha`, `overridden` und `integration_head` in `GateMerged`.
+- Kein PUT je fehlendem Beleg: develop nicht Vorfahr (`diverged`, `behind`), Compare-Fehler, Check am PR-Head fehlt, Check am PR-Head rot, develop bewegt sich vor dem PUT.
+- `cancelled` am develop-Head, auch gemischt mit rot: kein PUT, Meldung mit Lauf-ID.
+- Nach dem Merge: `cancelled`, gemischt `red`, Exit ≠ 0.
+- Default-Wartezeit 90 s; `pending` nennt `gate check`.
+- `gate check`: trägt `green` nach, ohne `GateMerged` kein Eintrag, Shadow verweigert (Binary und `ProtectBranchesTests.cs`).
+
+Bestehende Tests bleiben unverändert, auch `GateMergeTests.cs:490-557`. Ein Test, der heute `result red` bei `cancelled` festschreibt, wäre im Nachtrag ausdrücklich geändert und wird gemeldet, nicht still angepasst.
