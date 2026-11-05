@@ -3,7 +3,7 @@ id: Q-0137
 gate: G-0105
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - Design zuerst (einfache Sprache, im PR): Nachtrag in docs/adr/0007-merge-policy-nach-zielbranch.md (Abschnitt :138-175) zu (a) rotem develop nach Owner-Entscheid V1: ein belegter Fix-PR wird automatisch gemergt, (b) cancelled ist nicht rot, sondern unbelegt, (c) Laufzeit unter 120 s und Nachprüf-Befehl; eine Warden-Runde, höchstens eine Delta-Runde, Verdict vor dem ersten Code-Commit
   - Belegter Fix-PR (Owner-Entscheid V1, automatisch, kein Schalter, keine Selbstauskunft): Merge trotz rotem develop nur, wenn (1) der develop-Head Vorfahr des PR-Heads ist (Forge-Compare: neue Methode in GitHubPulls.cs, Compare-Route im FakeForge Part2Support.cs), (2) alle Checks am PR-Head abgeschlossen und grün sind (CheckCi wie heute, GateMergeCommands.cs:134) und (3) jeder am develop-Head rote Check gleichen Namens am PR-Head existiert und grün ist; GateMerged hält überstimmte Checks und develop-SHA fest; je fehlendem Beleg ein Refused-Test ohne PUT (develop nicht Vorfahr, Check am PR-Head fehlt, Check am PR-Head rot); develop läuft noch bleibt verweigert (GateMergeTests.cs:505-518 unverändert)
