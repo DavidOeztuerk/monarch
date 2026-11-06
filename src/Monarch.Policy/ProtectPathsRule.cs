@@ -391,7 +391,9 @@ public static partial class ToolCallPolicy
             var (mutating, destructive) = Classify(word, tokens);
             if (!mutating && IsReading(word, tokens)) continue;
             if (IsPositive(seg, paths)) continue;
+            if (IsTrLastPipeStage(cmd, segments, si)) continue; // ADR-0017 Entscheidung 1: tr nimmt keine Dateien
             tokens = DropDataValues(word, tokens);
+            tokens = DropIssueBodyFile(cmd, ctx, paths, seg, si, tokens); // ADR-0017 Entscheidung 2
             for (var i = 1; i < tokens.Length; i++)
             {
                 var isDestructive = destructive.Contains(tokens[i]);
@@ -408,6 +410,72 @@ public static partial class ToolCallPolicy
         }
 
         return null;
+    }
+
+    /// <summary>Gemeinsame Bedingungen beider ADR-0017-Ausnahmen, geprueft auf <paramref name="seg"/> und dem Rohtext, nicht auf <c>Effective()</c>.</summary>
+    private static bool IsProvenDirect(string cmd, BashAnalysis.Segment seg, string word)
+    {
+        if (HasSubstitution(cmd) || HasDefinition(cmd)) return false;
+        if (cmd.AsSpan().IndexOfAny('$', '{', '}') >= 0) return false;
+        if (seg.Tokens.Any(t => t.AsSpan().IndexOfAny("*?[]") >= 0)) return false;
+        if (seg.Assignments.Count > 0 || seg.RawWords.Length == 0 || !seg.RawWords.SequenceEqual(seg.Tokens)) return false;
+        return seg.RawWords[0] == word;
+    }
+
+    /// <summary>ADR-0017 Entscheidung 1: <c>tr</c> ist die letzte Stufe einer Pipe, ohne Umleitung, nur mit den Optionen c C d s und hoechstens zwei Operanden.</summary>
+    private static bool IsTrLastPipeStage(string cmd, List<BashAnalysis.Segment> segments, int si)
+    {
+        var seg = segments[si];
+        if (!IsProvenDirect(cmd, seg, "tr")) return false;
+        if (si == 0 || !segments[si - 1].PipesToNext || seg.PipesToNext) return false;
+        if (seg.OutRedirects.Count > 0 || seg.InRedirects.Count > 0 || seg.Heredoc is not null || seg.Events.Length > 0) return false;
+        var operands = 0;
+        var optionsEnded = false;
+        foreach (var t in seg.Tokens.Skip(1))
+        {
+            if (!optionsEnded && t.Length > 1 && t[0] == '-')
+            {
+                if (t.AsSpan(1).IndexOfAnyExcept("cCds") >= 0) return false;
+                continue;
+            }
+
+            optionsEnded = true;
+            operands++;
+        }
+
+        return operands <= 2;
+    }
+
+    /// <summary>
+    /// ADR-0017 Entscheidung 2: bei <c>gh issue create</c> entfaellt der Wert von <c>--body-file</c>/<c>--body-file=</c>/<c>-F</c>, wenn er relativ unter
+    /// <c>.monarch/knowledge/</c> liegt (in jedem moeglichen Arbeitsordner, auch physisch) und kein Secret ist. Sonst bleiben die Tokens unveraendert.
+    /// </summary>
+    private static string[] DropIssueBodyFile(string cmd, PolicyContext ctx, Canon paths, BashAnalysis.Segment seg, int si, string[] tokens)
+    {
+        const string Prefix = ".monarch/knowledge/";
+        if (!IsProvenDirect(cmd, seg, "gh") || seg.Tokens.Length < 3 || seg.Tokens[1] != "issue" || seg.Tokens[2] != "create") return tokens;
+        var hits = new List<(int Index, int Width, string Value)>();
+        for (var i = 3; i < tokens.Length; i++)
+        {
+            if (tokens[i] is "--body-file" or "-F") { if (i + 1 < tokens.Length) hits.Add((i, 2, tokens[i + 1])); else return tokens; }
+            else if (tokens[i].StartsWith("--body-file=", StringComparison.Ordinal)) hits.Add((i, 1, tokens[i]["--body-file=".Length..]));
+        }
+
+        if (hits.Count != 1) return tokens;
+        var (index, width, value) = hits[0];
+        if (!value.StartsWith(Prefix, StringComparison.Ordinal) || value.Contains("..", StringComparison.Ordinal)) return tokens;
+        var cwds = paths.CwdAt(si);
+        if (cwds.Length == 0) return tokens;
+        foreach (var cwd in cwds)
+        {
+            var allowed = cwd.TrimEnd('/') + "/" + Prefix;
+            if (!Directory.Exists(allowed)) return tokens; // jeder moegliche Ordner muss ein echtes knowledge-Verzeichnis haben
+            foreach (var abs in paths.AbsFrom(value, cwd))
+                if (!abs.StartsWith(allowed, StringComparison.Ordinal)) return tokens;
+        }
+
+        if (IsSecret(ctx, value) || IsSecretToken(ctx, paths, value)) return tokens;
+        return [.. tokens.Where((_, k) => k < index || k >= index + width)];
     }
 
     /// <summary>Pfad-Tokens eines Arguments; bei <c>-oWERT</c> (Kurzoption mit angehängtem Wert) zusätzlich der Wert.</summary>
