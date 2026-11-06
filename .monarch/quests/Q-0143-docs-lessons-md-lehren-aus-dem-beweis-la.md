@@ -3,7 +3,7 @@ id: Q-0143
 gate: G-0106
 kind: main
 rank: D
-state: in_progress
+state: in_review
 dod:
   - docs/lessons.md steht im Repo, in einfacher Sprache, mit dem Ergebnis des MVP-Gates: nicht bestanden, und dem Grund
   - Die Fehlschläge stehen offen drin: Wettrüsten in der Nacht, aufgeweichter Test, roter develop, vergessene Release-Schritte
@@ -14,5 +14,6 @@ scope:
   exclude: []
 estimate: { session_pct: 5, weekly_pct: 1, gold_usd: 0 }
 boss: "Ein neuer Leser versteht aus docs/lessons.md ohne weitere Quelle, warum das MVP-Gate nicht bestanden ist und welche Regeln aus den Fehlschlägen folgen."
+board: { pr: 76 }
 ---
 # docs/lessons.md: Lehren aus dem Beweis (Lauf 2)
