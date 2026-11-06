@@ -89,9 +89,9 @@ public class ToolLocatorTests
         Assert.True(bad.Count == 0, string.Join('\n', bad));
     }
 
-    private static (string Out, string Err) RunMonarch(string cwd, string path, string[] args, string? stdin, string home)
+    private static (string Out, string Err) RunMonarch(string cwd, string path, string[] args, string? stdin, string home, string? exe = null)
     {
-        var psi = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "monarch"))
+        var psi = new ProcessStartInfo(exe ?? Path.Combine(AppContext.BaseDirectory, "monarch"))
         {
             WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, UseShellExecute = false,
         };
@@ -99,6 +99,10 @@ public class ToolLocatorTests
         psi.Environment["PATH"] = path;
         psi.Environment["MONARCH_HOME"] = home;
         psi.Environment.Remove("MONARCH_GIT_BIN");
+        psi.Environment.Remove("GH_TOKEN");
+        psi.Environment.Remove("GITHUB_TOKEN");
+        psi.Environment["HTTPS_PROXY"] = "http://127.0.0.1:1"; // no real forge call from the gh test
+        psi.Environment["https_proxy"] = "http://127.0.0.1:1";
         using var p = Process.Start(psi)!;
         p.StandardInput.Write(stdin ?? string.Empty);
         p.StandardInput.Close();
@@ -140,6 +144,29 @@ public class ToolLocatorTests
         Stub(root, "git", marker);
         var r = RunMonarch(root, path, ["awaken"], null, Tmp());
         Assert.False(File.Exists(marker), $"the git stub ran: {r.Err}");
+    }
+
+    [Fact]
+    public void Awaken_does_not_run_a_git_stub_next_to_the_binary()
+    {
+        var bin = Tmp();
+        foreach (var f in Directory.EnumerateFiles(AppContext.BaseDirectory)) File.Copy(f, Path.Combine(bin, Path.GetFileName(f)));
+        var root = Tmp();
+        var marker = Path.Combine(Tmp(), "marker");
+        Stub(bin, "git", marker);
+        var r = RunMonarch(root, "/usr/bin:/bin", ["awaken"], null, Tmp(), Path.Combine(bin, "monarch"));
+        Assert.False(File.Exists(marker), $"the git stub next to the binary ran: {r.Err}");
+    }
+
+    [Fact]
+    public void Quest_verify_does_not_run_a_gh_stub_from_cwd_when_no_token_variable_is_set()
+    {
+        using var p = new TempProject(systemYaml: Seed.ForgeYaml);
+        Seed.Quest(p, "Q-0001", "in_review", extra: "board: { provider: github, pr: 7 }\n");
+        var marker = Path.Combine(Tmp(), "marker");
+        Stub(p.Root, "gh", marker);
+        var r = RunMonarch(p.Root, "", ["quest", "verify", "Q-0001"], null, p.Home);
+        Assert.False(File.Exists(marker), $"the gh stub in the cwd ran: {r.Out} {r.Err}");
     }
 
     [Fact]
