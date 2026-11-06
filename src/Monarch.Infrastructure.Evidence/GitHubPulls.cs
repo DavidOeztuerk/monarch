@@ -9,7 +9,8 @@ namespace Monarch.Infrastructure.Evidence;
 /// <param name="BaseRef">Name of the base branch.</param>
 /// <param name="Merged">Whether the pull request is merged.</param>
 /// <param name="MergeCommitSha">Merge commit sha, when merged.</param>
-public sealed record PullInfo(int Number, string HeadSha, string BaseRef, bool Merged, string? MergeCommitSha);
+/// <param name="Title">Pull request title.</param>
+public sealed record PullInfo(int Number, string HeadSha, string BaseRef, bool Merged, string? MergeCommitSha, string Title = "");
 
 /// <summary>
 /// GitHub pull request reads and the one merge call Monarch makes itself (<c>PUT …/pulls/{n}/merge</c>, squash or merge, bound to the checked head sha).
@@ -40,7 +41,8 @@ public sealed class GitHubPulls
             pull.Head?.Sha ?? throw new InvalidOperationException($"Pull request #{number} has no head sha."),
             pull.Base?.Ref ?? throw new InvalidOperationException($"Pull request #{number} has no base branch."),
             pull.Merged,
-            pull.MergeCommitSha);
+            pull.MergeCommitSha,
+            pull.Title ?? string.Empty);
     }
 
     /// <summary>Reads the head commit of a branch (<c>GET …/git/ref/heads/{branch}</c>).</summary>
@@ -66,6 +68,18 @@ public sealed class GitHubPulls
     {
         var commit = await _api.GetAsync($"{Repo(owner, repo)}/commits/{Uri.EscapeDataString(sha)}", EvidenceJsonContext.Default.CommitDto, cancellationToken).ConfigureAwait(false);
         return commit.Commit?.Committer?.Date ?? commit.Commit?.Author?.Date ?? throw new InvalidOperationException($"Commit {sha} has no date.");
+    }
+
+    /// <summary>Reads the commit message of a commit.</summary>
+    /// <param name="owner">Repository owner.</param>
+    /// <param name="repo">Repository name.</param>
+    /// <param name="sha">Commit sha.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The full commit message; throws when the forge returns none.</returns>
+    public async Task<string> GetCommitMessageAsync(string owner, string repo, string sha, CancellationToken cancellationToken = default)
+    {
+        var commit = await _api.GetAsync($"{Repo(owner, repo)}/commits/{Uri.EscapeDataString(sha)}", EvidenceJsonContext.Default.CommitDto, cancellationToken).ConfigureAwait(false);
+        return commit.Commit?.Message ?? throw new InvalidOperationException($"Commit {sha} has no readable message.");
     }
 
     /// <summary>Compares two commits (<c>GET …/compare/{base}...{head}</c>) and returns the forge's status of the head relative to the base.</summary>
@@ -101,12 +115,14 @@ public sealed class GitHubPulls
     /// <param name="headSha">The head sha that was checked.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The merge commit sha.</returns>
-    public async Task<string> MergeAsync(string owner, string repo, int number, string method, string headSha, CancellationToken cancellationToken = default)
+    /// <param name="commitTitle">Title of the squash commit; <see langword="null"/> leaves it to GitHub (merge method <c>merge</c>).</param>
+    /// <param name="commitMessage">Body of the squash commit; <see langword="null"/> leaves it to GitHub.</param>
+    public async Task<string> MergeAsync(string owner, string repo, int number, string method, string headSha, CancellationToken cancellationToken = default, string? commitTitle = null, string? commitMessage = null)
     {
         var response = await _api.SendJsonAsync(
             HttpMethod.Put,
             $"{Repo(owner, repo)}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/merge",
-            new MergeRequestDto { MergeMethod = method, Sha = headSha },
+            new MergeRequestDto { MergeMethod = method, Sha = headSha, CommitTitle = commitTitle, CommitMessage = commitMessage },
             EvidenceJsonContext.Default.MergeRequestDto,
             EvidenceJsonContext.Default.MergeResponseDto,
             cancellationToken).ConfigureAwait(false);

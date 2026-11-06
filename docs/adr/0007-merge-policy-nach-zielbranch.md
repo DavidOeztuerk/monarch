@@ -283,3 +283,13 @@ Bisher mergt `gate merge` immer per Squash. Das passt nicht zu Repos, die ihren 
 **Was gleich bleibt.** Das PUT trägt `merge_method` und weiter `sha` = geprüfter Head; GitHub weist den Merge ab, wenn sich der Head bewegt hat. Verdict, Rank-Prüfung und `ledger verify` bleiben unverändert. Der Fix-PR-Pfad (erster Elternteil) gilt für beide Methoden: Auch ein Merge-Commit hat als ersten Elternteil den Stand von develop. `GateMerged.method` und die Ausgabe nennen die tatsächlich benutzte Methode, `GateMerged.method_source` die Quelle. Das Lesen der Historie läuft unter der Frist von Phase A (zusätzlich höchstens 10 s je git-Aufruf); schlägt ein Aufruf fehl oder überschreitet seine Frist, gilt `squash`, und `gate merge` warnt vor dem PUT. Läuft dagegen die Frist von Phase A ab (im Default 20 s, etwa wenn beide Refs hängen), verweigert `gate merge` ohne PUT, statt auf `squash` zu fallen. Ein Wert, der kein einzelner Text ist (Liste, Map), ist ein Konfigurationsfehler.
 
 **Nicht Monarchs Sache.** Der Weg von develop nach main bleibt der Merge-Commit des Owners.
+
+## Nachtrag Q-0144: Skip-Marker in der Merge-Nachricht (Issue #64)
+
+GitHub überspringt den CI-Lauf, wenn die Nachricht eines Pushes `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[actions skip]` oder den Trailer `skip-checks: true` enthält (groß/klein egal). Beim Squash baut GitHub die Nachricht aus allen Commits des PRs. Ein einziger Aufräum-Commit mit `[skip ci]` hat so develop ohne CI-Lauf gelassen.
+
+**Squash.** `gate merge` setzt `commit_title` und `commit_message` selbst. Der Titel ist der PR-Titel plus ` (#n)`, damit die Historie gleich aussieht. Die Nachricht nennt die Quests des Gates. Die Commit-Liste des Branches kommt nicht vor. Steht ein Marker im PR-Titel oder im Quest-Text, wird er vor dem PUT entfernt.
+
+**Merge.** Dort ist die Nachricht fest. Deshalb liest `gate merge` vor dem PUT die Nachricht des Head-Commits. Trägt sie einen Marker, oder lässt sie sich nicht lesen, verweigert es ohne PUT.
+
+**Nachlaufen.** `ci.yml` hat jetzt `workflow_dispatch`, damit ein Lauf ohne neuen Commit gestartet werden kann.

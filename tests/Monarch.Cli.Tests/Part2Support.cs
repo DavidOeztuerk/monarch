@@ -30,6 +30,15 @@ internal sealed partial class FakeForge : HttpMessageHandler
     /// <summary>When set, the PR base changes to this branch while the merge happens (simulates a retarget).</summary>
     public string? BaseAfterMerge { get; set; }
 
+    /// <summary>PR title per PR (default <c>Titel</c>).</summary>
+    public Dictionary<int, string> Titles { get; } = [];
+
+    /// <summary>Commit message per sha (default <c>work</c>).</summary>
+    public Dictionary<string, string> Messages { get; } = [];
+
+    /// <summary>When set, commit reads return a body without commit message.</summary>
+    public bool MessageUnreadable { get; set; }
+
     /// <summary>Request bodies of merge calls.</summary>
     public List<string> MergeBodies { get; } = [];
 
@@ -105,7 +114,7 @@ internal sealed partial class FakeForge : HttpMessageHandler
         var cm = CommitPath().Match(path);
         if (cm.Success)
         {
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"sha\":\"" + cm.Groups[1].Value + "\",\"commit\":{\"committer\":{\"date\":\"" + CommitDate + "\"},\"author\":{\"date\":\"" + CommitDate + "\"}}" + (Parents.TryGetValue(cm.Groups[1].Value, out var parent) ? ",\"parents\":[{\"sha\":\"" + parent + "\"}]" : "") + "}", Encoding.UTF8, "application/json") };
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"sha\":\"" + cm.Groups[1].Value + "\",\"commit\":{" + (MessageUnreadable ? "" : "\"message\":" + System.Text.Json.JsonSerializer.Serialize(Messages.GetValueOrDefault(cm.Groups[1].Value, "work")) + ",") + "\"committer\":{\"date\":\"" + CommitDate + "\"},\"author\":{\"date\":\"" + CommitDate + "\"}}" + (Parents.TryGetValue(cm.Groups[1].Value, out var parent) ? ",\"parents\":[{\"sha\":\"" + parent + "\"}]" : "") + "}", Encoding.UTF8, "application/json") };
         }
 
         var m = PullPath().Match(path);
@@ -117,7 +126,7 @@ internal sealed partial class FakeForge : HttpMessageHandler
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
             }
 
-            var json = $$$"""{"number":{{{n}}},"merged":{{{(pull.Merged ? "true" : "false")}}},"merged_at":"2026-10-27T11:00:00Z","merge_commit_sha":{{{(pull.Merged ? "\"m3rge0000000000000000000000000000000000\"" : "null")}}},"html_url":"https://github.com/o/r/pull/{{{n}}}","state":"{{{(pull.Merged ? "closed" : "open")}}}","head":{"sha":"{{{pull.Head}}}"},"base":{"ref":"{{{Bases.GetValueOrDefault(n, "develop")}}}"}}""";
+            var json = $$$"""{"number":{{{n}}},"title":{{{System.Text.Json.JsonSerializer.Serialize(Titles.GetValueOrDefault(n, "Titel"))}}},"merged":{{{(pull.Merged ? "true" : "false")}}},"merged_at":"2026-10-27T11:00:00Z","merge_commit_sha":{{{(pull.Merged ? "\"m3rge0000000000000000000000000000000000\"" : "null")}}},"html_url":"https://github.com/o/r/pull/{{{n}}}","state":"{{{(pull.Merged ? "closed" : "open")}}}","head":{"sha":"{{{pull.Head}}}"},"base":{"ref":"{{{Bases.GetValueOrDefault(n, "develop")}}}"}}""";
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
         }
 

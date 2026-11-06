@@ -1255,4 +1255,113 @@ public class GateMergeTests
             Assert.Equal("mismatch", run.GetProperty("parent_check").GetString());
         }
     }
+
+    // ---- Q-0144 (Issue #64): a skip marker must never reach the squash message of the integration branch
+    private const string MergeYaml = "git:\n  merge_method: merge\n";
+
+    [Fact]
+    public void Squash_sets_title_and_message_itself_and_never_lists_branch_commits()
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            f.Messages[FakeForge.Sha] = "chore: aufräumen [skip ci]";
+            f.Titles[7] = "G-0001: Gate – Teil A (Rank C)";
+            Approved(p);
+            Assert.Equal(0, Merge(p).Code);
+            var body = JsonDocument.Parse(Assert.Single(f.MergeBodies)).RootElement;
+            Assert.Equal("G-0001: Gate – Teil A (Rank C) (#7)", body.GetProperty("commit_title").GetString());
+            Assert.Contains("Q-0001", body.GetProperty("commit_message").GetString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("skip ci", body.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Theory]
+    [InlineData("G-0001: Fix [skip ci]")]
+    [InlineData("G-0001: Fix [CI SKIP]")]
+    [InlineData("G-0001: Fix [no ci]")]
+    [InlineData("G-0001: Fix [Skip Actions]")]
+    [InlineData("G-0001: Fix [actions skip]")]
+    [InlineData("G-0001: Fix [skip [skip ci]ci]")]
+    [InlineData("G-0001: Fix skip-checks: true")]
+    [InlineData("G-0001: Fix skip-checks:true")]
+    [InlineData("G-0001: Fix SKIP-CHECKS:  TRUE")]
+    public void Squash_strips_skip_markers_from_the_pull_request_title(string title)
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            f.Titles[7] = title;
+            Approved(p);
+            Assert.Equal(0, Merge(p).Code);
+            var body = JsonDocument.Parse(Assert.Single(f.MergeBodies)).RootElement;
+            Assert.Equal("G-0001: Fix (#7)", body.GetProperty("commit_title").GetString());
+            Assert.False(Monarch.Infrastructure.Evidence.SkipMarker.Contains(body.GetProperty("commit_title").GetString()!));
+            Assert.False(Monarch.Infrastructure.Evidence.SkipMarker.Contains(body.GetProperty("commit_message").GetString()!));
+        }
+    }
+
+    [Theory]
+    [InlineData("[skip ci]")]
+    [InlineData("skip-checks: true")]
+    [InlineData("skip-checks:true")]
+    public void Squash_strips_skip_markers_from_the_quest_text(string marker)
+    {
+        var (p, f) = Setup();
+        using (p)
+        {
+            var path = Seed.Quest(p, "Q-0001", "in_review", extra: "board: { provider: github, pr: 7 }\n");
+            File.WriteAllText(path, File.ReadAllText(path).Replace("# Title Q-0001", "# Title Q-0001 " + marker, StringComparison.Ordinal));
+            Approved(p);
+            Assert.Equal(0, Merge(p).Code);
+            var body = JsonDocument.Parse(Assert.Single(f.MergeBodies)).RootElement;
+            Assert.Contains("Q-0001", body.GetProperty("commit_message").GetString(), StringComparison.Ordinal);
+            Assert.False(Monarch.Infrastructure.Evidence.SkipMarker.Contains(body.GetProperty("commit_title").GetString()!));
+            Assert.False(Monarch.Infrastructure.Evidence.SkipMarker.Contains(body.GetProperty("commit_message").GetString()!));
+            Assert.DoesNotContain("skip", body.GetProperty("commit_message").GetString(), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Theory]
+    [InlineData("chore: x [skip ci]")]
+    [InlineData("chore: x [CI Skip]")]
+    [InlineData("chore: x\n\nskip-checks: true")]
+    [InlineData("chore: x\n\nskip-checks:true")]
+    [InlineData("chore: x [skip actions]")]
+    public void Merge_method_merge_refuses_a_head_commit_with_a_skip_marker(string message)
+    {
+        var (p, f) = Setup(yaml: Seed.ForgeYaml + MergeYaml);
+        using (p)
+        {
+            f.Messages[FakeForge.Sha] = message;
+            Approved(p);
+            Refused(p, f, Merge(p), "skip");
+        }
+    }
+
+    [Fact]
+    public void Merge_method_merge_refuses_when_the_head_commit_message_is_unreadable()
+    {
+        var (p, f) = Setup(yaml: Seed.ForgeYaml + MergeYaml);
+        using (p)
+        {
+            Approved(p);
+            f.MessageUnreadable = true;
+            Refused(p, f, Merge(p), "message");
+        }
+    }
+
+    [Fact]
+    public void Merge_method_merge_merges_a_clean_head_commit_without_title_and_message()
+    {
+        var (p, f) = Setup(yaml: Seed.ForgeYaml + MergeYaml);
+        using (p)
+        {
+            Approved(p);
+            Assert.Equal(0, Merge(p).Code);
+            var body = JsonDocument.Parse(Assert.Single(f.MergeBodies)).RootElement;
+            Assert.Equal("merge", body.GetProperty("merge_method").GetString());
+            Assert.False(body.TryGetProperty("commit_title", out _));
+        }
+    }
 }

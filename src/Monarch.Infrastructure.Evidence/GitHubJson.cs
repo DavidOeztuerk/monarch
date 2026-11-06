@@ -38,6 +38,8 @@ internal sealed class PullDto
 
     public string? MergeCommitSha { get; set; }
 
+    public string? Title { get; set; }
+
     public string? HtmlUrl { get; set; }
 
     public PullHeadDto? Head { get; set; }
@@ -71,6 +73,8 @@ internal sealed class CompareDto
 
 internal sealed class CommitDetailDto
 {
+    public string? Message { get; set; }
+
     public CommitPersonDto? Committer { get; set; }
 
     public CommitPersonDto? Author { get; set; }
@@ -86,6 +90,12 @@ internal sealed class MergeRequestDto
     public string MergeMethod { get; set; } = "squash";
 
     public string Sha { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CommitTitle { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CommitMessage { get; set; }
 }
 
 internal sealed class MergeResponseDto

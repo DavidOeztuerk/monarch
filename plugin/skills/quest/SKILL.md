@@ -12,6 +12,7 @@ description: Fuehrt Quests durch den Lebenszyklus (accept, start, submit, abando
 - `quest verify` / `quest clear` nur mit Forge-Evidence (CI gruen, unabhaengiger Warden bei E-C). Nie ohne.
 - `quest abandon` / `quest fail` mit kurzer Begruendung; danach `recap`.
 - Implementierung an `monarch:knight` delegieren, Review an `monarch:warden`.
+- Kein `[skip ci]` (auch nicht `[ci skip]`, `[no ci]`, `[skip actions]`, `skip-checks: true`) in Commits, PR-Titel oder Quest-Text vor dem Merge: Es kann die CI auf `develop` abschalten. `gate merge` entfernt Marker beim Squash und verweigert bei `merge`.
 
 ## Grundregeln (gelten immer)
 
