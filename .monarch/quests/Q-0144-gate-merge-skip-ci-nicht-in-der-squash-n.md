@@ -14,5 +14,6 @@ scope:
   exclude: []
 estimate: { session_pct: 10, weekly_pct: 2, gold_usd: 0 }
 boss: "Ein [skip ci] aus Branch-Commit oder PR-Titel gelangt in die Squash-Nachricht und unterdrückt die CI auf develop."
+board: { pr: 77 }
 ---
 # gate merge: [skip ci] nicht in der Squash-Nachricht (#64)
