@@ -405,6 +405,7 @@ internal static class Briefing
             sb.AppendLine($"- {RuleTexts.PlanLine}");
         }
 
+        sb.AppendLine($"- {RuleTexts.StandardRulesLine}");
         sb.Append($"- {RuleTexts.MergeLine}");
         return sb.ToString();
     }

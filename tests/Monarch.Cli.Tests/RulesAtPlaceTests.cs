@@ -59,6 +59,38 @@ public class RulesAtPlaceTests
     }
 
     [Fact]
+    public void Briefing_has_the_standard_rules_core_with_and_without_a_quest()
+    {
+        using var none = new TempProject();
+        using var active = new TempProject(activeRank: "B", include: "src/**");
+        foreach (var text in new[] { Briefing(none), Briefing(active) })
+        {
+            Assert.Contains(StandardRulesLine, text, StringComparison.Ordinal);
+            Assert.Contains("Skill `monarch:regeln` vor der Arbeit lesen", text, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Regeln_skill_exists_and_names_all_six_topics()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "plugin", "skills", "regeln", "SKILL.md")))
+        {
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        Assert.NotNull(dir);
+        var text = File.ReadAllText(Path.Combine(dir, "plugin", "skills", "regeln", "SKILL.md"));
+        Assert.Contains("name: regeln", text, StringComparison.Ordinal);
+        foreach (var topic in new[] { "Worktree", "Prüfung nach Risiko", "gate merge", "[skip ci]", "--body-file", "Aufräumen" })
+        {
+            Assert.Contains(topic, text, StringComparison.Ordinal);
+        }
+    }
+
+    internal const string StandardRulesLine = "Standardregeln: eine Worktree je Gate, Prüfung nach Risiko, Merge nur per `monarch gate merge`, kein `[skip ci]` vor dem Merge, Issue-Texte per `--body-file`, Aufräumen nach dem Merge; Skill `monarch:regeln` vor der Arbeit lesen.";
+
+    [Fact]
     public void Hook_deny_for_a_write_outside_the_scope_names_the_way_forward()
     {
         using var p = new TempProject(activeRank: "B", include: "src/**");
