@@ -393,7 +393,7 @@ public static partial class ToolCallPolicy
             if (IsPositive(seg, paths)) continue;
             if (IsTrLastPipeStage(cmd, segments, si)) continue; // ADR-0017 Entscheidung 1: tr nimmt keine Dateien
             tokens = DropDataValues(word, tokens);
-            tokens = DropIssueBodyFile(cmd, ctx, paths, seg, si, tokens); // ADR-0017 Entscheidung 2
+            tokens = DropIssueBodyFile(cmd, ctx, paths, segments, si, tokens); // ADR-0017 Entscheidung 2
             for (var i = 1; i < tokens.Length; i++)
             {
                 var isDestructive = destructive.Contains(tokens[i]);
@@ -450,10 +450,14 @@ public static partial class ToolCallPolicy
     /// ADR-0017 Entscheidung 2: bei <c>gh issue create</c> entfaellt der Wert von <c>--body-file</c>/<c>--body-file=</c>/<c>-F</c>, wenn er relativ unter
     /// <c>.monarch/knowledge/</c> liegt (in jedem moeglichen Arbeitsordner, auch physisch) und kein Secret ist. Sonst bleiben die Tokens unveraendert.
     /// </summary>
-    private static string[] DropIssueBodyFile(string cmd, PolicyContext ctx, Canon paths, BashAnalysis.Segment seg, int si, string[] tokens)
+    private static string[] DropIssueBodyFile(string cmd, PolicyContext ctx, Canon paths, List<BashAnalysis.Segment> segments, int si, string[] tokens)
     {
         const string Prefix = ".monarch/knowledge/";
+        var seg = segments[si];
         if (!IsProvenDirect(cmd, seg, "gh") || seg.Tokens.Length < 3 || seg.Tokens[1] != "issue" || seg.Tokens[2] != "create") return tokens;
+        // Das cwd-Modell kennt weder || noch &&: Steht vor dem Segment ein cd/pushd/popd, ist der Ordner nicht bewiesen.
+        for (var k = 0; k < si; k++)
+            if (segments[k].Tokens.Take(1).Concat(segments[k].RawWords.Take(1)).Any(w => Path.GetFileName(w) is "cd" or "pushd" or "popd")) return tokens;
         var hits = new List<(int Index, int Width, string Value)>();
         for (var i = 3; i < tokens.Length; i++)
         {

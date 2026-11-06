@@ -94,6 +94,13 @@ public sealed class Adr0017Tests : IDisposable
         Denied(cmd, _outer, _wt);
     }
 
+    [Fact]
+    public void Issue_body_file_after_cd_with_or_is_denied()
+    {
+        Directory.CreateDirectory(Path.Combine(_outer, ".monarch", "knowledge"));
+        Denied("cd . || cd ../../..; gh issue create --title t --body-file .monarch/knowledge/link.md", _outer, _wt);
+    }
+
     // Im Projekt der Worktree sind diese Faelle heute erlaubt (bekannte Luecke bei .env, ADR-0017); der Hook nimmt das strengste Ergebnis,
     // also muss die Auswertung mit dem umgebenden Projekt verweigern.
     [Theory]
