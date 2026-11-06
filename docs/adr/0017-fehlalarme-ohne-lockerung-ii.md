@@ -1,6 +1,6 @@
 # ADR-0017 — Fehlalarme ohne Lockerung II: grep, tr, Issue-Texte (#66, #75, #68 Punkt 2)
 
-**Datum:** 06.11.2026 · **Status:** vorgeschlagen, Fassung 2 nach Warden-Design-Runde; wartet auf das Delta-Verdict vor dem ersten Code-Commit · **Quest:** Q-0147 (G-0107) · **Baut auf:** ADR-0011, ADR-0014
+**Datum:** 06.11.2026 · **Status:** vorgeschlagen, Fassung 3 nach der Delta-Runde; wartet auf die schmale Prüfung der Befunde F1 bis F3 vor dem ersten Code-Commit · **Quest:** Q-0147 (G-0107) · **Baut auf:** ADR-0011, ADR-0014
 
 ## Kurz in einfacher Sprache
 
@@ -14,8 +14,9 @@
 
 Jede Ausnahme ist ein Beweis, keine Vermutung. Sie greift nur, wenn **alle** Bedingungen gelten. Sonst läuft der heutige Code unverändert (Rückfall). Gemeinsame Bedingungen für alle drei Ausnahmen, geprüft am Aufrufer auf `seg`, nicht auf dem Ergebnis von `Effective()`:
 
-- **Rohtext:** `HasSubstitution(cmd)` und `HasDefinition(cmd)` sind falsch (wie `ProtectPathsRule.cs:245-247`). Der Lexer nimmt `$(…)`, Backticks und `<(…)` aus den Wörtern, darum genügt die Prüfung der Tokens nicht. Der Rohtext enthält außerdem kein `{` und kein `}`, weil der Lexer Braces expandiert.
-- **Literal:** Kein Token enthält `$` oder eines der Zeichen `*?[]`.
+- **Rohtext:** `HasSubstitution(cmd)` und `HasDefinition(cmd)` sind falsch (Vorlage: `NonCodeAllowed`, `ProtectPathsRule.cs:198`). Der Lexer nimmt `$(…)`, Backticks und `<(…)` aus den Wörtern, darum genügt die Prüfung der Tokens nicht. Neu ist die Prüfung, dass der Rohtext `cmd` weder `$` noch `{` noch `}` enthält: Der Lexer löst `$'…'` auf und expandiert Braces.
+- **Literal:** Kein Token des Segments enthält eines der Zeichen `*?[]`.
+- **Keine leeren Wörter:** Der Lexer verwirft leere Wörter (`ShellLexer.cs:183-187`). `grep '' .env` hat darum die Tokens `grep .env`, und `.env` sähe wie das Muster aus, obwohl die Datei gelesen wird. `RawSegment` und `Segment` bekommen ein Flag, das gesetzt wird, sobald ein leeres Wort verworfen wurde. Ist es gesetzt, greift keine Ausnahme.
 - **Direkt:** `seg.RawWords` ist gleich `seg.Tokens`, `seg.Assignments` ist leer, und `RawWords[0]` ist genau das Kommandowort, ohne Pfad. Damit fallen `env`, `sudo`, `VAR=x grep`, `xargs grep` und `./grep` aus der Ausnahme.
 
 Eine Ausnahme nimmt nur die bewiesenen Argumente aus der Prüfung. Alle übrigen Tokens, Umleitungen und Segmente werden weiter geprüft. `IsMutating`, `ReadOnlyWords` und `SecretReaders` ändern sich nicht, also auch nicht Rank S und der Bypass-Modus.
@@ -49,8 +50,8 @@ Eine Ausnahme nimmt nur die bewiesenen Argumente aus der Prüfung. Alle übrigen
 **Neu:** Bei `gh issue create` entfällt in Regel 2 genau der Wert von `--body-file`, `--body-file=` oder `-F`, wenn alle Bedingungen gelten:
 
 - Die ersten Tokens sind genau `gh issue create`.
-- Der Wert ist relativ und beginnt, von `CwdAt(si)` aus gesehen, mit `.monarch/knowledge/`. Das gilt in beiden Auswertungen gleich, im Projekt der Worktree wie im umgebenden Projekt. Der Wert enthält kein `..`.
-- Der kanonische Pfad, mit aufgelösten Symlinks, liegt unter demselben `.monarch/knowledge/`.
+- Der Wert ist relativ, beginnt mit `.monarch/knowledge/` und enthält kein `..`.
+- `CwdAt(si)` ist ein Array aus logischem und physischem Arbeitsordner. Es ist nicht leer, und für **jeden** Eintrag liegt **jede** Variante aus `AbsFrom(wert, eintrag)`, also auch die mit aufgelösten Symlinks, unter `<eintrag>/.monarch/knowledge/`. Sonst greift der Rückfall. Das gilt in beiden Auswertungen gleich, im Projekt der Worktree wie im umgebenden Projekt.
 - Der Pfad trifft keinen Secret-Glob. Sonst greift der Rückfall.
 
 Andere `gh`-Befehle wie `gh issue edit`, `gh pr create` und `gh api -F` bleiben wie heute. `cp` aus `.monarch/knowledge/` bleibt verweigert: `--body-file` macht das Kopieren unnötig.
@@ -61,9 +62,9 @@ Andere `gh`-Befehle wie `gh issue edit`, `gh pr create` und `gh api -F` bleiben 
 
 | Issue | Muss erlaubt sein | Muss verweigert bleiben |
 |---|---|---|
-| #66 | `grep -n -E 'make env\|\.env\|NOTIFY\|SECRET' .github/workflows/ci.yml`, `grep -E 'a\|\.env' ci.yml`, `grep -e '\.env' ci.yml` | `grep foo .env`, `grep -f .env ci.yml`, `grep foo ci.yml .env`, `grep .env* ci.yml`, `grep -A 3 foo .env`, `grep --file=.env ci.yml`, `VAR=x grep foo .env`, `env grep '\.env' .env`, `grep '\.env' $(find . -name '.env*')`, `` grep '\.env' `ls -a` ``, `grep '\.env' .e*`, `grep '\.env' <(cat .env)`, `grep -rn '\.env' .` |
+| #66 | `grep -n -E 'make env\|\.env\|NOTIFY\|SECRET' .github/workflows/ci.yml`, `grep -E 'a\|\.env' ci.yml`, `grep -e '\.env' ci.yml` | `grep foo .env`, `grep -f .env ci.yml`, `grep foo ci.yml .env`, `grep .env* ci.yml`, `grep -A 3 foo .env`, `grep --file=.env ci.yml`, `VAR=x grep foo .env`, `env grep '\.env' .env`, `grep '\.env' $(find . -name '.env*')`, `` grep '\.env' `ls -a` ``, `grep '\.env' .e*`, `grep '\.env' <(cat .env)`, `grep -rn '\.env' .`, `grep '' .env`, `grep "" .env`, `grep -n '' .env`, `grep -e '' .env`, `export GREP_OPTIONS=-r; grep '\.env' .` |
 | #75 | `cd .monarch/quests && grep -l 'gate: G-0001' *.md \| tr '\n' ' '` | `tr a b > .monarch/ledger/x`, `tr a b .monarch/ledger/x` ohne Pipe, `cat f \| tr a b > .monarch/quests/n`, in `.monarch/quests`: `cat f \| tr a b \| sh`, `cat f \| tr "$X" b`, `cat f \| tr a b c` |
-| #68.2 | aus einer verschachtelten Worktree mit beiden Auswertungen: `gh issue create --title t --body-file .monarch/knowledge/x.md` | aus derselben Worktree: `--body-file .monarch/ledger/x`, `--body-file .monarch/knowledge/../ledger/x`, `--body-file .monarch/knowledge/.env`, ein Symlink in knowledge auf das Ledger, `gh issue edit 1 --body-file .monarch/knowledge/x.md` |
+| #68.2 | aus einer verschachtelten Worktree mit beiden Auswertungen: `gh issue create --title t --body-file .monarch/knowledge/x.md` | aus derselben Worktree: `--body-file .monarch/ledger/x`, `--body-file .monarch/knowledge/../ledger/x`, `--body-file .monarch/knowledge/.env`, ein Symlink in knowledge auf das Ledger, `gh issue edit 1 --body-file .monarch/knowledge/x.md`, nach einem mehrdeutigen `cd` (`cd a \|\| cd b; gh issue create --body-file .monarch/knowledge/x.md`), wenn nicht jeder mögliche Ordner die Bedingung erfüllt |
 
 Jeder Allow-Test muss vor dem Fix rot sein. Vorhandene Tests werden nicht geändert. Wechselt einer, ist das ein Stopp und geht an den Owner.
 

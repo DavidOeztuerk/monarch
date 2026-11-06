@@ -1,6 +1,6 @@
 # ADR-0016 — Hilfsprogramme nur absolut aus PATH (#60)
 
-**Datum:** 06.11.2026 · **Status:** vorgeschlagen, Fassung 2 nach Warden-Design-Runde; wartet auf das Delta-Verdict vor dem ersten Code-Commit · **Quest:** Q-0145 (G-0107)
+**Datum:** 06.11.2026 · **Status:** Warden-Delta-Runde: approve-with-conditions, die Auflagen F4 und F5 sind in dieser Fassung eingearbeitet · **Quest:** Q-0145 (G-0107)
 
 ## Kurz in einfacher Sprache
 
@@ -37,8 +37,8 @@
 - Stub `git` und `gh` im Arbeitsordner: Der Stub läuft nicht. Der Stub schreibt eine Marker-Datei; geprüft wird, dass sie fehlt.
 - Dasselbe mit `PATH`, das `.`, einen relativen Eintrag und einen leeren Eintrag enthält.
 - Dasselbe für den Ordner des Binaries und für `monarch awaken` (`MergeMethodResolver.Derive`).
-- Hook-Pfad: `hook pre-tool-use` mit einem Aufruf, der verweigert wird, und einer vorhandenen Ledger-Datei ohne Anker. Nur dann läuft `GitAnchor`. Dieser Test muss vor dem Fix rot sein; der Rot-Beleg gehört in den Bericht.
-- `Find`: nicht ausführbare Datei und Ordner mit dem Namen werden übersprungen, der nächste absolute Eintrag gewinnt; ohne Treffer und ohne `PATH` kommt `null`, und die stderr-Zeile erscheint einmal.
+- Hook-Pfad: `hook pre-tool-use` als eigener Prozess mit einem Aufruf, der verweigert wird, und einer vorhandenen Ledger-Datei ohne Anker. Nur dann läuft `GitAnchor`. Die Datei liegt exakt auf dem Pfad aus Session-ID, Writer-ID und Monat (`JsonlLedgerStore.cs:116-118`), die Writer-ID ist also vorab gesetzt. Der Stub liegt im Prozess-cwd des gestarteten Hooks, nicht nur im JSON-Feld `cwd`. Dieser Test muss vor dem Fix rot sein; der Rot-Beleg gehört in den Bericht.
+- `Find`: nicht ausführbare Datei und Ordner mit dem Namen werden übersprungen, der nächste absolute Eintrag gewinnt; ohne Treffer und ohne `PATH` kommt `null`, und die stderr-Zeile erscheint einmal. `PATH`, stderr und „einmal je Prozess“ sind prozessglobal, darum bekommt `ToolLocator` eine Test-Naht für `PATH` und den Writer, oder der Test läuft als Subprozess. Sonst hinge er von der Testreihenfolge ab.
 - Eine statische Prüfung im Test: In `src/` steht `"git"` oder `"gh"` nirgends mehr als Programmname, weder in `ProcessStartInfo` noch als Default oder als Variable, die dorthin führt. Die Namen dürfen nur als Argument von `ToolLocator.Find` vorkommen.
 - Der Kommentar in `GitAnchor.cs:9` wird zur Bedingung aus der Tabelle passend korrigiert.
 
