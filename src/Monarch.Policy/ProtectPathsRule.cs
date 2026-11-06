@@ -455,9 +455,8 @@ public static partial class ToolCallPolicy
         const string Prefix = ".monarch/knowledge/";
         var seg = segments[si];
         if (!IsProvenDirect(cmd, seg, "gh") || seg.Tokens.Length < 3 || seg.Tokens[1] != "issue" || seg.Tokens[2] != "create") return tokens;
-        // Das cwd-Modell kennt weder || noch &&: Steht vor dem Segment ein cd/pushd/popd, ist der Ordner nicht bewiesen.
-        for (var k = 0; k < si; k++)
-            if (segments[k].Tokens.Take(1).Concat(segments[k].RawWords.Take(1)).Any(w => Path.GetFileName(w) is "cd" or "pushd" or "popd")) return tokens;
+        // Das cwd-Modell bildet weder || noch && noch Schleifen ab: Nur ein einzelnes Segment hat einen bewiesenen Arbeitsordner.
+        if (segments.Count != 1) return tokens;
         var hits = new List<(int Index, int Width, string Value)>();
         for (var i = 3; i < tokens.Length; i++)
         {
