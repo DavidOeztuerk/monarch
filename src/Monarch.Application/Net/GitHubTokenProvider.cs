@@ -52,7 +52,12 @@ public sealed class GitHubTokenProvider
     {
         try
         {
-            var psi = new ProcessStartInfo("gh")
+            if (ToolLocator.Find("gh") is not { } gh)
+            {
+                return null;
+            }
+
+            var psi = new ProcessStartInfo(gh)
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
