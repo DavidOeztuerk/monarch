@@ -45,7 +45,7 @@ Leere Wörter, die der Lexer verwirft, sind hier unschädlich: `tr` nimmt keine 
 
 - Die ersten Tokens sind genau `gh issue create`.
 - Der Wert ist relativ, beginnt mit `.monarch/knowledge/` und enthält kein `..`.
-- `CwdAt(si)` ist ein Array aus logischem und physischem Arbeitsordner. Es ist nicht leer, und für **jeden** Eintrag liegt **jede** Variante aus `AbsFrom(wert, eintrag)`, also auch die mit aufgelösten Symlinks, unter `<eintrag>/.monarch/knowledge/`. Sonst greift der Rückfall. Das gilt in beiden Auswertungen gleich, im Projekt der Worktree wie im umgebenden Projekt. Ist der Arbeitsordner selbst ein Symlink, greift der Rückfall; der Allow-Test braucht darum einen Pfad ohne Symlink.
+- `CwdAt(si)` ist ein Array aus logischem und physischem Arbeitsordner. Es ist nicht leer, und für **jeden** Eintrag liegt **jede** Variante aus `AbsFrom(wert, eintrag)`, also auch die mit aufgelösten Symlinks, unter `<eintrag>/.monarch/knowledge/`. Für jeden Eintrag muss `<eintrag>/.monarch/knowledge/` außerdem als Ordner existieren. Ohne diese Prüfung wäre die Bedingung bei einem relativen Wert immer wahr, und `cd a || cd b; gh issue create --body-file .monarch/knowledge/x.md` würde frei. Sonst greift der Rückfall. Das gilt in beiden Auswertungen gleich, im Projekt der Worktree wie im umgebenden Projekt. Ist der Arbeitsordner selbst ein Symlink, greift der Rückfall; der Allow-Test braucht darum einen Pfad ohne Symlink.
 - Der Pfad trifft keinen Secret-Glob. Sonst greift der Rückfall.
 
 Andere `gh`-Befehle wie `gh issue edit`, `gh pr create` und `gh api -F` bleiben wie heute. `cp` aus `.monarch/knowledge/` bleibt verweigert: `--body-file` macht das Kopieren unnötig.
