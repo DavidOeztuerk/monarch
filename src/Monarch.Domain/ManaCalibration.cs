@@ -1,11 +1,11 @@
 namespace Monarch.Domain;
 
 /// <summary>Das Paar (Modell, Effort), mit dem ein Schritt gerechnet wird (ADR-0012). Beide Teile stammen aus einem festen Vokabular.</summary>
-/// <param name="Model">Modellfamilie (opus, sonnet, haiku) oder unknown.</param>
+/// <param name="Model">Modellfamilie (opus, sonnet, haiku, fable, mythos) oder unknown.</param>
 /// <param name="Effort">Effort (low, medium, high, xhigh, max, default) oder unknown.</param>
 public readonly record struct ModelEffort(string Model, string Effort)
 {
-    private static readonly string[] Families = ["opus", "sonnet", "haiku"];
+    private static readonly string[] Families = ["opus", "sonnet", "haiku", "fable", "mythos"];
     private static readonly string[] Efforts = ["low", "medium", "high", "xhigh", "max", "default"];
 
     /// <summary>Unbekanntes Paar.</summary>

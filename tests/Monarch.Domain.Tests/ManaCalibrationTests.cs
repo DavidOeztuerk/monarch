@@ -52,6 +52,9 @@ public class ManaCalibrationTests
     [Theory]
     [InlineData("claude-opus-4-7[1m]", "xhigh", "opus", "xhigh")]
     [InlineData("claude-sonnet-5-5", null, "sonnet", "unknown")]
+    [InlineData("claude-fable-5-2", "medium", "fable", "medium")]
+    [InlineData("claude-fable-5-1", "high", "fable", "high")]
+    [InlineData("claude-mythos-5-2", "xhigh", "mythos", "xhigh")]
     [InlineData("lower-the-model", "switch", "unknown", "unknown")]
     [InlineData(null, "HIGH", "unknown", "high")]
     public void Pair_is_normalised_to_a_fixed_vocabulary(string? model, string? effort, string m, string e)
