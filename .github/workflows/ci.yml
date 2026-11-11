@@ -55,7 +55,6 @@ jobs:
       # absolute p50/p95/p99 are reported in the log and the job summary and do not fail the job (declared loosening,
       # owner decision of 2026-11-11). Never set BENCH_INJECT here; it exists only to prove that the gate turns red.
       LIMIT_MS: "20"
-      GATE_MODE: relative
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,6 +82,8 @@ jobs:
         run: bench/test-gate.sh
       # Both latency steps block on both operating systems. Neither may carry continue-on-error (ADR-0015).
       - name: Hook latency, relative gate (direct)
+        env:
+          GATE_MODE: relative
         shell: bash
         run: |
           set -o pipefail
@@ -92,6 +93,8 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           exit $status
       - name: Hook latency, relative gate (through plugin/scripts/monarch)
+        env:
+          GATE_MODE: relative
         shell: bash
         run: |
           set -o pipefail

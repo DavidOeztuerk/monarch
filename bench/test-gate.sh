@@ -4,6 +4,8 @@
 # The p95 gate must pass, the p99 gate must fail, and the output must carry the p95 column.
 set -euo pipefail
 export LC_ALL=C
+# The self-test decides the mode itself: nothing inherited from the caller (the CI job, a shell) may change a case.
+unset GATE_MODE GATE_PCT ATTEMPTS BENCH_INJECT LIMIT_MS
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
