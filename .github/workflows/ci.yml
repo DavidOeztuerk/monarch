@@ -55,6 +55,7 @@ jobs:
       # absolute p50/p95/p99 are reported in the log and the job summary and do not fail the job (declared loosening,
       # owner decision of 2026-11-11). Never set BENCH_INJECT here; it exists only to prove that the gate turns red.
       LIMIT_MS: "20"
+      BENCH_INJECT: git # TEMPORARY (Q-0148 proof run): removed in the next commit
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
