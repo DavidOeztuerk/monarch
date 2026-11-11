@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using Monarch.Application;
 
 namespace Monarch.Cli;
 
@@ -29,16 +30,23 @@ internal static class MergeMethodResolver
         }
 
         var seconds = int.TryParse(env.GetVar("MONARCH_MERGE_GIT_SECONDS"), NumberStyles.None, CultureInfo.InvariantCulture, out var s) && s > 0 ? s : DefaultGitSeconds;
-        return Derive(root, config.IntegrationBranch, TimeSpan.FromSeconds(seconds), env.GetVar("MONARCH_GIT_BIN") is { Length: > 0 } bin && Path.IsPathRooted(bin) ? bin : "git", ct);
+        return Derive(root, config.IntegrationBranch, TimeSpan.FromSeconds(seconds), env.GetVar("MONARCH_GIT_BIN") is { Length: > 0 } bin && Path.IsPathRooted(bin) ? bin : null, ct);
     }
 
     /// <summary>Derives the method: more than half of the last 50 first-parent commits are merge commits -> merge, otherwise squash. A missing branch or an unreadable history gives squash.</summary>
-    public static MergeMethodChoice Derive(string root, string integrationBranch, TimeSpan? timeout = null, string git = "git", CancellationToken ct = default)
+    public static MergeMethodChoice Derive(string root, string integrationBranch, TimeSpan? timeout = null, string? git = null, CancellationToken ct = default)
     {
         var limit = timeout ?? TimeSpan.FromSeconds(DefaultGitSeconds);
+        var gitPath = git ?? ToolLocator.Find("git");
+        var unreadable = new MergeMethodChoice(Squash, $"Standard (Historie von {integrationBranch} nicht lesbar, Rückfall auf squash)", true);
+        if (gitPath is null)
+        {
+            return unreadable;
+        }
+
         foreach (var reference in new[] { $"refs/remotes/origin/{integrationBranch}", $"refs/heads/{integrationBranch}" })
         {
-            if (RunGit(git, root, limit, ct, "rev-list", "--first-parent", "--parents", "-n", HistoryLimit.ToString(CultureInfo.InvariantCulture), reference) is not { } output)
+            if (RunGit(gitPath, root, limit, ct, "rev-list", "--first-parent", "--parents", "-n", HistoryLimit.ToString(CultureInfo.InvariantCulture), reference) is not { } output)
             {
                 continue;
             }
@@ -50,7 +58,7 @@ internal static class MergeMethodResolver
             return new MergeMethodChoice(method, $"aus der Historie von {label} abgeleitet ({merges} von {lines.Length} Commits der first-parent-Linie sind Merge-Commits)");
         }
 
-        return new MergeMethodChoice(Squash, $"Standard (Historie von {integrationBranch} nicht lesbar, Rückfall auf squash)", true);
+        return unreadable;
     }
 
     /// <summary>Runs git under a fixed deadline; null on any failure or when the deadline passes (the process tree is killed). A cancelled <paramref name="ct"/> (the caller's deadline) throws.</summary>

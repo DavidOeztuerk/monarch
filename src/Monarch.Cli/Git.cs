@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Monarch.Application;
 
 namespace Monarch.Cli;
 
@@ -10,7 +11,12 @@ internal static class Git
     {
         try
         {
-            var psi = new ProcessStartInfo("git") { WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            if (ToolLocator.Find("git") is not { } git)
+            {
+                return null;
+            }
+
+            var psi = new ProcessStartInfo(git) { WorkingDirectory = cwd, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
             foreach (var a in args)
             {
                 psi.ArgumentList.Add(a);

@@ -18,7 +18,30 @@ internal static partial class GateMergeCommands
     private static readonly string[] WardenTypes = ["monarch:warden", "warden"];
     private static readonly string[] ClosedGateStates = ["cleared", "closed", "done", "failed", "abandoned"];
 
-    private sealed record Target(ProjectPaths Paths, BoardGate Gate, ForgeRef Forge, int Pr, Rank Rank);
+    private sealed record Target(ProjectPaths Paths, BoardGate Gate, ForgeRef Forge, int Pr, Rank Rank, IReadOnlyList<BoardQuest> Quests);
+
+    /// <summary>
+    /// Q-0144 (Issue #64): the squash commit gets title and message from Monarch, never from the branch commits, so that no skip marker of a
+    /// branch commit can switch off the CI run on the integration branch. Markers in the PR title or the quest titles are stripped as well.
+    /// </summary>
+    private static (string Title, string Message) SquashText(Target t, PullInfo pull)
+    {
+        var title = SkipMarker.Strip(string.IsNullOrWhiteSpace(pull.Title) ? t.Gate.Title : pull.Title);
+        if (title.Length == 0)
+        {
+            title = t.Gate.Id.Value;
+        }
+
+        // GitHub appends " (#n)" only to titles it builds itself; keep the history uniform.
+        var suffix = $" (#{t.Pr.ToString(CultureInfo.InvariantCulture)})";
+        if (!title.EndsWith(suffix, StringComparison.Ordinal))
+        {
+            title += suffix;
+        }
+
+        var lines = t.Quests.OrderBy(q => q.Id.Value, StringComparer.Ordinal).Select(q => $"{q.Id.Value}: {SkipMarker.Strip(q.Title)}");
+        return (title, string.Join('\n', lines));
+    }
 
     private sealed record Plan(Target Target, PullInfo Pull, SystemConfig Config, string IntegrationHead, List<string>? Overridden, MergeMethodChoice Method);
 
@@ -197,11 +220,12 @@ internal static partial class GateMergeCommands
         string? mergeSha = null;
         PullInfo? after = null;
         var putExpired = false;
+        var squash = plan.Method.Method == MergeMethodResolver.Squash ? SquashText(t, pull) : ((string, string)?)null;
         using (var phaseB = new CancellationTokenSource(Forge1(env)))
         {
             try
             {
-                mergeSha = pulls.MergeAsync(t.Forge.Owner, t.Forge.Repo, t.Pr, plan.Method.Method, pull.HeadSha, phaseB.Token).GetAwaiter().GetResult();
+                mergeSha = pulls.MergeAsync(t.Forge.Owner, t.Forge.Repo, t.Pr, plan.Method.Method, pull.HeadSha, phaseB.Token, squash?.Item1, squash?.Item2).GetAwaiter().GetResult();
             }
             catch (Exception ex) when (ex is OperationCanceledException || (ex is HttpRequestException h && (h.StatusCode is null || (int)h.StatusCode >= 500)))
             {
@@ -387,6 +411,25 @@ internal static partial class GateMergeCommands
         if (t.Rank >= Rank.S)
         {
             return Refuse(env, $"rank S (gate or one of its quests): merging is an owner action; ask the guild master.");
+        }
+
+        // 4b. Q-0144: with merge the message is fixed by GitHub, so the head commit must carry no skip marker; unreadable counts as a refusal
+        if (method.Method == MergeMethodResolver.Merge)
+        {
+            string headMessage;
+            try
+            {
+                headMessage = pulls.GetCommitMessageAsync(t.Forge.Owner, t.Forge.Repo, pull.HeadSha, ct).GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (IsExpected(ex) && ex is not OperationCanceledException)
+            {
+                return Refuse(env, $"the commit message of the head {Short(pull.HeadSha)} is not readable ({ex.Message}); with merge method 'merge' that cannot be ruled out as a skip marker (fail-closed).");
+            }
+
+            if (SkipMarker.Contains(headMessage))
+            {
+                return Refuse(env, $"the head commit {Short(pull.HeadSha)} carries a skip marker ([skip ci], skip-checks: true, …); with merge method 'merge' it would reach {config.IntegrationBranch} and switch off its CI run. Amend the message and push again.");
+            }
         }
 
         // 5. CI, the same function as 'quest verify'
@@ -645,7 +688,7 @@ internal static partial class GateMergeCommands
         }
 
         var rank = quests.Select(q => q.Rank).Append(gate.Rank).Max();
-        target = new Target(paths, gate, forge, prs[0], rank);
+        target = new Target(paths, gate, forge, prs[0], rank, quests);
         return null;
     }
 }

@@ -6,7 +6,8 @@ namespace Monarch.Infrastructure.Ledger;
 /// <summary>
 /// Git as secondary anchor: a ledger file that is tracked and unmodified against <c>HEAD</c> is protected by the
 /// content-addressed, reviewed git history even when the local head anchor does not know it (fresh clone, merge).
-/// Never used on the hook hot path; falls back to "not anchored" when git is unavailable.
+/// Used on the hook path only when the ledger file exists, has no local anchor and the hook writes (deny, ask or signal);
+/// falls back to "not anchored" when git is unavailable. git is resolved by <c>ToolLocator</c> from absolute <c>PATH</c> entries only.
 /// </summary>
 internal static class GitAnchor
 {
@@ -42,7 +43,12 @@ internal static class GitAnchor
         output = [];
         try
         {
-            var psi = new ProcessStartInfo("git")
+            if (Monarch.Application.ToolLocator.Find("git") is not { } git)
+            {
+                return false;
+            }
+
+            var psi = new ProcessStartInfo(git)
             {
                 WorkingDirectory = root,
                 RedirectStandardOutput = true,

@@ -48,7 +48,7 @@ Aufloesung: `$MONARCH_BIN` (Entwickler-Override, ohne Pruefsumme) -> `~/.monarch
 
 - `hooks/hooks.json`: 7 Events, PreToolUse inkl. `Read`/`Grep` (Secret-Schutz), Timeouts 5 s (Pre/Post) bzw. 10 s.
 - `.mcp.json`: Server `monarch`. Tools heissen in Claude Code `mcp__plugin_monarch_monarch__<tool>` (system_status, gate_plan, quest_transition, evidence_sync, mana_forecast, knowledge_write).
-- `skills/`: awaken, status, gate, quest, recap, mana, rest.
+- `skills/`: awaken, status, gate, quest, recap, mana, rest, regeln (Standardregeln fuer jede Session, vor der Arbeit zu lesen).
 - `agents/`: scout, strategist, knight, warden. Plugin-Agents ignorieren `hooks`, `mcpServers`, `permissionMode` (ADR-0005); Rechte setzt allein der PreToolUse-Hook.
 
 ## Grenzen
