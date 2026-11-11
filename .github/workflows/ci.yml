@@ -48,9 +48,12 @@ jobs:
           - { os: macos-latest, rid: osx-arm64 }
           - { os: ubuntu-latest, rid: linux-x64 }
     env:
-      # Gate for bench/hook-latency.sh: p99 <= 20 ms on every runner; do not raise it without recording measured
-      # numbers from this job's log next to the new value. Measurements of the runner noise (shared runners preempt
-      # sporadically) are in commit 5abdd63. A relative A/B gate follows as its own quest.
+      # Latency gate (ADR-0015, docs/adr/0015-relatives-latenz-gate.md): the CI gates the ratio of the hook to the bare
+      # program start (`monarch --version`) on the same runner, at the median. The limits are fixed in
+      # bench/hook-latency.sh; change them only together with measured numbers and run ids in ADR-0015.
+      # LIMIT_MS stays 20: p99 <= 20 ms is the criterion on the owner's machine (MVP gate C1, issue #70). Here the
+      # absolute p50/p95/p99 are reported in the log and the job summary and do not fail the job (declared loosening,
+      # owner decision of 2026-11-11). Never set BENCH_INJECT here; it exists only to prove that the gate turns red.
       LIMIT_MS: "20"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -77,24 +80,25 @@ jobs:
         run: sudo apt-get install -y hyperfine jq
       - name: Latency gate self-test
         run: bench/test-gate.sh
-      - name: Hook latency (direct)
-        run: bench/hook-latency.sh "$GITHUB_WORKSPACE/publish/monarch"
-      # QUARANTÄNE nur auf macOS bis Issue #8 (relatives A/B-Gate), spätestens vor dem MVP-Gate C1. Grenze bleibt 20 ms;
-      # der Schritt läuft weiter und schreibt seine Werte in Log und Job-Summary, wird bei Überschreitung aber nicht rot.
-      # Grund (gemessen): Wrapper-Modus auf geteilten macOS-Runnern schwankt bei stabilem p50 10–12 ms zwischen p99 11 und
-      # 38 ms im selben Lauf (Run 40695429009, out-of-scope 37,98 → 11,14 ms); schon vor der Härtung p99 16–18 ms
-      # (Run 40509898746, 069a99c). Direkt-Modus (beide OS) und Wrapper auf Linux bleiben blockierend. C1 misst p99 über
-      # den Wrapper auf der Zielmaschine des Owners (installiertes Binary, reale Last); p99 > 20 ms dort ist ein Blocker.
-      - name: Hook latency (through plugin/scripts/monarch)
-        continue-on-error: ${{ runner.os == 'macOS' }}
+      # Both latency steps block on both operating systems. Neither may carry continue-on-error (ADR-0015).
+      - name: Hook latency, relative gate (direct)
+        env:
+          GATE_MODE: relative
         shell: bash
         run: |
           set -o pipefail
-          {
-            echo "### Hook latency via wrapper (${{ matrix.rid }})"
-            [ "$RUNNER_OS" = macOS ] && echo "_Quarantäne bis #8: Überschreitung macht den Job nicht rot._"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Hook latency, direct (${{ matrix.rid }})"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          bench/hook-latency.sh "$GITHUB_WORKSPACE/publish/monarch" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - name: Hook latency, relative gate (through plugin/scripts/monarch)
+        env:
+          GATE_MODE: relative
+        shell: bash
+        run: |
+          set -o pipefail
+          { echo "### Hook latency via wrapper (${{ matrix.rid }})"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           status=0
           WRAPPER=1 bench/hook-latency.sh "$GITHUB_WORKSPACE/publish/monarch" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
           echo '```' >> "$GITHUB_STEP_SUMMARY"

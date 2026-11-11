@@ -95,6 +95,17 @@ public class CalibrationTests
     }
 
     [Fact]
+    public void Fable_session_is_shown_and_calibrated_as_its_own_pair()
+    {
+        using var p = new TempProject();
+        Cycle(p, "s-fable", "claude-fable-5-2", "medium", delta: 10); // estimate 5 -> observation 2.0
+        Assert.Equal(1.3, Pairs(p).GetProperty("fable|medium").GetProperty("factor").GetDouble(), 6);
+        Assert.False(Pairs(p).TryGetProperty("unknown|medium", out _));
+        WriteMana(p, 30, 10, "s-fable", "claude-fable-5-2");
+        Assert.Contains("Paar (fable, medium): Faktor 1.30, unkalibriert (n=1)", p.Run(["mana"], vars: Vars("s-fable", "medium")).Out, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Window_reset_in_the_interval_is_recorded_but_not_calibrated()
     {
         using var p = new TempProject();

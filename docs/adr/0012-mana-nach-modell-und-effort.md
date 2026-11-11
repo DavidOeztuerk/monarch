@@ -125,3 +125,34 @@ Der Mana-Guard schützt vor dem Überziehen des Budgets und sichert die Recap-Re
 - Zwei Messschwächen bleiben: Recaps mit Kosten 0 zählen als gemessen, und ein Sprung über eine Pause zählt als ein Schritt. Beide wirken nur noch innerhalb von `clamp`.
 - Das Briefing liest bei SessionStart zusätzlich das Ledger. Der Hook-Hot-Path (`PreToolUse`) ist nicht betroffen.
 - Die Woche hat keine eigene Recap-Reserve: Kein Aufrufer übergibt `recapEstimate7d`, `Resolved.Recap7d` wird nicht gelesen. Ihr Puffer ist der Abstand von 96 zu 100. Das ist heute schon so und ändert sich hier nicht.
+
+## Nachtrag Q-0149 (G-0108): Das Vokabular kennt `fable` und `mythos`
+
+**Datum:** 11.11.2026 · **Status:** angenommen · **Issue:** #82
+
+### Kurz in einfacher Sprache
+
+- Monarch kannte nur die Modellfamilien `opus`, `sonnet` und `haiku`. Eine Session mit `claude-fable-5-2` wurde deshalb als `unknown` geführt.
+- Künftig erkennt Monarch auch `fable` und `mythos`. Jede dieser Familien bekommt ihren eigenen Schätzfaktor.
+- An den Grenzen ändert sich nichts.
+
+### Anlass (gemessen am 11.11.2026)
+
+`~/.monarch/mana.json` führte die Session als `claude-fable-5-2`. `monarch mana` zeigte trotzdem `Paar (unknown, medium): Faktor 1.00, unkalibriert (n=0)`. Schritte mit Fable wären unter `unknown|<effort>` kalibriert worden, zusammen mit jedem anderen unerkannten Modell.
+
+### Entscheidung
+
+- Das feste Vokabular aus Punkt 4 heißt jetzt: Familie `opus`, `sonnet`, `haiku`, `fable`, `mythos`; alles andere bleibt `unknown`.
+- Unterschieden wird weiter nach Familie, nicht nach Version. `claude-fable-5-1` und `claude-fable-5-2` teilen sich einen Faktor, so wie die Opus-Versionen.
+- `Normalize` bleibt sonst unverändert. Freitext aus der Umgebung gelangt weiter nie in eine Ausgabe; ausgegeben wird nur ein Wort aus dem Vokabular.
+- Punkt 7 gilt unverändert: Grenzen, `Resolve()` und Guard hängen nicht vom Paar ab.
+
+### Folgen
+
+- Faktoren, die bisher unter `unknown|<effort>` gelernt wurden, bleiben dort stehen und werden nicht umgebucht. In der Worktree G-0107 war die Kalibrierdatei am 11.11. leer; andere Checkouts wurden nicht geprüft.
+- Kommt eine neue Modellfamilie dazu, braucht es wieder eine Zeile im Vokabular und einen Test. Bis dahin zeigt `monarch mana` für sie `unknown`.
+
+### Tests
+
+- `ManaCalibrationTests.cs`: `claude-fable-5-2` und `claude-fable-5-1` → `fable`, `claude-mythos-5-2` → `mythos`; `lower-the-model` bleibt `unknown`.
+- `CalibrationTests.cs`: Eine Fable-Session wird unter `fable|medium` kalibriert, nicht unter `unknown|medium`, und `mana` zeigt `Paar (fable, medium)`.
