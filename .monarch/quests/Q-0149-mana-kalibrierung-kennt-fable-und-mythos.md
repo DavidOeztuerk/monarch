@@ -3,7 +3,7 @@ id: Q-0149
 gate: G-0108
 kind: main
 rank: C
-state: in_progress
+state: in_review
 dod:
   - Test zuerst rot: tests/Monarch.Domain.Tests/ManaCalibrationTests.cs (Theory Pair_is_normalised_to_a_fixed_vocabulary, :52-60) bekommt Zeilen claude-fable-5-2 -> fable, claude-fable-5-1 -> fable, claude-mythos-5-2 -> mythos; ein Cli-Test in tests/Monarch.Cli.Tests/CalibrationTests.cs: Session in mana.json mit claude-fable-5-2 und CLAUDE_EFFORT medium -> `mana` zeigt „Paar (fable, medium)“
   - Fix: fable und mythos ins feste Vokabular (ManaCalibration.cs:8, Doku-Kommentar :4); Normalize (:18-23) sonst unverändert; unbekannter Freitext bleibt unknown (bestehende Zeile lower-the-model bleibt grün) und gelangt nie in eine Ausgabe

@@ -52,6 +52,8 @@ jobs:
       # numbers from this job's log next to the new value. Measurements of the runner noise (shared runners preempt
       # sporadically) are in commit 5abdd63. A relative A/B gate follows as its own quest.
       LIMIT_MS: "20"
+      # Relative report (issue #8): hook against `monarch --version` on the same runner; report only.
+      REL_REPORT: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

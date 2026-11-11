@@ -140,4 +140,40 @@ run abs-target "$proj"
 run nested-projects "$inner"
 run long-heredoc "$proj"
 [[ $status -eq 0 ]] && echo "OK: all p${gate_pct} <= ${limit_ms} ms" || echo "FAIL: p${gate_pct} > ${limit_ms} ms" >&2
+
+# Relative report (issue #8, data for ADR-0015): the hook against the bare program start on the same machine.
+# Per scenario BLOCKS blocks, each block measures the reference (`monarch --version`, same mode, same cwd, same stdin)
+# and then the scenario, so both see the same machine state. ratio = p50(scenario) / p50(reference) per block; the
+# reported value is the median over the blocks. Report only: it never changes the exit code.
+block_medians() { # merged-json -> one p50 (ms) per block
+  jq -c '[.results[] | (.times // [.measurements[].time_wall_clock.value]) | sort | .[length/2|floor]*1000]' "$1"
+}
+relative() { # name, cwd
+  local name="$1" dir="$2" b blocks="${BLOCKS:-5}" rel_runs="${REL_RUNS:-60}"
+  for ((b = 1; b <= blocks; b++)); do
+    (cd "$dir" && hyperfine -N --warmup 10 --runs "$rel_runs" --input "$work/$name.json" \
+      --export-json "$work/$name.ref.$b.json" "$target --version" >/dev/null 2>&1)
+    (cd "$dir" && hyperfine -N --warmup 10 --runs "$rel_runs" --input "$work/$name.json" \
+      --export-json "$work/$name.rel.$b.json" "$target hook pre-tool-use" >/dev/null 2>&1)
+  done
+  jq -s '{results: map(.results[0])}' "$work/$name".ref.[0-9]*.json >"$work/$name.ref.result.json"
+  jq -s '{results: map(.results[0])}' "$work/$name".rel.[0-9]*.json >"$work/$name.rel.result.json"
+  jq -rn --argjson r "$(block_medians "$work/$name.ref.result.json")" --argjson h "$(block_medians "$work/$name.rel.result.json")" --arg n "$name" '
+    def med: sort | .[length/2|floor];
+    def f: . * 100 | round / 100;
+    [range(0; $r|length) | $h[.] / $r[.]] as $q
+    | "\($n)\t\($r|med|f)\t\($h|med|f)\t\($q|med|f)\t\($q|min|f)\t\($q|max|f)\t\(($h|med) - ($r|med)|f)"' |
+    awk -F'\t' '{printf "%-16s %10s %10s %8s %8s %8s %10s\n", $1, $2, $3, $4, $5, $6, $7}'
+}
+if [[ -z "$results_dir" && "${REL_REPORT:-0}" == "1" ]]; then
+  printf '%-16s %10s %10s %8s %8s %8s %10s   (relative report, %s blocks x %s runs)\n' scenario ref_p50 hook_p50 ratio min max delta_ms "${BLOCKS:-5}" "${REL_RUNS:-60}"
+  relative in-scope "$proj"
+  relative out-of-scope "$proj"
+  relative denied-bash "$proj"
+  relative non-awakened "$work/plain"
+  relative bash-targets "$proj"
+  relative abs-target "$proj"
+  relative nested-projects "$inner"
+  relative long-heredoc "$proj"
+fi
 exit $status
