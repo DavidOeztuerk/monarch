@@ -66,3 +66,14 @@ Direkt aufgerufen hält der Hook die Grenze ohne Stack ein (p99 16,1 ms), über 
 7. **Messen heißt: nichts nebenher.** Die erste Messreihe war durch eigene Arbeit gestört und musste wiederholt werden.
 8. **Auflagen gehen vor dem Abschluss an den Owner.** Hinterher melden reicht nicht.
 9. **Schätzungen rechnen Warden-Runden mit ein.** Bis die Kalibrierung greift, ist Faktor 2 der ehrliche Wert.
+
+## Nachtrag 11.11.2026: Das Latenz-Gate in der CI wurde gelockert
+
+Das ist eine Lockerung, und sie steht hier, damit sie nicht wie die frühere (`5abdd63`) still geschieht.
+
+- **Was sich ändert:** Die CI macht einen Lauf nicht mehr rot, wenn p99 über 20 ms liegt. Sie prüft stattdessen, um welchen Faktor der Hook langsamer ist als der bloße Programmstart auf demselben Runner (ADR-0015, Q-0148).
+- **Wer entschieden hat:** der Owner am 11.11.2026, nach Regel 1. Das Design ging durch eine Warden-Runde und eine Delta-Runde.
+- **Warum:** Von 87 CI-Versuchen bis zum 11.11. waren 24 rot, alle nur an Latenz-Schritten. Gleicher Code war rot und grün, die Runner waren bis zum 1,7-Fachen verschieden schnell. Die feste Zahl maß den Runner.
+- **Wie das zu Regel 3 steht:** Regel 3 verbietet, ein rotes Gate leiser zu stellen, um grün zu werden. Hier wurde die Ursache belegt, das Gate durch eines ersetzt, das einen Regress nachweislich erkennt (Fehler-Injektion in der CI), und der Owner hat entschieden. Die Grenze von 20 ms selbst ist nicht angehoben.
+- **Was offen bleibt:** C1 ist weiter nicht erfüllt (#70). Das neue CI-Gate sagt darüber nichts. Es erkennt auch kein insgesamt langsameres Binary und keine Ausreißer; dafür bleibt die Messung auf dem Mac des Owners.
+- **Die Quarantäne** des macOS-Wrapper-Schritts ist damit beendet (Regel 2): Der Schritt blockiert wieder, am Verhältnis.
