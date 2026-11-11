@@ -3,7 +3,7 @@ id: Q-0146
 gate: G-0107
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - Die Standardregeln liegen versioniert im Plugin; das Briefing nennt den Kern und verweist auf den Rest und bleibt kurz.
   - Abgedeckt: Worktree je Gate, Prüfung nach Risiko, Merge nur per gate merge, kein [skip ci] vor dem Merge, Issue-Texte per --body-file, Aufräumen nach dem Merge.

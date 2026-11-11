@@ -3,7 +3,7 @@ id: Q-0147
 gate: G-0107
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - Je Fehlalarm ein Test, dass er weg ist, und ein Test, dass der echte Zugriff weiter verweigert wird; die Tabelle in ADR-0017 ist vollständig umgesetzt.
   - Neue Ausnahmen gelten nur für rein literale Argumente; alles andere bleibt bei der heutigen Einordnung. Kein vorhandener Test ändert sich.
