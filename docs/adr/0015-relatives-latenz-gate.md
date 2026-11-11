@@ -1,6 +1,6 @@
 # ADR-0015 — Relatives Latenz-Gate in der CI
 
-**Datum:** 11.11.2026 · **Status:** vorgeschlagen (Design-Runde Warden G-0108: REQUEST_CHANGES am Stand `a25689b`, sechs major-Befunde hier eingearbeitet, Delta-Runde steht aus) · **Quest:** Q-0148 (G-0108) · **Issue:** #8
+**Datum:** 11.11.2026 · **Status:** angenommen (Design-Runde Warden G-0108: REQUEST_CHANGES am Stand `a25689b`, sechs major-Befunde eingearbeitet, Delta-Runde APPROVE am Stand `70106a0`) · **Quest:** Q-0148 (G-0108) · **Issue:** #8
 
 ## Kurz in einfacher Sprache
 
@@ -34,15 +34,15 @@ Ein Szenario besteht, wenn sein Wert in einem von höchstens zwei Versuchen die 
 
 - Der Befehl startet dasselbe Binary, liest keine Projektdateien und schreibt nichts. Er kostet also Prozessstart und Laufzeit-Initialisierung.
 - Er ist nicht identisch mit dem Startpfad des Hooks: `--version` baut den Befehlsbaum von System.CommandLine auf, der Hook umgeht ihn (`src/Monarch.Cli/MonarchApp.cs:12-28`).
-- **Der Unterschied ist gemessen.** Der kleinste Hook-Pfad ohne System.CommandLine ist `monarch hook <unbekanntes Ereignis>` mit leerer Eingabe in einem Ordner ohne Monarch; er endet ohne Arbeit (`HookRunner.cs:69-73`). Lokal auf dem Mac, 300 Läufe (Messung des Wardens in der Design-Runde): `--version` 7,3 ms, dieser Leerlauf-Hook 7,2 ms. Der Anteil von System.CommandLine liegt also bei rund 2 %.
-- Das Bench misst diesen Vergleich künftig in jedem Lauf mit und gibt ihn aus (`Bezugsprüfung`). Wächst der Befehlsbaum, fällt das dort auf.
+- **Der Unterschied ist gemessen.** Der kleinste Hook-Pfad ohne System.CommandLine ist `monarch hook <unbekanntes Ereignis>` mit leerer Eingabe in einem Ordner ohne Monarch; er endet ohne Arbeit (`HookRunner.cs:69-73`). Lokal auf dem Mac, 300 Läufe (Messung des Wardens in der Design-Runde, Mittelwerte): `--version` 7,3 ms, dieser Leerlauf-Hook 7,2 ms.
+- Das Bench misst diesen Vergleich in jedem Lauf mit und gibt ihn aus (Zeile `reference check`). In der CI (Läufe 43069811876 und 43071057248): macOS `--version` 0,15 bis 0,16 ms über dem Leerlauf-Hook (2 bis 3 %), Linux 0,45 bis 0,61 ms (8 bis 11 %). Der Bezug ist auf Linux also spürbar größer als der reine Start. Wächst der Befehlsbaum, fällt das in dieser Zeile auf.
 - Der Leerlauf-Hook wäre der genauere Bezug. Die DoD legt `--version` fest; ein Wechsel ist ein Owner-Entscheid.
 
 ### Schwellen
 
-Regel: **Schwelle = größter gemessener Wert je Betriebssystem und Klasse (über beide Modi) + 0,25**.
+Regel: **Schwelle = größter gemessener Wert der ersten Messreihe je Betriebssystem und Klasse (über beide Modi) + 0,25**. Die Schwellen werden danach nicht automatisch nachgezogen, wenn ein späterer Lauf einen höheren Wert zeigt. Sonst stiege die Schwelle mit jedem Ausreißer.
 
-Gemessen im Lauf 43060173567 auf dem Commit `e09b614`. Werte sind die Mediane der Block-Verhältnisse je Szenario.
+Erste Messreihe: Lauf 43060173567 auf dem Commit `e09b614`. Werte sind die Mediane der Block-Verhältnisse je Szenario.
 
 | Betriebssystem, Modus | Versuche | ohne Ledger | mit Ledger |
 |---|---|---|---|
@@ -58,10 +58,22 @@ Gemessen im Lauf 43060173567 auf dem Commit `e09b614`. Werte sind die Mediane de
 | Klasse | Schwelle Linux | Schwelle macOS |
 |---|---|---|
 | ohne Ledger | 1,55 | 1,47 |
-| mit Ledger | 2,40 (vorläufig) | 1,70 |
+| mit Ledger | 2,40 | 1,70 |
+
+Kontrolle mit dem fertigen Gate, ohne Injektion (Lauf 43069811876, Commit `4923e73`, grün auf beiden Betriebssystemen):
+
+| Betriebssystem, Modus | ohne Ledger | mit Ledger |
+|---|---|---|
+| Linux, direkt | 1,08–1,38 | 1,92–1,97 |
+| Linux, Wrapper | 1,05–1,31 | 1,84–1,97 |
+| macOS, direkt | 1,06–1,16 | 1,27–1,31 |
+| macOS, Wrapper | 1,00–1,18 | 1,08–1,20 |
+
+- Linux „ohne Ledger“ zeigte hier 1,38 (long-heredoc, direkt), mehr als die 1,30 der ersten Messreihe. Die Schwelle bleibt 1,55; der Abstand beträgt damit 0,17 statt 0,25. long-heredoc liegt auf Linux durchweg höher als die übrigen Szenarien dieser Klasse (1,24 bis 1,38 gegen höchstens 1,26).
+- Linux „mit Ledger“ ist mit jetzt vier Läufen ohne Injektion bestätigt (höchster Wert weiter 2,15). Die Schwelle 2,40 gilt. Werte aus dem Injektionslauf sind in keine Schwelle eingegangen.
+- Überschreitet ein Lauf ohne Code-Änderung eine Schwelle in beiden Versuchen, wird neu gemessen und hier entschieden, nicht still angehoben.
 
 - Die Klasse „mit Ledger“ schreibt nach der Entscheidung eine Zeile ins Ledger (`src/Monarch.Cli/HookRunner.cs:199-223`). Der ganze Aufschlag dieser Szenarien auf den Bezug lag auf Linux bei 4,50 bis 7,66 ms, auf macOS bei 1,13 bis 2,72 ms. Der Anteil des Ledgers daran (Aufschlag minus in-scope) liegt auf Linux bei etwa 3,7 bis 6,5 ms, auf macOS bei etwa 0 bis 1,9 ms. Warum Linux so viel teurer ist, ist nicht belegt und wird ein eigenes Issue.
-- **Die Linux-Schwelle „mit Ledger“ ist vorläufig.** Sie stützt sich auf drei Versuche. Sie wird erst mit den weiteren Linux-Läufen dieser Quest (Injektion und grüner Beleg) festgeschrieben; die Werte werden hier nachgetragen.
 - Die Schwellen stehen fest im Skript. Sie lassen sich **nicht** über Umgebungsvariablen ändern. Wer sie ändert, trägt Messwerte und Run-ID hier nach.
 - Die Schwellen gelten je Klasse, nicht je Szenario. Szenarien mit kleinem Verhältnis (non-awakened 1,02 bis 1,16) sind dadurch weniger empfindlich als solche nah an der Schwelle.
 
@@ -132,10 +144,21 @@ Echte Fehler-Injektion in der CI, `BENCH_INJECT=git`:
 - Das Bench legt in seinem Arbeitsordner ein Skript an, das erst `git --version` startet (Eingabe und Ausgabe nach `/dev/null`) und dann per `exec` das Programm aufruft. Die Eingabe des Hooks bleibt unberührt.
 - Die Injektion liegt im gemessenen Befehl, nicht in einem Vorbereitungsschritt, und trifft **nur die Hook-Seite**. Der Bezug läuft ohne sie.
 - Das Bench misst die Kosten der Injektion selbst (Bezug mit gegen Bezug ohne Injektion) und gibt sie in ms aus. So ist belegt, wie groß der Regress war, den das Gate erkannt hat.
-- Erwartung: Der relative Schritt wird auf beiden Betriebssystemen rot. Run-ID und gemessene Kosten: werden nachgetragen.
 - Im finalen Stand ist die Injektion nicht aktiv; `ci.yml` setzt `BENCH_INJECT` nicht.
 
-Beleg: grüner CI-Lauf auf dem Gate-Branch mit dem relativen Gate auf beiden Betriebssystemen. Run-ID und Zahlen: werden nachgetragen.
+**Ergebnis der Injektion** (Lauf 43071057248, Commit `fa1377c`, Schritt „Hook latency, relative gate (direct)“ rot auf beiden Betriebssystemen):
+
+| Betriebssystem | Kosten der Injektion | Verhältnisse mit Injektion | über der Schwelle |
+|---|---|---|---|
+| macOS (Job 130699480479) | 6,47 ms | ohne Ledger 2,14–2,62, mit Ledger 2,51–2,61 | 8 von 8 Szenarien |
+| Linux (Job 130699480518) | 1,78 ms | ohne Ledger 1,41–1,64, mit Ledger 2,34–2,45 | 2 von 8 Szenarien (long-heredoc 1,64, out-of-scope 2,45) |
+
+- Auf macOS ist ein `git`-Start teuer, der Nachweis ist dort eindeutig.
+- Auf Linux kostet derselbe `git`-Start nur 1,78 ms. Das Gate wurde rot, aber knapp: Sechs Szenarien blieben unter der Schwelle (1,41 bis 1,55 bei Schwelle 1,55; 2,34 bei 2,40). **Ein Regress von knapp 2 ms liegt auf Linux an der Erkennungsgrenze.** Das passt zur Tabelle „Gate wird rot ab“.
+- Zum Vergleich: Das alte Gate (p99 ≤ 20 ms) hätte denselben Regress auf Linux nur durch einen Ausreißer bemerkt. Sieben von acht Szenarien lagen mit Injektion bei p99 12 bis 19 ms.
+- Der Wrapper-Schritt lief in diesem Lauf nicht, weil der Direkt-Schritt schon rot war.
+
+**Beleg grün:** Lauf 43069811876 (Commit `4923e73`) mit dem relativen Gate, direkt und über den Wrapper, auf beiden Betriebssystemen; Zahlen in der Kontrolltabelle oben. Der Lauf am finalen Head steht im PR.
 
 ## Folgen
 
