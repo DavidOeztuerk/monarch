@@ -3,7 +3,7 @@ id: Q-0143
 gate: G-0106
 kind: main
 rank: D
-state: in_review
+state: cleared
 dod:
   - docs/lessons.md steht im Repo, in einfacher Sprache, mit dem Ergebnis des MVP-Gates: nicht bestanden, und dem Grund
   - Die Fehlschläge stehen offen drin: Wettrüsten in der Nacht, aufgeweichter Test, roter develop, vergessene Release-Schritte
