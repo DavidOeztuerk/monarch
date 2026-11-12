@@ -114,4 +114,79 @@ expect 2 "an unknown operating system is an error" rel "$tmp/base" PATH="$tmp/fa
 # Limits are fixed in the script: nothing in the environment moves them.
 expect 1 "limits cannot be raised through the environment" rel "$tmp/regress" \
   REL_LIMIT=99 REL_LIMIT_PLAIN=99 REL_LIMIT_LEDGER=99 LIMIT_RATIO=99 RATIO_LIMIT=99 LIMIT_MS=9999 GATE_PCT=95
+
+# --- C1 under load on the owner's Mac (GATE_MODE=c1-load, addendum of 2026-11-12 to ADR-0015, Q-0150). ---
+# Same statistic as the relative gate, one fixed limit of 1.64 for every scenario (owner decision), macOS only, never
+# in CI. The cases run with a uname that reports Darwin and without CI variables, so the Linux runner checks them too.
+# Every exit-2 case uses data that would pass without the guard and checks the reason: an unknown mode also exits 2.
+c1_limit=1.64
+mkdir -p "$tmp/darwinbin" && printf '#!/bin/sh\necho Darwin\n' >"$tmp/darwinbin/uname" && chmod +x "$tmp/darwinbin/uname"
+mkdir -p "$tmp/linuxbin" && printf '#!/bin/sh\necho Linux\n' >"$tmp/linuxbin/uname" && chmod +x "$tmp/linuxbin/uname"
+c1() { # dir, [env assignments...] -> exit code of the C1 load mode on a simulated Mac outside CI
+  local dir="$1"; shift
+  env -u CI -u GITHUB_ACTIONS -u MONARCH_BIN BENCH_RESULTS_DIR="$dir" GATE_MODE=c1-load PATH="$tmp/darwinbin:$PATH" "$@" \
+    "$repo/bench/hook-latency.sh" >"$tmp/rel.log" 2>&1
+}
+mac_rel() { # dir, [env assignments...] -> the unchanged relative gate with the macOS limits
+  local dir="$1"; shift
+  rel "$dir" PATH="$tmp/darwinbin:$PATH" "$@"
+}
+reason() { # text, description: the last run must have named this reason
+  if grep -qF -- "$1" "$tmp/rel.log"; then echo "ok: $2"; else echo "FAIL: $2 (reason '$1' not in the output)"; cat "$tmp/rel.log"; fail=1; fi
+}
+
+dataset "$tmp/c1-under" 5 "$(near "$c1_limit" -0.02)" "$(near "$c1_limit" -0.02)"
+expect 0 "c1-load: just under 1.64 in both classes passes" c1 "$tmp/c1-under"
+reason "1.64" "c1-load: the output shows the limit 1.64"
+dataset "$tmp/c1-over-plain" 5 "$(near "$c1_limit" 0.02)" 1.30
+expect 1 "c1-load: just over 1.64 without ledger fails" c1 "$tmp/c1-over-plain"
+dataset "$tmp/c1-over-ledger" 5 1.20 "$(near "$c1_limit" 0.02)"
+expect 1 "c1-load: just over 1.64 with ledger fails" c1 "$tmp/c1-over-ledger"
+
+# Separate from the CI limits, which stay as they are (macOS: 1.47 without ledger, 1.70 with ledger).
+dataset "$tmp/c1-plain160" 5 1.60 1.30
+expect 0 "c1-load: 1.60 without ledger passes" c1 "$tmp/c1-plain160"
+expect 1 "relative on macOS: 1.60 without ledger still fails (CI limit 1.47 unchanged)" mac_rel "$tmp/c1-plain160"
+dataset "$tmp/c1-ledger168" 5 1.20 1.68
+expect 1 "c1-load: 1.68 with ledger fails" c1 "$tmp/c1-ledger168"
+expect 0 "relative on macOS: 1.68 with ledger still passes (CI limit 1.70 unchanged)" mac_rel "$tmp/c1-ledger168"
+
+# The mode cannot loosen the CI gate: macOS only, not in CI (set counts, even empty), no MONARCH_BIN.
+expect 2 "c1-load: another operating system is an error" c1 "$tmp/base" PATH="$tmp/linuxbin:$PATH"
+reason "c1-load: only on macOS" "c1-load: the error names the operating system rule"
+expect 2 "c1-load: CI=true is an error" c1 "$tmp/base" CI=true
+reason "c1-load: not in CI" "c1-load: the error names the CI rule (CI=true)"
+expect 2 "c1-load: GITHUB_ACTIONS=true is an error" c1 "$tmp/base" GITHUB_ACTIONS=true
+reason "c1-load: not in CI" "c1-load: the error names the CI rule (GITHUB_ACTIONS=true)"
+expect 2 "c1-load: an empty CI variable is an error" c1 "$tmp/base" CI=
+reason "c1-load: not in CI" "c1-load: the error names the CI rule (CI empty)"
+expect 2 "c1-load: MONARCH_BIN is an error" c1 "$tmp/base" MONARCH_BIN=/usr/bin/true
+reason "c1-load: MONARCH_BIN must not be set" "c1-load: the error names the MONARCH_BIN rule"
+expect 0 "relative: CI variables do not stop the CI gate" rel "$tmp/base" CI=true GITHUB_ACTIONS=true
+expect 2 "c1-load: ATTEMPTS=0 is rejected" c1 "$tmp/base" ATTEMPTS=0
+reason "ATTEMPTS must be 1 or 2" "c1-load: the error names ATTEMPTS"
+expect 2 "c1-load: missing reference samples are an error" c1 "$tmp/noref"
+reason "missing " "c1-load: the error names the missing file"
+expect 1 "c1-load: the limit cannot be raised through the environment" c1 "$tmp/c1-over-plain" \
+  lim_c1=99 LIM_C1=99 C1_LIMIT=99 lim_plain=99 lim_ledger=99 REL_LIMIT=99 LIMIT_RATIO=99 LIMIT_MS=9999 GATE_PCT=95
+
+# ci.yml must keep the relative gate: no c1-load outside comments, every GATE_MODE there is `relative`, and both
+# latency steps carry one. The check proves itself on altered copies.
+ci_keeps_relative() { # workflow file
+  local code modes
+  code="$(grep -v '^[[:space:]]*#' "$1")"
+  if grep -q 'c1-load' <<<"$code"; then return 1; fi
+  modes="$(grep 'GATE_MODE' <<<"$code" || true)"
+  [[ "$(grep -c . <<<"$modes")" -eq 2 ]] || return 1
+  ! grep -qv '^[[:space:]]*GATE_MODE: relative[[:space:]]*$' <<<"$modes"
+}
+ci="$repo/.github/workflows/ci.yml"
+: >"$tmp/rel.log"
+expect 0 "ci.yml: both latency steps gate with GATE_MODE relative, c1-load is not used" ci_keeps_relative "$ci"
+awk '!done && /GATE_MODE: relative/ {sub(/relative/, "c1-load"); done=1} {print}' "$ci" >"$tmp/ci-c1.yml"
+expect 1 "ci.yml check: a step switched to c1-load is caught" ci_keeps_relative "$tmp/ci-c1.yml"
+awk '!done && /WRAPPER=1 bench/ {sub(/WRAPPER=1/, "GATE_MODE=c1-load WRAPPER=1"); done=1} {print}' "$ci" >"$tmp/ci-inline.yml"
+expect 1 "ci.yml check: c1-load inside a run line is caught" ci_keeps_relative "$tmp/ci-inline.yml"
+awk '!done && /GATE_MODE: relative/ {done=1; next} {print}' "$ci" >"$tmp/ci-dropped.yml"
+expect 1 "ci.yml check: a latency step without GATE_MODE relative is caught" ci_keeps_relative "$tmp/ci-dropped.yml"
 exit $fail

@@ -77,3 +77,14 @@ Das ist eine Lockerung, und sie steht hier, damit sie nicht wie die frühere (`5
 - **Wie das zu Regel 3 steht:** Regel 3 verbietet, ein rotes Gate leiser zu stellen, um grün zu werden. Hier wurde die Ursache belegt, das Gate durch eines ersetzt, das einen Regress nachweislich erkennt (Fehler-Injektion in der CI), und der Owner hat entschieden. Die Grenze von 20 ms selbst ist nicht angehoben.
 - **Was offen bleibt:** C1 ist weiter nicht erfüllt (#70). Das neue CI-Gate sagt darüber nichts. Es erkennt auch kein insgesamt langsameres Binary und keine Ausreißer; dafür bleibt die Messung auf dem Mac des Owners.
 - **Die Quarantäne** des macOS-Wrapper-Schritts ist damit beendet (Regel 2): Der Schritt blockiert wieder, am Verhältnis.
+
+## Nachtrag 12.11.2026: C1 gilt unter Last als Verhältnis
+
+Das ändert ein Kriterium, und es steht hier, damit es nicht still geschieht (Regel 1).
+
+- **Was sich ändert:** C1 hat zwei Teile. Die 20 ms im p99 gelten auf ruhiger Maschine. Unter Last darf der Hook auf dem Mac höchstens das 1,64-Fache des bloßen Programmstarts kosten (`GATE_MODE=c1-load`, Nachtrag zu ADR-0015, Q-0150).
+- **Wer entschieden hat:** der Owner am 12.11.2026, beide Teile und den Faktor. Die Session hat gemessen und vorgeschlagen; ihr Vorschlag (1,48 und 1,62) wurde nicht übernommen.
+- **Warum:** Unter der Abendlast des Owners lag der p99 in 44 von 48 Messungen über 20 ms, weil schon ein leerer Programmstart so lange braucht. Das Verhältnis blieb im Median bei 1,08 bis 1,10.
+- **Was nicht gelockert wurde:** Die 20 ms selbst, die CI-Schwellen und die CI-Schritte. Der neue Modus läuft nur auf macOS und verweigert die CI; der Selbsttest prüft, dass `ci.yml` beim relativen Gate bleibt.
+- **Was dünn ist:** Der Faktor stammt aus zwölf Minuten an einem Abend. Zwei von 48 Werten lagen im ersten Versuch über 1,64. Für Aufrufe mit Ledger lag das p95 bei 1,69; ob sie einen eigenen Wert bekommen, ist offen.
+- **Lehre:** Eine feste Zahl in Millisekunden braucht die Bedingung dazu, unter der sie gilt. Ohne sie misst sie die Maschine.
