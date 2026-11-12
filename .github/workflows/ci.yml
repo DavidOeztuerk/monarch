@@ -51,7 +51,10 @@ jobs:
       # Latency gate (ADR-0015, docs/adr/0015-relatives-latenz-gate.md): the CI gates the ratio of the hook to the bare
       # program start (`monarch --version`) on the same runner, at the median. The limits are fixed in
       # bench/hook-latency.sh; change them only together with measured numbers and run ids in ADR-0015.
-      # LIMIT_MS stays 20: p99 <= 20 ms is the criterion on the owner's machine (MVP gate C1, issue #70). Here the
+      # LIMIT_MS stays 20: p99 <= 20 ms is the criterion on the owner's machine (MVP gate C1), and since the owner
+      # decision of 2026-11-12 it holds on a quiet machine. Under load C1 is a ratio of at most 1.64, measured on the
+      # Mac with its own bench mode (ADR-0015, addendum of 2026-11-12). That mode is not a CI gate and refuses to run
+      # here; the steps below keep GATE_MODE relative, and bench/test-gate.sh fails if they do not. Here the
       # absolute p50/p95/p99 are reported in the log and the job summary and do not fail the job (declared loosening,
       # owner decision of 2026-11-11). Never set BENCH_INJECT here; it exists only to prove that the gate turns red.
       LIMIT_MS: "20"

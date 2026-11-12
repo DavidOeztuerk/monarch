@@ -4,6 +4,9 @@
 # Env:   GATE_MODE absolute (default): gate on the percentile in ms, the MVP criterion on the target machine.
 #                  relative (CI, ADR-0015): gate on ratio = p50(hook) / p50(`monarch --version`), median of five
 #                  blocks of 60 runs, against limits fixed in this script; ms values are reported, not gated.
+#                  c1-load (owner's Mac under load, MVP criterion C1 part 2, ADR-0015 addendum of 2026-11-12): the
+#                  relative statistic against one fixed limit of 1.64 for every scenario. macOS only, never in CI,
+#                  not with MONARCH_BIN. Call: GATE_MODE=c1-load bench/hook-latency.sh plugin/scripts/monarch
 #        LIMIT_MS  latency limit in ms (default 20) for the gate percentile; exit 1 if any scenario exceeds it
 #                  (absolute mode; in relative mode it only labels the report).
 #        GATE_PCT  gate percentile in absolute mode: 99 (default) or 95. p50/p95/p99 are always printed.
@@ -26,7 +29,7 @@ gate_pct="${GATE_PCT:-99}"
 case "$gate_pct" in 95|99) ;; *) echo "GATE_PCT must be 95 or 99" >&2; exit 2 ;; esac
 # Invalid input is an error, never a pass (ADR-0015): ATTEMPTS=0 used to report OK without a single measurement.
 gate_mode="${GATE_MODE:-absolute}"
-case "$gate_mode" in absolute|relative) ;; *) echo "GATE_MODE must be absolute or relative" >&2; exit 2 ;; esac
+case "$gate_mode" in absolute|relative|c1-load) ;; *) echo "GATE_MODE must be absolute, relative or c1-load" >&2; exit 2 ;; esac
 attempts="${ATTEMPTS:-2}"
 case "$attempts" in 1|2) ;; *) echo "ATTEMPTS must be 1 or 2" >&2; exit 2 ;; esac
 inject="${BENCH_INJECT:-}"
@@ -44,7 +47,21 @@ if [[ "$gate_mode" == relative ]]; then
     *) echo "relative gate: no limits for $(uname -s)" >&2; exit 2 ;;
   esac
 fi
+# C1 under load (GATE_MODE=c1-load, ADR-0015 addendum of 2026-11-12): one limit for every scenario, the owner's
+# decision of 2026-11-12 (highest p95 under evening load 1.39 + 0.25). It is separate from the CI limits above, fixed
+# here and not settable from the environment; changing it needs an owner decision and measured numbers in the ADR.
+# The mode must not loosen the CI gate (1.64 is above the macOS CI limit without ledger): macOS only, an error when
+# CI or GITHUB_ACTIONS is set (even empty), and an error with MONARCH_BIN, which would make the wrapper start another
+# binary than the installed one.
+lim_c1=""
+if [[ "$gate_mode" == c1-load ]]; then
+  [[ "$(uname -s)" == Darwin ]] || { echo "c1-load: only on macOS (found $(uname -s))" >&2; exit 2; }
+  if [[ -n "${CI+x}" || -n "${GITHUB_ACTIONS+x}" ]]; then echo "c1-load: not in CI (CI or GITHUB_ACTIONS is set)" >&2; exit 2; fi
+  if [[ -n "${MONARCH_BIN+x}" ]]; then echo "c1-load: MONARCH_BIN must not be set (measure the installed binary through the wrapper)" >&2; exit 2; fi
+  lim_c1=1.64
+fi
 rel_limit() { # scenario -> limit; a scenario without a class gets the stricter one
+  if [[ "$gate_mode" == c1-load ]]; then echo "$lim_c1"; return; fi
   case "$1" in out-of-scope|denied-bash) echo "$lim_ledger" ;; *) echo "$lim_plain" ;; esac
 }
 results_dir="${BENCH_RESULTS_DIR:-}"
@@ -246,8 +263,12 @@ rel_report() { # label-a, command-a, label-b, command-b
     | "\($la) \($x*100|round/100) ms, \($lb) \($y*100|round/100) ms, difference \(($y-$x)*100|round/100) ms, ratio \($y/$x*100|round/100)"'
 }
 
-if [[ "$gate_mode" == relative ]]; then
+if [[ "$gate_mode" != absolute ]]; then
   run=run_relative
+  if [[ "$gate_mode" == c1-load ]]; then
+    echo "C1 under load (ADR-0015 addendum 2026-11-12): ratio limit $lim_c1 for every scenario, not a CI gate"
+    if [[ -z "$results_dir" ]]; then echo "measured: $target --version -> $("$target" --version 2>&1 | head -n1)"; fi
+  fi
   printf '%-16s %10s %10s %10s %10s %8s %8s   (gate: ratio <= limit; p50/p95/p99 in ms are reported only)\n' scenario p50_ms p95_ms p99_ms ref_p50 ratio limit
 else
   run=run_absolute
@@ -261,7 +282,7 @@ $run bash-targets "$proj"
 $run abs-target "$proj"
 $run nested-projects "$inner"
 $run long-heredoc "$proj"
-if [[ "$gate_mode" == relative ]]; then
+if [[ "$gate_mode" != absolute ]]; then
   if [[ -z "$results_dir" ]]; then
     echo "reference check: $(rel_report "idle hook" "$target hook bench-idle" "--version" "$target --version")"
     if [[ "$inject" == git ]]; then
@@ -269,9 +290,9 @@ if [[ "$gate_mode" == relative ]]; then
     fi
   fi
   if [[ $abs_over -eq 0 ]]; then
-    echo "REPORT: absolute p99 <= ${limit_ms} ms in every scenario (not gating in relative mode)"
+    echo "REPORT: absolute p99 <= ${limit_ms} ms in every scenario (not gating in ${gate_mode} mode)"
   else
-    echo "REPORT: absolute p99 > ${limit_ms} ms in ${abs_over} scenario(s) (not gating in relative mode)"
+    echo "REPORT: absolute p99 > ${limit_ms} ms in ${abs_over} scenario(s) (not gating in ${gate_mode} mode)"
   fi
   if [[ $status -eq 0 ]]; then echo "OK: all ratios within their limits"; else echo "FAIL: ratio over its limit" >&2; fi
 else

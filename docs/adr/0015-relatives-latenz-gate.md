@@ -172,7 +172,7 @@ Echte Fehler-Injektion in der CI, `BENCH_INJECT=git`:
 
 ## Nachtrag 12.11.2026: C1 unter Last auf dem Mac (Q-0150, G-0109)
 
-**Status:** Design-Runde Warden G-0109: REQUEST_CHANGES am Stand `105f972`, drei major-Befunde eingearbeitet (falsche Angaben, Tests schon vorher grün, CI-Sperre zu stark formuliert).
+**Status:** Design-Runde Warden G-0109: REQUEST_CHANGES am Stand `105f972`, drei major-Befunde eingearbeitet (falsche Angaben, Tests schon vorher grün, CI-Sperre zu stark formuliert), Delta-Runde APPROVE am Stand `e7ed10d`.
 
 ### Kurz in einfacher Sprache
 
