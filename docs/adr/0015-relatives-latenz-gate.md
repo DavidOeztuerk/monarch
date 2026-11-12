@@ -169,3 +169,99 @@ Echte Fehler-Injektion in der CI, `BENCH_INJECT=git`:
 - Wird der Hook absichtlich teurer, muss die Schwelle mit Messwerten angepasst werden. Das ist beabsichtigt.
 - Zweite Störquelle, hier nicht behoben: `apt-get update` in der CI scheiterte am 11.11. sechsmal an einer DNS-Störung des Runners (Lauf 43026276365, Versuche 4 bis 7; Lauf 43060173567, Versuche 1 und 2).
 - Offen als Issues (minor aus der Design-Runde): eine Untergrenze gegen ein Gate, das nichts prüft, und eine einmalige Prüfung, dass jedes Szenario seine erwartete Entscheidung liefert.
+
+## Nachtrag 12.11.2026: C1 unter Last auf dem Mac (Q-0150, G-0109)
+
+**Status:** Entwurf, Design-Runde des Wardens steht aus.
+
+### Kurz in einfacher Sprache
+
+- C1 ist das MVP-Kriterium für die Hook-Latenz auf dem Mac des Owners. Bisher hieß es: 99 von 100 Hook-Starts bleiben unter 20 ms.
+- Der Owner arbeitet meist unter voller Last. Dann braucht schon ein leerer Programmstart länger als 20 ms. Kein Hook kann das ausgleichen.
+- C1 hat deshalb seit dem 12.11. zwei Teile. Teil 1: 20 ms im p99 auf ruhiger Maschine, wie bisher. Teil 2: Unter Last darf der Hook höchstens das **1,64-Fache** des bloßen Programmstarts kosten.
+- Für Teil 2 bekommt `bench/hook-latency.sh` einen eigenen Modus `GATE_MODE=c1-load`. Er läuft nur auf macOS und nie in der CI.
+- **Die CI ändert sich nicht.** Ihre Schwellen, ihre Schritte und die Modi `absolute` und `relative` bleiben, wie sie sind.
+
+### Entscheide des Owners (genannt, nicht neu ausgelegt)
+
+Entscheid vom 12.11.2026, wörtlich aus `09-proof-report.md`, Abschnitt „C1 neu“:
+
+> 1. **Die 20 ms im p99 gelten auf ruhiger Maschine**: WT-Stack läuft, keine Nebenprogramme, Messung über den Wrapper mit dem installierten Binary. Die Zahl selbst bleibt.
+> 2. **Unter voller Last gilt ein relativer Wert**: Der Hook darf höchstens einen festen Faktor langsamer sein als der bloße Programmstart (`monarch --version`) auf derselben Maschine im selben Moment, nach dem Muster von ADR-0015.
+
+Entscheid zum Faktor vom 12.11.2026, 21:00: **1,64**, abgeleitet aus der Messung unter Abendlast (`evidence/teil-c/latenz-2026-11-12/gate-last-2042-*`, im Ordner `monarch-proof` des Owners): höchstes p95 1,39 plus 0,25.
+
+### Messwerte
+
+Alle Messungen: Mac des Owners (M3 Pro, macOS 27.2), installiertes Binary `1.0.0+d28148ed`, echter Wrapper, echtes HOME, `GATE_MODE=relative ATTEMPTS=1`, sechs Läufe je Reihe. Der Wert je Szenario ist der Median aus fünf Block-Verhältnissen, wie im CI-Gate. Je Lauf sind Load und die größten Prozesse notiert.
+
+| Reihe | Zeit | Load (1 min) | Klasse | n | Median | p95 | größter | Streuung (sd) |
+|---|---|---|---|---|---|---|---|---|
+| B: Nacht, mäßige Last | 03:21–03:27 | 2,5–4,0 | ohne Ledger | 36 | 1,08 | 1,23 | 1,52 | 0,09 |
+| | | | mit Ledger | 12 | 1,19 | 1,31 | 1,31 | 0,06 |
+| C: künstliche Last (24 CPU-Schleifen) | 03:31–03:44 | 12–105 | ohne Ledger | 36 | 1,07 | 1,12 | 1,15 | 0,03 |
+| | | | mit Ledger | 12 | 1,15 | 1,21 | 1,21 | 0,03 |
+| **Abendlast** (Owner arbeitet) | 20:42–20:54 | 4,1–25,0 | ohne Ledger | 36 | 1,08 | **1,39** | 1,65 | 0,17 |
+| | | | mit Ledger | 12 | 1,10 | 1,69 | 1,69 | 0,19 |
+
+- Abendlast: WT-Stack (Docker-VM bis 87 % CPU), Opera mit Streaming, WindowServer, Spotlight, WebKit, eine Claude-Session; zeitweise `homed` und `trustd` über 70 %.
+- Unter Abendlast lag der p99 in 44 von 48 Szenario-Läufen über 20 ms (Median der p99-Werte 30,3 ms, höchstens 249,7 ms). Der Median des Verhältnisses blieb bei 1,08 und 1,10.
+- Dazu Reihe A vom selben Tag (40 Minuten, 744 Blöcke über den Wrapper): einzelner Block Median 1,07 und p95 1,39 ohne Ledger, 1,21 und 1,51 mit Ledger. Details in `09-proof-report.md`, Abschnitt „C1 relativ“.
+
+### Was der Modus tut
+
+Aufruf: `GATE_MODE=c1-load bench/hook-latency.sh plugin/scripts/monarch`, also über den Wrapper mit dem installierten Binary.
+
+- Gemessen und gerechnet wird genau wie im Modus `relative`: fünf Blöcke, je 60 Läufe Bezug und 60 Läufe Hook, Median der fünf Block-Verhältnisse, höchstens zwei Versuche.
+- Anders ist nur die Schwelle: **1,64 für jedes Szenario**. Sie steht fest im Skript, getrennt von den CI-Schwellen.
+- Die absoluten Werte p50, p95 und p99 werden weiter ausgegeben, entscheiden hier aber nicht. Für sie gilt Teil 1 von C1 auf ruhiger Maschine (`GATE_MODE=absolute`, der Standard).
+
+### Ein Faktor für alle Szenarien
+
+Der Entscheid nennt einen Faktor. Der Modus wendet ihn deshalb auf alle acht Szenarien an, auch auf die zwei mit Ledger. Offen benannt:
+
+- Die 1,39 sind das p95 der Klasse „ohne Ledger“. Die Klasse „mit Ledger“ hatte unter Abendlast ein p95 von 1,69. Das ist bei zwölf Werten zugleich der größte Wert und stammt aus einem einzigen Lauf (out-of-scope, Lauf 1, bei Load 7,5).
+- Für „mit Ledger“ ist 1,64 strenger als die CI-Schwelle für macOS (1,70). Für „ohne Ledger“ ist 1,64 lockerer als die CI-Schwelle (1,47). Darum darf der Modus die CI nie ersetzen, siehe unten.
+- Ob „mit Ledger“ einen eigenen Wert bekommt, ist eine Frage an den Owner. Dieser Nachtrag legt keinen fest.
+
+### Was die Abendmessung gegen 1,64 zeigt
+
+- 46 von 48 Szenario-Läufen lagen im ersten Versuch bei höchstens 1,64. Darüber lagen out-of-scope mit 1,69 (Lauf 1) und bash-targets mit 1,65 (Lauf 2).
+- Vier von sechs Läufen wären damit im ersten Versuch ganz grün gewesen. Die Messung lief mit einem Versuch. Ob der zweite Versuch die beiden anderen Läufe gerettet hätte, ist nicht gemessen.
+- In beiden Fällen war der Moment gestört: Bei bash-targets lag der p99 bei 249,7 ms. Im selben Lauf zeigte die Kontrollzeile `--version` 1,45 ms über dem Leerlauf-Hook.
+
+### Der Modus kann die CI nicht lockern
+
+- Nur auf macOS. Auf jedem anderen Betriebssystem endet der Modus mit Exit 2.
+- Nie in der CI: Ist `CI` oder `GITHUB_ACTIONS` gesetzt, endet der Modus mit Exit 2. Damit kann kein CI-Schritt von `relative` auf `c1-load` wechseln und so die Schwelle „ohne Ledger“ von 1,47 auf 1,64 heben.
+- Die Schwelle steht fest im Skript und lässt sich nicht über die Umgebung ändern.
+- Alle Prüfungen aus „Das Gate lässt sich nicht still abschalten“ gelten auch hier: `ATTEMPTS` nur 1 oder 2, fünf Blöcke und 60 Läufe fest, fehlende Daten sind ein Fehler.
+- `GATE_MODE` kennt danach genau drei Werte: `absolute`, `relative`, `c1-load`. Alles andere bleibt Exit 2.
+- An `absolute` und `relative` ändert sich nichts, auch nicht an ihren Schwellen.
+
+### Was das Kriterium erkennt und was nicht
+
+- Rot wird es ab einem Aufschlag von etwa `(1,64 − Verhältnis) × Bezug`. Unter Abendlast (Verhältnis 1,08, Bezug im Median 14,5 ms) sind das rund 8 ms, auf ruhiger Maschine (Bezug 10,9 ms) rund 6 ms. Unter Last ist das Kriterium also gröber als die CI.
+- **Erkennt nicht:** ein Binary, das insgesamt langsamer wird (Bezug und Hook gleich). Dafür bleibt Teil 1 von C1.
+- **Erkennt nicht:** Ausreißer. Unter Last kommen sie von der Maschine.
+- **Grenzen der Messung:** ein Mac, ein Abend, zwölf Minuten, 48 Szenario-Läufe. Reihe C war künstliche Last und belastet nur die CPU.
+
+### Teststrategie
+
+`bench/test-gate.sh`, deterministisch über `BENCH_RESULTS_DIR`, vorher rot, danach grün. Die Fälle des Modus laufen dort mit einem `uname`, das `Darwin` meldet, und ohne `CI` und `GITHUB_ACTIONS`. So prüft auch der Linux-Runner sie.
+
+- Knapp unter 1,64 in beiden Klassen → grün. Knapp über 1,64 nur „ohne Ledger“ → rot. Knapp über 1,64 nur „mit Ledger“ → rot.
+- Ein Verhältnis von 1,60 „ohne Ledger“ ist in `c1-load` grün und in `relative` auf macOS weiter rot (CI-Schwelle 1,47 unverändert).
+- Ein Verhältnis von 1,68 „mit Ledger“ ist in `c1-load` rot und in `relative` auf macOS weiter grün (CI-Schwelle 1,70 unverändert).
+- `uname` meldet Linux → Exit 2. `CI=true` → Exit 2. `GITHUB_ACTIONS=true` → Exit 2.
+- Schwellen-Variablen aus der Umgebung heben nichts an. `ATTEMPTS=0` → Exit 2. Fehlende Bezugs-Datei → Exit 2.
+- Alle bestehenden Fälle bleiben unverändert und grün.
+
+Dazu ein echter Lauf des Modus auf dem Mac des Owners als Funktionsnachweis, Ausgabe im PR. Er geht in keinen Faktor ein.
+
+### Folgen
+
+- C1 Teil 2 ist mit diesem Modus prüfbar. Ob C1 damit als erfüllt gilt, entscheidet der Owner am Bericht, nicht dieses ADR.
+- Der Kommentar zu C1 in `.github/workflows/ci.yml` nennt die Bedingung „ruhige Maschine“ und diesen Nachtrag. Die CI-Schritte ändern sich nicht.
+- ADR-0011 Regel 9 und `docs/lessons.md` bekommen je einen kurzen Nachtrag.
+- Wer die 1,64 ändert, braucht einen Owner-Entscheid und trägt Messwerte hier nach.
