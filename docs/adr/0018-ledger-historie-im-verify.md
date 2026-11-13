@@ -152,5 +152,5 @@ Abnahme: `ledger-tamper.sh` aus #71 (liegt nicht im Repository, sondern unter `~
 
 - ADR-0010 bekommt einen Nachtrag zu Punkt 3 und zu den Grenzen; ADR-0011 die präzisierte G3-Zeile; `plugin/README.md` im Abschnitt „Grenzen“ dieselben Grenzen in denselben Worten (Maßstab, Klasse 3).
 - `docs/lessons.md`: kurzer Nachtrag, warum „nur anhängen“ allein nicht reicht.
-- Folge-Issues: (a) #95 Owner-Befehl zum sichtbaren Neusetzen der Basis; (b) #94 Forge-Stand statt lokalem Remote-Stand in `gate merge`, `quest clear`, `evidence sync` und Bindung von `HEAD` an den PR-Head; (c) #93 Append verankert ein kettenkorrekt gefälschtes Ende der eigenen Datei mit (Hash an der verankerten `seq` wird nicht geprüft); (d) #96 `ack-reset` listet neu verankerte fremde Dateien auf (Grenze 3).
+- Folge-Issues: (a) #95 Owner-Befehl zum sichtbaren Neusetzen der Basis; (b) #94 Forge-Stand statt lokalem Remote-Stand in `gate merge`, `quest clear`, `evidence sync` und Bindung von `HEAD` an den PR-Head; (c) #4 (Duplikat #93 geschlossen) Append verankert ein kettenkorrekt gefälschtes Ende der eigenen Datei mit (Hash an der verankerten `seq` wird nicht geprüft); (d) #96 `ack-reset` listet neu verankerte fremde Dateien auf (Grenze 3).
 - Nach dem Merge: Owner-Aktion `install-local`. Bestehende Worktrees bekommen keine Basis und prüfen nur gegen die Remote-Stände.

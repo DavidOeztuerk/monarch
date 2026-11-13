@@ -41,7 +41,13 @@ dass ein korrupter Anker beim nächsten Append still neu aufgebaut wurde.
    `git ls-files` ab. Eine getrackte, aber fehlende Datei ist ein Befund; eine gegenüber
    `HEAD` geänderte Datei muss den HEAD-Blob byte-genau als Präfix enthalten (weniger Zeilen
    = `Truncated`, anderer Inhalt = `HeadMismatch`). Git läuft nur im Verify-Pfad, nie im
-   Append im Normalfall.
+   Append im Normalfall. **Nachtrag 13.11.2026 (ADR-0018, Q-0154):** Der Vergleich mit `HEAD`
+   allein macht eine normal committete Fälschung zum Maßstab (#71). `verify` prüft darum
+   zusätzlich alle branch-lokalen Commits (weder von der Basis der Worktree
+   `.monarch/local/ledger-base` noch vom Remote-Stand `origin/<develop|main|…>` erreichbar):
+   Dort darf sich eine Ledger-Datei nur ändern, wenn sie im lokalen Anker steht; ein Merge darf
+   eine fremde Datei nur übernehmen, nie kürzen oder löschen (`UnanchoredCommit`). Im Append
+   läuft Git dafür zusätzlich höchstens einmal je Worktree (Basis beim Anfang bei null).
 4. Derselbe Schreiber-Dateiname in zwei Monatsordnern ist ein Befund
    (`DuplicateGeneration`). Weitergehende Lückenfreiheit über Dateigenerationen ist aus den
    vorhandenen Daten nicht ableitbar: es gibt keinen Generationszähler, `seq` zählt je Datei.
@@ -53,7 +59,12 @@ nicht committeten) Ledger-Datei werden konsistent neu geschrieben, auch gekürzt
 samt Ankereintrag. Der Test
 `Consistent_forgery_of_untracked_file_and_anchor_is_not_detectable_locally` hält das als
 erwartetes „nicht erkennbar“ fest. Ebenso nicht erkennbar: Fälschung zusammen mit einem
-Rewrite der Git-Historie. Ohne Git (kein Repository, kein `git` im Pfad) entfällt die zweite
+Rewrite der Git-Historie; dazu zählt nach Owner-Entscheid vom 13.11.2026 auch das lokale
+Versetzen der Remote-Stände von `origin` (ADR-0018, Grenze 2; Härtung #94). Committete
+Fälschungen erkennt `verify` seit ADR-0018 nur in einer Worktree, die vor der Fälschung schon
+geschrieben hat; eine danach angelegte Worktree oder ein Klon nimmt sie als Basis (Klon ohne
+Anker, ADR-0018, Grenze 1). Die Basis-Datei mit anderer Commit-ID neu zu schreiben, gehört zu
+„Datei und Anker gemeinsam gefälscht“. Ohne Git (kein Repository, kein `git` im Pfad) entfällt die zweite
 Quelle still. Schutz dagegen sind nur externe Anker: committete Ledger-Dateien (Q-0108),
 Branch-Schutz/Review und später die Forge.
 

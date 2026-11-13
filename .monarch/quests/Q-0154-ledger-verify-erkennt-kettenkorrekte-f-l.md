@@ -3,7 +3,7 @@ id: Q-0154
 gate: G-0111
 kind: main
 rank: A
-state: proposed
+state: in_progress
 dod:
   - Umsetzung nach dem freigegebenen ADR-0018; ADR-0010, ADR-0011 (G3) und plugin/README.md (Grenzen) nennen die verbleibenden Grenzen gleichlautend
   - Die zwei Fälle aus Issue 71 als Tests, vorher rot, danach grün: K-delete-last (letzte Zeile einer getrackten fremden Datei gelöscht und normal committet) und K-append-chained (kettenkorrekte Zeile angehängt und normal committet) melden einen Befund und Exit 1
