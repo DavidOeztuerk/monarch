@@ -3,7 +3,7 @@ id: Q-0140
 gate: G-0105
 kind: main
 rank: B
-state: in_review
+state: cleared
 dod:
   - Design zuerst (einfache Sprache, im PR): kurzer Nachtrag in docs/adr/0007-merge-policy-nach-zielbranch.md (:86-87 merge_method: squash): git.merge_method je Repo, nur squash oder merge (Owner-Vorgabe, kein rebase), Default aus der Historie, sha-Bindung bleibt, develop nach main bleibt Owner-Merge-Commit (nicht Monarchs Sache)
   - Config: git.merge_method squash|merge in SystemConfig.cs (Record :9-13, Reader :72-92, Validierung wie :96-98); anderer Wert -> Config-Fehler; Tests in ConfigTests.cs
