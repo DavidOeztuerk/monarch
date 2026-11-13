@@ -276,3 +276,53 @@ Dazu ein echter Lauf des Modus auf dem Mac des Owners als Funktionsnachweis, Aus
 - Der Kommentar zu C1 in `.github/workflows/ci.yml` nennt die Bedingung „ruhige Maschine“ und diesen Nachtrag. Die CI-Schritte ändern sich nicht.
 - ADR-0011 Regel 9 und `docs/lessons.md` bekommen je einen kurzen Nachtrag.
 - Wer die 1,64 ändert, braucht einen Owner-Entscheid und trägt Messwerte hier nach.
+
+## Nachtrag 13.11.2026: Schwelle für C1 unter Last von 1,64 auf 1,70 (Q-0151, G-0110)
+
+### Kurz in einfacher Sprache
+
+- Der Modus `GATE_MODE=c1-load` prüft C1 Teil 2: Unter Last darf der Hook auf dem Mac höchstens ein festes Vielfaches des bloßen Programmstarts kosten.
+- **Alte Schwelle: 1,64. Neue Schwelle: 1,70.** Sie gilt wie bisher für alle acht Szenarien.
+- **Das ist eine Lockerung.** Der Hook darf unter Last jetzt etwas langsamer sein als bisher, bevor der Modus rot wird.
+- Sonst ändert sich nichts: keine CI-Schwelle, kein anderer Modus, keine Schutzprüfung des Modus. Wo der Nachtrag vom 12.11. „1,64“ sagt, gilt jetzt 1,70; der Rest gilt weiter.
+
+### Entscheid des Owners (genannt, nicht neu ausgelegt)
+
+Entscheid vom 12.11.2026: **1,70** (Option 2), bewusst als Lockerung gegenüber 1,64 gewählt. Er ersetzt den Entscheid zum Faktor vom 12.11., 21:00 (1,64). Die Begründung der Änderung ist dieser Entscheid; dieser Nachtrag leitet die Zahl nicht selbst her.
+
+### Messgrundlage
+
+Dieselbe Messung wie für 1,64: die Abendmessung vom 12.11., 20:42–20:54 (`evidence/teil-c/latenz-2026-11-12/gate-last-2042-*`, im Ordner `monarch-proof` des Owners), sechs Läufe, 48 Szenario-Läufe, je ein Versuch. Neu gemessen wurde nichts. Die Werte stehen oben im Nachtrag vom 12.11. unter „Messwerte“.
+
+| | gegen 1,64 | gegen 1,70 |
+|---|---|---|
+| Szenario-Läufe im ersten Versuch bestanden | 46 von 48 | 48 von 48 |
+| ganze Läufe im ersten Versuch grün | 4 von 6 | 6 von 6 |
+| Abstand zum größten gemessenen Wert (1,69) | darunter | 0,01 |
+
+- Die zwei Werte über 1,64 waren out-of-scope mit 1,69 (Lauf 1) und bash-targets mit 1,65 (Lauf 2). Beide liegen unter 1,70.
+- Der größte Wert liegt nur 0,01 unter der neuen Schwelle. Reserve für einen noch stärker gestörten Moment gibt es also kaum; dafür bleibt der zweite Versuch.
+
+### Was die Lockerung kostet
+
+- Rot wird der Modus ab einem Aufschlag von etwa `(Schwelle − Verhältnis) × Bezug`. Unter Abendlast (Verhältnis 1,08, Bezug im Median 14,5 ms) sind das rund 9 ms statt bisher rund 8 ms. Bei mäßiger Last nachts (Reihe B, Bezug 10,9 ms) sind es rund 7 ms statt rund 6 ms.
+- Eine Verschlechterung des Hooks zwischen dem 1,64-Fachen und dem 1,70-Fachen des Programmstarts fällt in diesem Modus nicht mehr auf.
+- Für „mit Ledger“ ist die Schwelle jetzt gleich der CI-Schwelle für macOS (1,70), nicht mehr strenger. Für „ohne Ledger“ liegt sie weiter über der CI-Schwelle (1,47), jetzt um 0,23 statt 0,17.
+- Die CI wird dadurch nicht lockerer: Der Modus läuft weiter nur auf macOS, nie in der CI und nie mit `MONARCH_BIN`, und `bench/test-gate.sh` prüft `ci.yml` wie bisher.
+- Die Grenzen der Messung bleiben: ein Mac, ein Abend, zwölf Minuten.
+
+### Was sich im Repo ändert
+
+- `bench/hook-latency.sh`: die eine Zahl des Modus `c1-load`, 1.64 wird 1.70, dazu der Kommentar darüber.
+- `bench/test-gate.sh`: Die Fälle des Modus prüfen 1,70. Vorher rot, danach grün:
+  - Knapp unter 1,70 in beiden Klassen → grün (mit 1,64 rot). Die Ausgabe zeigt die Schwelle 1.70.
+  - Knapp über 1,70 nur „ohne Ledger“ → rot. Knapp über 1,70 nur „mit Ledger“ → rot.
+  - 1,68 „mit Ledger“ ist in `c1-load` jetzt grün (mit 1,64 rot) und in `relative` auf macOS weiter grün.
+  - 1,60 „ohne Ledger“ bleibt in `c1-load` grün und in `relative` auf macOS rot (CI-Schwelle 1,47 unverändert).
+  - Die Schwelle lässt sich weiter nicht über die Umgebung heben. Alle Fälle mit Exit 2 und die Prüfung von `ci.yml` bleiben unverändert.
+- Der Kommentar zu C1 in `.github/workflows/ci.yml` und der Eintrag in `docs/lessons.md` nennen 1,70. Die CI-Schritte ändern sich nicht.
+
+### Folgen
+
+- Ob C1 Teil 2 damit als erfüllt gilt, entscheidet weiter der Owner am Bericht.
+- Wer die 1,70 ändert, braucht einen Owner-Entscheid und trägt Messwerte hier nach.
