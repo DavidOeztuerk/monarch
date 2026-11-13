@@ -23,6 +23,8 @@ public enum LedgerViolationKind
     AnchorReset,
     /// <summary>The same writer file exists in more than one month folder, i.e. the file generations are not unique.</summary>
     DuplicateGeneration,
+    /// <summary>A ledger file changed in a branch-local commit that is neither on a trusted remote state nor written by this worktree (ADR-0018).</summary>
+    UnanchoredCommit,
 }
 
 /// <summary>One finding of the ledger verification.</summary>

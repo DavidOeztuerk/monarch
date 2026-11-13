@@ -1,0 +1,156 @@
+# ADR-0018 — Ledger-Historie im verify: Fälschung per normalem Commit (#71)
+
+**Datum:** 13.11.2026 · **Status:** Fassung 4. Warden: Designrunde REQUEST_CHANGES (major 1 und 2 in Fassung 2 eingearbeitet), Delta-Runde APPROVE_WITH_CHANGES mit der Bedingung, Befund 1 der Delta-Runde vor der Umsetzung einzuarbeiten (Fassung 3: Punkt 5, Grenze 2 und Tests). Schlussrunde zur Umsetzung REQUEST_CHANGES (major: Namensfilter `.jsonl`, eingearbeitet in Punkt 3; Wortlaut zu Grenzen 1–3 ergänzt). Owner-Entscheid 13.11.2026: Das lokale Versetzen der Remote-Stände zählt zur Grenze History-Rewrite; die Härtung folgt als Issue #94 · **Quest:** Q-0153 (Design), Q-0154 (Umsetzung), G-0111 · **Baut auf:** ADR-0010, ADR-0011 (G3)
+
+## Kurz in einfacher Sprache
+
+- Heute vergleicht `ledger verify` eine getrackte Ledger-Datei nur mit ihrer Fassung im letzten Commit (`HEAD`). Wer eine fremde Ledger-Datei fälscht und das **normal committet**, macht die Fälschung selbst zum Maßstab. Zwei Fälle aus #71 bleiben so unerkannt: die letzte Zeile gelöscht (K-delete-last) und eine kettenkorrekte Zeile angehängt (K-append-chained).
+- Neu merkt sich eine frische Worktree beim ersten Schreiben, auf welchem Commit sie angefangen hat (**Basis**). `verify` schaut sich alle Commits an, die danach dazugekommen und noch nicht auf dem Remote-Stand von `develop` oder `main` angekommen sind. In diesen Commits darf sich eine Ledger-Datei nur ändern, wenn **diese Worktree** sie geschrieben hat. Ein Merge darf eine fremde Datei nur übernehmen, nie kürzen. Alles andere ist ein Befund.
+- Damit sind beide Fälle aus #71 erkannt, auch nach einem `git push` auf den Gate-Branch.
+- Die Basis wird nie neu angelegt. Fehlt sie, prüft `verify` strenger, nicht lockerer.
+- Was bleibt: Eine Worktree oder ein Klon, die erst **nach** der Fälschung anfangen, sehen die Fälschung als Vorgeschichte (Klon ohne Anker). Wer die Git-Historie umschreibt oder die Remote-Stände lokal versetzt, ist ebenfalls nicht erkennbar (History-Rewrite).
+- Keine Schutzregel wird gelockert. `verify` wird nur strenger. Git läuft im Schreibpfad zusätzlich höchstens einmal je Worktree.
+
+## Was verify heute prüft
+
+1. **Hash-Kette je Datei:** Hash, `prevHash`, `seq`. Ändern oder Löschen in der Mitte bricht die Kette (`HashMismatch`, `SeqGap`, `PrevHashMismatch`).
+2. **Lokaler Anker** (`.monarch/local/ledger-heads.json`): Für jede Datei, die diese Worktree geschrieben hat, stehen `seq` und Hash des letzten Eintrags darin. Fehlende, gekürzte oder verlängerte Dateien fallen auf (`Truncated`, `HeadMismatch`).
+3. **Git gegen `HEAD`** (ADR-0010, Punkt 3): Eine getrackte Datei muss existieren und ihre `HEAD`-Fassung byte-genau als Anfang enthalten. Eine Datei ohne lokalen Anker gilt als „von Git verankert“, wenn sie getrackt und gegenüber `HEAD` unverändert ist.
+
+## Die Lücke
+
+Fremde Ledger-Dateien (aus anderen Worktrees, per Merge gekommen) haben keinen lokalen Anker. Ihr einziger Maßstab ist `HEAD`. Ein neuer Commit verschiebt `HEAD`. Danach ist die gefälschte Datei „getrackt und unverändert“ und damit verankert. Ältere Commits schaut `verify` nicht an.
+
+Eigene Dateien schützt der Anker, solange zwischen Fälschung und `verify` kein Append in dieselbe Datei fällt (Fälle U-… in #71). Fällt einer dazwischen, verankert er heute ein kettenkorrekt gefälschtes Ende mit; das ist ein eigener, älterer Befund (Issue, nicht dieses Gate).
+
+**Warum „jede Fassung muss die vorige als Anfang enthalten“ allein nicht reicht:** Damit wäre K-delete-last erkannt. K-append-chained ist aber genau ein Anhängen. Kettenkorrekt angehängt sieht eine Fälschung aus wie eine echte Zeile; die Kette ist schlüssellos. Unterscheiden lässt sich nur, **wo** angehängt wurde: Eine fremde Datei wächst nie in dieser Worktree, sondern kommt fertig über `develop` oder `main`.
+
+## Entscheidung
+
+### 1. Basis der Worktree
+
+- Neue Datei `.monarch/local/ledger-base` (ungetrackt, unter dem Schutzpfad `.monarch/local/**`, G2). Inhalt: die volle Commit-ID von `HEAD`.
+- **Angelegt wird sie nur, wenn eine Worktree bei null anfängt.** Das heißt: Der Anker hat vor diesem Append keinen Eintrag (weder `files` noch `restore`), es gibt noch keine Basis-Datei, und der Append schreibt kein `LedgerAnchorReset`. Das sind der frische Klon und die neue Worktree. Angelegt wird atomar und ohne Überschreiben (`CreateNew`), weil Hooks parallel anhängen.
+- Nur im Schreibpfad (`AppendCore`), nie im Lesepfad. `ReadSession` legt heute auch die `writer-id` an (`JsonlLedgerStore.cs:172`, etwa über PreCompact oder `wake`). Kommt das vor dem ersten Append, löst der Append einen Reset aus und die Worktree bekäme nie eine Basis. Darum legt `ReadSession` künftig keine `writer-id` mehr an; fehlt sie, gibt es keine Einträge (Q-0154, mit Test).
+- Nie sonst: nicht bei einer neuen `writer-id`-Generation, nicht nach einem Anker-Reset, nicht als Migration für Worktrees von vor dieser Version.
+- Liefert Git keine eindeutige Commit-ID (kein Repository, noch kein Commit, Fehler, Zeitüberschreitung), entsteht keine Basis.
+- **Fehlt die Basis, prüft `verify` strenger:** Dann zählen nur die Remote-Stände (Punkt 2), und fehlen auch die, ist das ein Befund (Punkt 5). Löschen der Basis-Datei kann eine Fälschung also nicht durchlassen, solange ein Remote eingerichtet ist. Ist der Inhalt kein gültiger Commit, zählt die Basis ebenso nicht.
+- Die Basis-Datei mit einer anderen Commit-ID neu zu schreiben, ist eine Fälschung des lokalen Ankers (ADR-0010, Grenze „Datei und Anker gemeinsam gefälscht“). Alles in `.monarch/local` zu löschen, ist „Klon ohne Anker“. Dasselbe gilt, wenn jemand bei einer Worktree ohne Basis Anker und `writer-id` löscht (die Fälschung „frischer Klon“): Dann entsteht die Basis am gefälschten `HEAD`.
+
+### 2. Vertrauenswürdige Stände
+
+Als schon geprüft gelten nur Commits, die erreichbar sind von
+
+- der Basis dieser Worktree (falls gültig), und
+- den **Remote-Ständen** des Integrations-Branches und der geschützten Branches (`git.integration_branch` und `git.protected_branches` aus `system.yaml`, im Default `develop`, `main`, `master`), und zwar nur als `refs/remotes/origin/<branch>`. Andere Remotes zählen nicht, sonst reichte `git remote add x <lokaler Pfad>; git fetch x`. Den Remote `origin` setzt Monarch auch sonst voraus. An `git rev-list --not` gehen nur Refs, die sich auflösen ließen.
+
+Lokale Branches (`refs/heads/develop`) zählen nicht: Sie lassen sich mit einem gewöhnlichen `git branch -f` versetzen. Ein ungeschützter Remote-Branch (etwa der Gate-Branch auf `origin`) zählt auch nicht, denn der Agent darf dorthin pushen.
+
+### 3. Regel für branch-lokale Commits
+
+Branch-lokal sind alle Commits, die von `HEAD` erreichbar sind, aber von keinem vertrauenswürdigen Stand. Geprüft wird **jeder Pfad unter `.monarch/ledger`**, unabhängig von der Endung, der **nicht** im lokalen Anker steht (weder unter `files` noch unter `restore`). Ein Filter auf `.jsonl` wäre auf macOS eine Lücke: Die Leser zählen `*.jsonl` dort ohne Beachtung der Groß- und Kleinschreibung auf und lesen auch `x.JSONL` (Warden-Schlussrunde, Befund 1). Für diese Pfade gilt:
+
+- **Normaler Commit (auch Root-Commit):** Jedes Anlegen, Ändern oder Löschen ist ein Befund.
+- **Merge-Commit:** Für jede solche Datei, die im Ergebnis von mindestens einem Elternteil abweicht,
+  - muss das Ergebnis byte-genau der Fassung eines Elternteils gleichen, **und**
+  - muss die Fassung **jedes** Elternteils byte-genau der Anfang des Ergebnisses sein. Fehlt die Datei in einem Elternteil, zählt das als leerer Anfang. Fehlt sie im Ergebnis, obwohl ein Elternteil sie hat, ist das ein Befund.
+
+  Ein Merge kann eine fremde Datei also übernehmen, aber nie kürzen, löschen oder neu zusammensetzen. Was er aus einem branch-lokalen Elternteil übernimmt, prüft die Regel an dessen Commits.
+
+Befunde zu Dateien der eigenen Worktree gibt es hier nicht; die schützt weiter der Anker.
+
+### 4. Befund
+
+- Neue Art `UnanchoredCommit`, je Datei höchstens einmal (der älteste betroffene Commit), Zeile 0.
+- Text: Datei, Kurz-ID des Commits, ob normaler Commit oder Merge, und der Hinweis: Der Commit liegt weder auf dem Remote-Stand von `develop`/`main` noch stammt die Datei von dieser Worktree. **Zuerst `git fetch` ausführen**, denn ein veralteter Remote-Stand ist die häufigste harmlose Ursache.
+- Exit 1 wie jeder andere Befund. `quest clear`, `evidence sync` und `gate merge` verweigern dann wie heute.
+
+### 5. Ohne Git, ohne Remote, ohne vertrauenswürdigen Stand, Git-Fehler
+
+- Ohne Git oder außerhalb eines Repositories entfällt die Prüfung still, wie heute die ganze zweite Quelle (ADR-0010).
+- **Ist kein Remote `origin` eingerichtet** und gibt es keine gültige Basis, entfällt die Prüfung ebenfalls. Sonst wäre jede fremde Datei der ganzen Historie ein Befund.
+- **Ist `origin` eingerichtet**, lässt sich aber keiner der genannten Remote-Stände auflösen und gibt es keine gültige Basis, ist das ein Befund (`UnanchoredCommit` ohne Commit, Hinweis „`git fetch` ausführen“). Damit schaltet das Löschen der Remote-Stände (`git branch -dr origin/develop`, `git update-ref -d …`) die Prüfung nicht ab, auch nicht in Worktrees von vor dieser Version.
+- **Git-Fehler:** Steht einmal fest, dass ein Repository da ist, ist jeder Fehler und jede Zeitüberschreitung von `rev-list`, `diff-tree` oder `cat-file` ein Befund, nie „keine Änderung“. Die heutige Prüfung gegen `HEAD` (`?? []`, `LedgerVerifier.cs:154`) bleibt davon unberührt.
+
+### 6. Aufruf, Git-Details und Kosten
+
+- `LedgerVerifier.Verify(root, trustedBranches)`. Die CLI-Aufrufer (`ledger verify`, `quest clear`, `evidence sync`, `status`, `gate merge`, `ack-reset`) geben Integrations-Branch und geschützte Branches aus `system.yaml` mit. Ohne Liste zählt nur die Basis.
+- Die neuen Git-Aufrufe laufen ohne geerbte `GIT_*`-Variablen (etwa `GIT_DIR`, `GIT_CONFIG_*`), mit `GIT_NO_REPLACE_OBJECTS=1` und mit `GIT_GRAFT_FILE` auf eine Datei, die es nicht gibt. So biegen `git replace` und Grafts die Historie nicht mit einem Befehl um.
+- Commits: `git rev-list --parents HEAD --not <aufgelöste Refs>`.
+- Pfade: `git diff-tree --stdin -r --root --no-renames -z --relative` mit dem Ledger-Pfad, für Merges zusätzlich je Elternteil (`-m`) mit Blob-IDs, damit Gleichheit und Anfang geprüft werden können (Inhalte per `git cat-file --batch`). `--root` deckt Root- und Orphan-Commits ab, `--relative` ein Projekt in einem Unterordner des Repositories, damit Pfade und Anker-Schlüssel zusammenpassen.
+- Für `--stdin` braucht es eine Variante von `GitAnchor.Execute`, die stdin beschreibt, statt es sofort zu schließen.
+- Das sind wenige zusätzliche Git-Aufrufe je `verify`, unabhängig von der Zahl der Dateien.
+- Schreibpfad: zusätzlich zum heutigen `IsTracked` (`JsonlLedgerStore.cs:118-120`) einmal `git rev-parse --verify HEAD` je Worktree (beim Anfang bei null), danach nur ein Dateitest je Append. Das Bench-Projekt ist kein Git-Repository; die Latenz-Gates bleiben unverändert und müssen grün bleiben.
+
+## Was ok bleibt (legitime Abläufe)
+
+| Ablauf | Warum kein Befund |
+|---|---|
+| Eigene Commits der Gate-Worktree (Hook-Zeilen, Quest-Status, Aufräum-Commit nach dem Merge) | Dateien stehen im lokalen Anker |
+| `git merge origin/develop` in den Gate-Branch | fremde Dateien haben die Fassung des `develop`-Elternteils, die ältere Fassung der Gate-Seite ist ihr Anfang |
+| `git rebase origin/develop`, `git pull --rebase` über **eigene** Commits | die neu geschriebenen Commits ändern nur eigene Dateien |
+| Neue Worktree auf einem bestehenden Gate-Branch (Standardregel 2, ohne `-b`) | die Basis ist der Branch-Stand beim ersten Schreiben; ältere Commits gelten als geprüft |
+| Haupt-Checkout auf `develop` nach `git pull` | keine branch-lokalen Commits |
+| Frischer Klon | die Basis ist `HEAD` beim ersten Schreiben |
+| Squash-Merge auf GitHub, danach Aufräum-Commit | der Squash liegt auf `origin/develop`; der Aufräum-Commit ändert nur eigene Dateien |
+| Worktree von vor dieser Version, auf ihrem eigenen Gate-Branch | keine Basis, also nur Remote-Stände; ihre branch-lokalen Commits ändern im üblichen Ablauf nur eigene Dateien |
+
+**Strenger als heute, mit Absicht.** Diese Abläufe ergeben einen Befund, weil von hier aus nicht unterscheidbar ist, ob die fremden Zeilen echt sind:
+
+- einen **anderen, noch nicht gemergten** Gate-Branch hineinmergen oder einen Commit daraus cherry-picken;
+- einen Squash-Commit aus `develop` cherry-picken, statt `develop` zu mergen;
+- einen bestehenden Branch, dessen ältere Commits aus einer anderen Worktree stammen, per `rebase` über die Basis hinweg neu schreiben;
+- nach „Update branch“ auf GitHub `git pull` ohne vorheriges `git fetch` von `develop` (verschwindet nach `git fetch`);
+- im Repository ohne Remote einen lokalen Merge eines anderen Branches;
+- eine bestehende Worktree (auch der Haupt-Checkout) wechselt auf einen fremden, noch nicht gemergten Gate-Branch, etwa um ein pausiertes Gate fortzusetzen.
+
+Ausweg: `git fetch`, für einen fremden Gate-Branch eine neue Worktree auf diesem Branch anlegen (Standardregel 2), den anderen Branch zuerst nach `develop` bringen, `develop` mergen statt cherry-picken. Einen Owner-Befehl, der die Basis sichtbar neu setzt, gibt es in diesem Gate nicht; er wäre ein neuer Owner-Befehl mit eigener Hook-Regel (ADR-0011, Regel 7) und kommt als Folge-Issue.
+
+## Grenzen (bleiben)
+
+1. **Klon ohne Anker:** Eine Worktree oder ein Klon, die erst **nach** der Fälschung zum ersten Mal schreiben, nehmen die Fälschung als Basis. Dasselbe gilt, wenn jemand ganz `.monarch/local` löscht (Anker, `writer-id`, Basis), und bei einer Worktree ohne Basis schon, wenn Anker und `writer-id` gelöscht werden. Die ursprüngliche Worktree meldet die Fälschung weiter. Das gilt nicht, wenn die fälschende Worktree selbst frisch ist und die Fälschung vor ihrem ersten Ledger-Eintrag committet (etwa `git worktree add`, Fälschung und Commit in einem einzigen Bash-Aufruf): Dann legt der nächste Eintrag die Basis auf den gefälschten `HEAD`, und keine Worktree meldet etwas. `gate merge` prüft die Worktree im aktuellen Verzeichnis (`GateMergeCommands.cs:176-182`); aus einer nach der Fälschung angelegten Worktree kommt der Merge darum sauber durch. Beides ist ein Grund für Issue #94.
+2. **History-Rewrite:** Wer die Fälschung in einen vertrauenswürdigen Stand umschreibt, wird nicht erkannt. Ein bloßes `commit --amend`, `rebase` oder `reset` über die Basis hinweg reicht dafür nicht: Die neuen Commits sind von der Basis aus nicht erreichbar und werden geprüft. Durch kommt die Fälschung erst, wenn die umgeschriebene Historie in einem vertrauenswürdigen Stand landet, also mit einer neu geschriebenen Basis-Datei (Grenze 3) oder durch das **lokale Versetzen der Remote-Stände** von `origin` (`git update-ref refs/remotes/origin/…`, `git fetch . HEAD:refs/remotes/origin/develop`, `git remote set-url origin <lokale Kopie>` mit `fetch`) und, bei einer Worktree ohne Basis, `git remote remove origin`. Das geht mit einem Befehl und ohne Schutzpfad; es ist gezielte Umgehung (G4). Das bloße Löschen der Remote-Stände bei eingerichtetem `origin` ist dagegen ein Befund (Punkt 5). Härtung als Issue #94: `gate merge`, `quest clear` und `evidence sync` nehmen den `develop`-Stand der Forge statt des lokalen, und `gate merge` bindet den geprüften `HEAD` an den PR-Head.
+3. **Lokaler Anker gefälscht** (ADR-0010): Datei und Anker gemeinsam gefälscht, die Basis-Datei mit anderer Commit-ID neu geschrieben, die Fälschung „frischer Klon“ bei ungetrackten Dateien. Außerdem: Ein Anker-Reset verankert alle vorhandenen Ledger-Dateien neu, auch fremde (`LedgerHeadStore.cs:36-43`). Quittiert der Owner den Reset, gelten sie danach als eigene und sind von Punkt 3 ausgenommen. „Steht im Anker“ ist also nicht ganz dasselbe wie „hat diese Worktree geschrieben“. Folge-Issue: `ack-reset` listet die neu verankerten fremden Dateien vor der Quittung auf. Ebenfalls in diese Klasse gehört, lokal und ohne Commit den Gate-Branch in `git.protected_branches` der `system.yaml` einzutragen (Schutzpfad, G2): Dann gilt `origin/<gate>` nach einem Push als vertrauenswürdig. Härtung in #94: die Branch-Liste aus `origin/<integration>:.monarch/system.yaml` oder von der Forge lesen.
+4. **Gepusht auf `develop` oder `main`:** Was dort liegt, gilt als vertrauenswürdig. Schutz ist wie bisher der Branch-Schutz mit PR, CI und Warden-Verdict (`gate merge`), nicht `verify`.
+5. **Ohne Git oder ohne vertrauenswürdigen Stand** (Punkt 5 oben) entfällt die Prüfung.
+
+G3 in ADR-0011 wird präzisiert: „lokal committet nur ohne History-Rewrite“ heißt künftig „lokal committet, auch nach Push auf einen ungeschützten Branch, ohne History-Rewrite (dazu zählt das lokale Versetzen der Remote-Stände), geprüft in einer Worktree, die vor der Fälschung schon geschrieben hat“.
+
+## Tests (Q-0154, TDD)
+
+Aufbau: Test-Repository mit Bare-Remote, `develop` auf dem Remote mit einer fremden Ledger-Datei, eine Worktree mit Basis.
+
+Rot vor der Umsetzung, grün danach:
+
+- **K-delete-last:** In einer fremden, getrackten Datei die letzte Zeile löschen, normal committen → `UnanchoredCommit`, `Ok` falsch.
+- **K-append-chained:** An eine fremde, getrackte Datei eine kettenkorrekte Zeile (`QuestCleared`) anhängen, normal committen → `UnanchoredCommit`.
+- Beide auch nach `git push` auf einen ungeschützten Remote-Branch → weiter Befund.
+- Neue gefälschte Datei mit fremder `writer-id`, normal committet → `UnanchoredCommit`; ebenso mit Endung `.JSONL` oder einer anderen Endung unter `.monarch/ledger`.
+- Merge mit einem älteren Elternteil, der die fremde Datei kürzer hat oder gar nicht, Ergebnis aus diesem Elternteil übernommen (Kürzen bzw. Löschen) → `UnanchoredCommit`.
+- Merge, der eine fremde Datei anders zusammensetzt als alle Eltern → `UnanchoredCommit`.
+- Orphan-Commit mit gefälschter Datei, per `merge --allow-unrelated-histories` eingebracht → `UnanchoredCommit`.
+- Basis-Datei gelöscht, danach Append und Fälschung → Basis bleibt weg, Befund weiter da (strenger).
+- **Worktree ohne Basis, Fälschung committet, dann `refs/remotes/origin/*` gelöscht** (`origin` bleibt eingerichtet) → Befund mit Hinweis `git fetch` (Bedingung der Delta-Runde).
+- Git-Fehler und Zeitüberschreitung (erzwungen, etwa über eine kurze Frist im Test) → Befund, nicht „ok“.
+- `ReadSession` vor dem ersten Append legt keine `writer-id` an; die Worktree bekommt beim ersten Append ihre Basis.
+- Projekt in einem Unterordner des Repositories: eigene Commits ok, Fälschung erkannt.
+- CLI: `ledger verify` Exit 1, `quest clear`, `evidence sync` und `gate merge` verweigern bei `UnanchoredCommit`; die Branches kommen aus `system.yaml`.
+
+Gegenproben, die schon heute stimmen und so bleiben:
+
+- K-change und K-delete-mid committet → weiter `HashMismatch` bzw. `SeqGap`/`PrevHashMismatch`.
+- Nicht committete Änderungen an getrackten und an eigenen Dateien, gelöschte Datei → unverändert ihre heutigen Befunde.
+- Legitime Abläufe aus der Tabelle → `Ok`: eigene Commits, Merge von `origin/develop` (auch wenn die Gate-Seite eine ältere Fassung hat und wenn die Datei auf der Gate-Seite fehlt), Rebase eigener Commits, neue Worktree auf bestehendem Branch, frischer Klon, Worktree ohne Basis mit Remote-Stand, Repository ohne Remote und ohne Basis.
+- Basis: genau einmal beim Anfang bei null; nicht durch den Lesepfad, nicht bei neuer `writer-id`-Generation, nicht nach Anker-Reset; ungültige Basis zählt nicht.
+- **Grenzen als Tests** (erwartet „nicht erkennbar“): Klon ohne Anker nach der Fälschung angelegt; versetzter Remote-Stand; Basis-Datei auf den gefälschten `HEAD` umgeschrieben.
+
+Bestehende Tests ändern sich nicht.
+
+Abnahme: `ledger-tamper.sh` aus #71 (liegt nicht im Repository, sondern unter `~/Projects/monarch-proof/evidence/teil-c/skripte/ledger-tamper.sh`) mit dem gebauten Binary erneut laufen lassen. Erwartet: K-delete-last und K-append-chained erkannt, B0 sauber, alle übrigen Fälle wie bisher.
+
+## Folgen
+
+- ADR-0010 bekommt einen Nachtrag zu Punkt 3 und zu den Grenzen; ADR-0011 die präzisierte G3-Zeile; `plugin/README.md` im Abschnitt „Grenzen“ dieselben Grenzen in denselben Worten (Maßstab, Klasse 3).
+- `docs/lessons.md`: kurzer Nachtrag, warum „nur anhängen“ allein nicht reicht.
+- Folge-Issues: (a) #95 Owner-Befehl zum sichtbaren Neusetzen der Basis; (b) #94 Forge-Stand statt lokalem Remote-Stand in `gate merge`, `quest clear`, `evidence sync` und Bindung von `HEAD` an den PR-Head; (c) #4 (Duplikat #93 geschlossen) Append verankert ein kettenkorrekt gefälschtes Ende der eigenen Datei mit (Hash an der verankerten `seq` wird nicht geprüft); (d) #96 `ack-reset` listet neu verankerte fremde Dateien auf (Grenze 3).
+- Nach dem Merge: Owner-Aktion `install-local`. Bestehende Worktrees bekommen keine Basis und prüfen nur gegen die Remote-Stände.

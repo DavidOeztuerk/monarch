@@ -13,6 +13,12 @@ internal static class LedgerFiles
 
     public const string WriterIdPath = ".monarch/local/writer-id";
 
+    /// <summary>ADR-0018: the commit this worktree started writing on; created once, never overwritten.</summary>
+    public const string BasePath = ".monarch/local/ledger-base";
+
+    /// <summary>Reads the per-worktree writer id without creating it; null when it does not exist or is malformed.</summary>
+    public static string? TryWriterId(string root) => TryReadWriterId(Full(root, WriterIdPath));
+
     /// <summary>Reads (or creates once) the per-worktree writer id: 8 lowercase hex characters, git-ignored.</summary>
     public static string WriterId(string root, bool regenerate = false)
     {

@@ -95,3 +95,10 @@ Das ändert ein Kriterium, und es steht hier, damit es nicht still geschieht (Re
 - **Wer entschieden hat:** der Owner am 12.11.2026 (Option 2), bewusst als Lockerung.
 - **Was das heißt:** Gegen 1,70 hätten alle 48 Abendwerte im ersten Versuch bestanden; der größte lag bei 1,69. Eine Verschlechterung zwischen dem 1,64- und dem 1,70-Fachen fällt in diesem Modus nicht mehr auf.
 - **Was nicht gelockert wurde:** Die 20 ms, die CI-Schwellen, die CI-Schritte und die Schutzprüfungen des Modus.
+
+## Nachtrag 13.11.2026: „Nur anhängen“ reicht als Ledger-Regel nicht (#71, ADR-0018)
+
+- **Was passiert war:** `ledger verify` verglich getrackte Ledger-Dateien nur mit `HEAD`. Eine Fälschung in einem normalen Commit wurde damit selbst zum Maßstab (K-delete-last und K-append-chained, beide Exit 0).
+- **Naheliegend, aber zu schwach:** „Jede Fassung muss die vorige als Anfang enthalten.“ Das fängt das Kürzen, aber nicht das Anhängen. Eine kettenkorrekt angehängte Zeile sieht aus wie eine echte, denn die Kette ist schlüssellos.
+- **Was trägt:** nicht der Inhalt, sondern der Ort. Eine fremde Datei wächst nie in dieser Worktree. Darum zählt, ob ein Commit schon geprüft ist (Basis der Worktree, Remote-Stand von `develop`/`main`) und wer die Datei geschrieben hat (lokaler Anker).
+- **Lehre aus den Warden-Runden:** Jede Ausnahme braucht die Gegenfrage „wie bekomme ich diesen Zustand ohne Schutzpfad?“. Zweimal hätten gewöhnliche Git-Befehle ohne Schutzpfad die neue Prüfung ausgehebelt: ein Merge mit älterem Elternteil und das Löschen der Remote-Stände. Fehlt ein Vergleichsstand, muss die Prüfung strenger werden, nicht still entfallen.

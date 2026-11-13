@@ -10,12 +10,23 @@ namespace Monarch.Infrastructure.Ledger;
 /// </summary>
 public static class LedgerVerifier
 {
+    private static readonly TimeSpan DefaultGitTimeout = TimeSpan.FromSeconds(10);
+
     /// <summary>Verifies every ledger file below the project root against its chain and the head anchor.</summary>
     /// <param name="root">Project root.</param>
     /// <returns>The verification result.</returns>
-    public static LedgerVerification Verify(string root)
+    public static LedgerVerification Verify(string root) => Verify(root, [], null);
+
+    /// <summary>Verifies like <see cref="Verify(string)"/> and additionally checks branch-local commits against the remote states of <paramref name="trustedBranches"/> (ADR-0018).</summary>
+    /// <param name="root">Project root.</param>
+    /// <param name="trustedBranches">Integration branch and protected branches; only <c>refs/remotes/origin/&lt;branch&gt;</c> counts.</param>
+    /// <returns>The verification result.</returns>
+    public static LedgerVerification Verify(string root, IEnumerable<string> trustedBranches) => Verify(root, trustedBranches, null);
+
+    internal static LedgerVerification Verify(string root, IEnumerable<string> trustedBranches, TimeSpan? gitTimeout)
     {
         ArgumentException.ThrowIfNullOrEmpty(root);
+        ArgumentNullException.ThrowIfNull(trustedBranches);
         var violations = new List<LedgerViolation>();
         var scanned = new Dictionary<string, FileScan>(StringComparer.Ordinal);
         foreach (var relative in LedgerFiles.EnumerateRelative(root))
@@ -90,6 +101,7 @@ public static class LedgerVerifier
         }
 
         CheckAgainstGit(root, scanned, violations);
+        LedgerHistory.Check(root, new HashSet<string>(anchor.Heads.Files.Keys.Concat(anchor.Heads.Restore.Keys), StringComparer.Ordinal), trustedBranches, gitTimeout ?? DefaultGitTimeout, violations);
         CheckGenerations(scanned.Keys, violations);
         var resets = CollectResets(scanned, violations);
         return new LedgerVerification(violations, known.Keys.Count(scanned.ContainsKey), byGit, resets, restorable);

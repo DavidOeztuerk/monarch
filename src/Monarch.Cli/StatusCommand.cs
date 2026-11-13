@@ -41,7 +41,7 @@ internal static class StatusCommand
         var snapshot = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
         var limits = ManaSupport.Resolve(paths.Root, config).Limits;
         ManaDecision? guard = snapshot is null ? null : ManaGuard.Decide(snapshot, StepEstimate5h, StepEstimate7d, QuestCommands.RecapReservePct, limits, env.Clock.UtcNow);
-        var ledger = LedgerVerifier.Verify(paths.Root);
+        var ledger = LedgerVerifier.Verify(paths.Root, ManaCommands.TrustedBranches(config));
         var hook = SecretScanHook.Detect(env.Cwd);
 
         if (json)

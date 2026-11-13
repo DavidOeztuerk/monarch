@@ -132,7 +132,8 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
             var (lastSeq, prevHash) = ReadTail(fs, stem);
             string? staleRelative = null;
             LedgerHead? staleTail = null;
-            if (LedgerAnchor.Read(root).Heads.Files.TryGetValue(relative, out var anchored)
+            var anchorBefore = LedgerAnchor.Read(root).Heads;
+            if (anchorBefore.Files.TryGetValue(relative, out var anchored)
                 && (lastSeq < anchored.Seq || (lastSeq == anchored.Seq && prevHash != anchored.Hash)))
             {
                 // The anchor is ahead of the file (e.g. a git stash took the uncommitted tail): never continue it, never advance the anchor.
@@ -157,6 +158,11 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
             reset = staleRelative is null
                 ? LedgerHeadStore.Update(root, relative, seq, hash, at, hadWriterId)
                 : LedgerHeadStore.RebaseAheadOfFile(root, staleRelative, staleTail, relative, seq, hash);
+            if (reset is null && staleRelative is null && anchorBefore.Files.Count == 0 && anchorBefore.Restore.Count == 0)
+            {
+                CreateBaseOnce(root);
+            }
+
             return new LedgerEntry(relative, seq, at, actor, type, payload.Clone(), prevHash, hash);
         }
         finally
@@ -165,11 +171,44 @@ public sealed class JsonlLedgerStore(JsonlLedgerOptions options, IClock clock) :
         }
     }
 
+    /// <summary>
+    /// ADR-0018: a worktree that starts from zero (anchor without entries, no reset caused by this append) remembers the commit it started on.
+    /// Written once with <c>CreateNew</c>, never overwritten, never migrated; no unambiguous commit, no base.
+    /// </summary>
+    private static void CreateBaseOnce(string root)
+    {
+        var path = LedgerFiles.Full(root, LedgerFiles.BasePath);
+        if (File.Exists(path) || GitAnchor.HeadCommit(root) is not { } head)
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using var fs = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            fs.Write(Encoding.ASCII.GetBytes(head));
+        }
+        catch (IOException)
+        {
+            // Created by a concurrent append: it stays as it is.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<LedgerEntry> ReadSession(string sessionId)
     {
         LedgerFiles.ValidateSessionId(sessionId);
-        var relative = LedgerFiles.ResolveRelative(options.Root, $"{sessionId}.{LedgerFiles.WriterId(options.Root)}", clock.UtcNow);
+        if (LedgerFiles.TryWriterId(options.Root) is not { } writerId)
+        {
+            // ADR-0018: reading never creates the writer id; otherwise the first append would count as a reset and the worktree would get no base.
+            return [];
+        }
+
+        var relative = LedgerFiles.ResolveRelative(options.Root, $"{sessionId}.{writerId}", clock.UtcNow);
         return File.Exists(LedgerFiles.Full(options.Root, relative)) ? LedgerFiles.ReadEntries(options.Root, relative) : [];
     }
 
