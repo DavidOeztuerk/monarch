@@ -15,5 +15,6 @@ scope:
   exclude: ["src/**"]
 estimate: { session_pct: 12, weekly_pct: 2, gold_usd: 0 }
 boss: "bench/test-gate.sh grün mit dem Fall für 1,70 (vorher rot), CI auf dem Gate-Branch grün auf beiden Betriebssystemen"
+board: { pr: 91 }
 ---
 # C1 unter Last: Schwelle des Modus c1-load von 1,64 auf 1,70

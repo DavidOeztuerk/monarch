@@ -4,7 +4,7 @@
 # Env:   GATE_MODE absolute (default): gate on the percentile in ms, the MVP criterion on the target machine.
 #                  relative (CI, ADR-0015): gate on ratio = p50(hook) / p50(`monarch --version`), median of five
 #                  blocks of 60 runs, against limits fixed in this script; ms values are reported, not gated.
-#                  c1-load (owner's Mac under load, MVP criterion C1 part 2, ADR-0015 addendum of 2026-11-12): the
+#                  c1-load (owner's Mac under load, MVP criterion C1 part 2, ADR-0015 addenda of 2026-11-12 and 2026-11-13): the
 #                  relative statistic against one fixed limit of 1.70 for every scenario. macOS only, never in CI,
 #                  not with MONARCH_BIN. Call: GATE_MODE=c1-load bench/hook-latency.sh plugin/scripts/monarch
 #        LIMIT_MS  latency limit in ms (default 20) for the gate percentile; exit 1 if any scenario exceeds it
@@ -48,8 +48,8 @@ if [[ "$gate_mode" == relative ]]; then
   esac
 fi
 # C1 under load (GATE_MODE=c1-load, ADR-0015 addenda of 2026-11-12 and 2026-11-13): one limit for every scenario, the
-# owner's decision of 2026-11-12: 1.70, raised from 1.64 as a declared loosening (Q-0151; in the evening measurement
-# of 2026-11-12 the highest ratio was 1.69). It is separate from the CI limits above, fixed
+# owner's decision of 2026-11-12: 1.70, raised from 1.64 as a declared loosening (Q-0151; the measured numbers are in
+# the ADR). It is separate from the CI limits above, fixed
 # here and not settable from the environment; changing it needs an owner decision and measured numbers in the ADR.
 # The mode must not loosen the CI gate (1.70 is above the macOS CI limit without ledger): macOS only, an error when
 # CI or GITHUB_ACTIONS is set (even empty), and an error with MONARCH_BIN, which would make the wrapper start another

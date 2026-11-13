@@ -284,7 +284,7 @@ Dazu ein echter Lauf des Modus auf dem Mac des Owners als Funktionsnachweis, Aus
 - Der Modus `GATE_MODE=c1-load` prüft C1 Teil 2: Unter Last darf der Hook auf dem Mac höchstens ein festes Vielfaches des bloßen Programmstarts kosten.
 - **Alte Schwelle: 1,64. Neue Schwelle: 1,70.** Sie gilt wie bisher für alle acht Szenarien.
 - **Das ist eine Lockerung.** Der Hook darf unter Last jetzt etwas langsamer sein als bisher, bevor der Modus rot wird.
-- Sonst ändert sich nichts: keine CI-Schwelle, kein anderer Modus, keine Schutzprüfung des Modus. Wo der Nachtrag vom 12.11. „1,64“ sagt, gilt jetzt 1,70; der Rest gilt weiter.
+- Sonst ändert sich nichts: keine CI-Schwelle, kein anderer Modus, keine Schutzprüfung des Modus. Wo der Nachtrag vom 12.11. 1,64 als geltende Schwelle nennt, gilt jetzt 1,70. Seine Messwerte und seine Herleitung gegen 1,64 bleiben als Stand vom 12.11. stehen; der Rest gilt weiter.
 
 ### Entscheid des Owners (genannt, nicht neu ausgelegt)
 
@@ -320,7 +320,7 @@ Dieselbe Messung wie für 1,64: die Abendmessung vom 12.11., 20:42–20:54 (`evi
   - 1,68 „mit Ledger“ ist in `c1-load` jetzt grün (mit 1,64 rot) und in `relative` auf macOS weiter grün.
   - 1,60 „ohne Ledger“ bleibt in `c1-load` grün und in `relative` auf macOS rot (CI-Schwelle 1,47 unverändert).
   - Die Schwelle lässt sich weiter nicht über die Umgebung heben. Alle Fälle mit Exit 2 und die Prüfung von `ci.yml` bleiben unverändert.
-- Der Kommentar zu C1 in `.github/workflows/ci.yml` und der Eintrag in `docs/lessons.md` nennen 1,70. Die CI-Schritte ändern sich nicht.
+- Der Kommentar zu C1 in `.github/workflows/ci.yml`, der Eintrag in `docs/lessons.md` und ADR-0011 Regel 9 nennen 1,70. Die CI-Schritte ändern sich nicht.
 
 ### Folgen
 

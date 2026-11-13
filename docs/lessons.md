@@ -91,7 +91,7 @@ Das ändert ein Kriterium, und es steht hier, damit es nicht still geschieht (Re
 
 ### Nachtrag 13.11.2026: Schwelle 1,70 statt 1,64
 
-- **Was sich ändert:** Die Schwelle des Modus `c1-load` steigt von 1,64 auf 1,70 (Nachtrag vom 13.11. zu ADR-0015, Q-0151). Wo oben 1,64 steht, gilt jetzt 1,70.
+- **Was sich ändert:** Die Schwelle des Modus `c1-load` steigt von 1,64 auf 1,70 (Nachtrag vom 13.11. zu ADR-0015, Q-0151). Wo oben 1,64 als geltende Schwelle steht, gilt jetzt 1,70; die Messwerte gegen 1,64 bleiben als Stand vom 12.11. stehen.
 - **Wer entschieden hat:** der Owner am 12.11.2026 (Option 2), bewusst als Lockerung.
 - **Was das heißt:** Gegen 1,70 hätten alle 48 Abendwerte im ersten Versuch bestanden; der größte lag bei 1,69. Eine Verschlechterung zwischen dem 1,64- und dem 1,70-Fachen fällt in diesem Modus nicht mehr auf.
 - **Was nicht gelockert wurde:** Die 20 ms, die CI-Schwellen, die CI-Schritte und die Schutzprüfungen des Modus.
