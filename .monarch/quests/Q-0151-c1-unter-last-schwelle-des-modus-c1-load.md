@@ -3,7 +3,7 @@ id: Q-0151
 gate: G-0110
 kind: main
 rank: A
-state: in_progress
+state: in_review
 dod:
   - Nachtrag zu ADR-0015 in einfacher Sprache: alte Schwelle 1,64, neue 1,70, Begründung Owner-Entscheid vom 12.11.2026 (Option 2), ausdrücklich als Lockerung benannt, Messgrundlage Abendmessung vom 12.11. (evidence/teil-c/latenz-2026-11-12/)
   - bench/test-gate.sh prüft für c1-load die Schwelle 1,70: vorher rot, nach der Änderung grün, deterministisch über BENCH_RESULTS_DIR
