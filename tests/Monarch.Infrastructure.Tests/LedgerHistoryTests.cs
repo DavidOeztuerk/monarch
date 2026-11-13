@@ -74,6 +74,22 @@ public sealed class LedgerHistoryTests
         Assert.True(HistoryRepo.Unanchored(r.Verify(), rel));
     }
 
+    [Theory]
+    [InlineData("JSONL")]
+    [InlineData("txt")]
+    public void A_new_file_with_another_extension_under_the_ledger_is_found(string ext)
+    {
+        using var r = new HistoryRepo();
+        r.Append();
+        r.W("checkout", "-q", "-b", "monarch/G-1-x");
+        var rel = $".monarch/ledger/2026-11/s7.deadbeef.{ext}";
+        var line = LedgerCanonical.Serialize(1, DateTimeOffset.UnixEpoch, "forger", "QuestCleared", P.Json("{}"), LedgerCanonical.Genesis("s7.deadbeef"));
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(r.Work, rel))!);
+        File.WriteAllText(Path.Combine(r.Work, rel), LedgerCanonical.Seal(line, LedgerCanonical.ComputeHash(line)) + "\n");
+        r.Commit("forged");
+        Assert.True(HistoryRepo.Unanchored(r.Verify(), rel));
+    }
+
     [Fact]
     public void A_merge_that_takes_a_shorter_parent_version_is_found()
     {
