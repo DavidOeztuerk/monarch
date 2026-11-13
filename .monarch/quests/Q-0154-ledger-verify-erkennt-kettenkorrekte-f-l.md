@@ -3,7 +3,7 @@ id: Q-0154
 gate: G-0111
 kind: main
 rank: A
-state: in_progress
+state: in_review
 dod:
   - Umsetzung nach dem freigegebenen ADR-0018; ADR-0010, ADR-0011 (G3) und plugin/README.md (Grenzen) nennen die verbleibenden Grenzen gleichlautend
   - Die zwei Fälle aus Issue 71 als Tests, vorher rot, danach grün: K-delete-last (letzte Zeile einer getrackten fremden Datei gelöscht und normal committet) und K-append-chained (kettenkorrekte Zeile angehängt und normal committet) melden einen Befund und Exit 1
@@ -15,5 +15,6 @@ scope:
   exclude: [".github/**", "bench/**", "plugin/hooks/**"]
 estimate: { session_pct: 35, weekly_pct: 8, gold_usd: 0 }
 boss: "dotnet test grün mit den neuen Fällen (vorher rot), CI auf dem Gate-Branch grün auf beiden Betriebssystemen, und ein Nachlauf der Fälle K-delete-last und K-append-chained mit dem gebauten Binary in einer Kopie eines frischen Klons, Ausgabe im PR"
+board: { pr: 97 }
 ---
 # ledger verify erkennt kettenkorrekte Fälschung in einem normalen Commit (Issue 71)

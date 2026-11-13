@@ -62,9 +62,13 @@ erwartetes „nicht erkennbar“ fest. Ebenso nicht erkennbar: Fälschung zusamm
 Rewrite der Git-Historie; dazu zählt nach Owner-Entscheid vom 13.11.2026 auch das lokale
 Versetzen der Remote-Stände von `origin` (ADR-0018, Grenze 2; Härtung #94). Committete
 Fälschungen erkennt `verify` seit ADR-0018 nur in einer Worktree, die vor der Fälschung schon
-geschrieben hat; eine danach angelegte Worktree oder ein Klon nimmt sie als Basis (Klon ohne
-Anker, ADR-0018, Grenze 1). Die Basis-Datei mit anderer Commit-ID neu zu schreiben, gehört zu
-„Datei und Anker gemeinsam gefälscht“. Ohne Git (kein Repository, kein `git` im Pfad) entfällt die zweite
+geschrieben hat; eine danach angelegte Worktree oder ein Klon nimmt sie als Basis, ebenso eine
+frische Worktree, die die Fälschung vor ihrem ersten Ledger-Eintrag committet (Klon ohne Anker,
+ADR-0018, Grenze 1). Zu „Datei und Anker gemeinsam gefälscht“ gehören auch: die Basis-Datei mit
+anderer Commit-ID neu schreiben, den Gate-Branch lokal in `git.protected_branches` eintragen
+(#94), und ein quittierter Anker-Reset, der fremde Dateien als eigene neu verankert (#96;
+ADR-0018, Grenze 3). Ohne Git, oder ohne Remote `origin` und ohne Basis, entfällt die
+Historienprüfung (ADR-0018, Grenze 5). Ohne Git (kein Repository, kein `git` im Pfad) entfällt die zweite
 Quelle still. Schutz dagegen sind nur externe Anker: committete Ledger-Dateien (Q-0108),
 Branch-Schutz/Review und später die Forge.
 
