@@ -3,7 +3,7 @@ id: Q-0138
 gate: G-0105
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - Design zuerst (einfache Sprache, im PR): Nachtrag in docs/adr/0014-fehlalarme-ohne-lockerung.md (zu 1b/1c :42-61 und Warum keine Schutzregel fällt :170-180): Ursache von Issue 55 mit Datei:Zeile, Owner-Entscheid STRENG vom 30.10., Tabelle aller Wechsel gegenüber d45e6b9 mit Unmöglichkeitsbeweis (Maßstab ADR-0014 1c); eine Warden-Runde, höchstens eine Delta-Runde, Verdict vor dem ersten Code-Commit
   - Allow, Tests vorher rot und danach grün, echte Kommandos aus Issue 55: `sed 's/.*/new/' f` und `sed -e 's/.*/e/' f`; sonst wird nichts frei, die ADR-Tabelle enthält genau diese zwei Wechsel von deny zu allow (Owner-Entscheid STRENG)
