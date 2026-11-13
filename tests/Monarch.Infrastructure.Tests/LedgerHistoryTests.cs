@@ -523,7 +523,7 @@ public sealed class LedgerHistoryTests
     }
 
     [Fact]
-    public void Limit_rewriting_the_forgery_into_the_base_is_not_detectable()
+    public void Limit_rewriting_the_base_file_to_the_forged_head_is_not_detectable()
     {
         using var r = new HistoryRepo();
         r.Append();

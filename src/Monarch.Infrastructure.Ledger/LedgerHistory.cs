@@ -198,7 +198,7 @@ internal static class LedgerHistory
 
     private static List<DiffEntry> Candidates(Dictionary<string, List<DiffEntry>> entries, string commit, ISet<string> anchored) =>
         entries.TryGetValue(commit, out var list)
-            ? [.. list.Where(e => e.Path.EndsWith(".jsonl", StringComparison.Ordinal) && !anchored.Contains(e.Path))]
+            ? [.. list.Where(e => !anchored.Contains(e.Path))]
             : [];
 
     /// <summary>Parses <c>diff-tree --stdin -z --raw</c>: a commit id token, then per entry a <c>:mode mode old new status</c> token and a path token.</summary>
