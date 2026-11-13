@@ -10,6 +10,8 @@ namespace Monarch.Infrastructure.Ledger;
 /// </summary>
 public static class LedgerVerifier
 {
+    private static readonly TimeSpan DefaultGitTimeout = TimeSpan.FromSeconds(10);
+
     /// <summary>Verifies every ledger file below the project root against its chain and the head anchor.</summary>
     /// <param name="root">Project root.</param>
     /// <returns>The verification result.</returns>
@@ -99,6 +101,7 @@ public static class LedgerVerifier
         }
 
         CheckAgainstGit(root, scanned, violations);
+        LedgerHistory.Check(root, new HashSet<string>(anchor.Heads.Files.Keys.Concat(anchor.Heads.Restore.Keys), StringComparer.Ordinal), trustedBranches, gitTimeout ?? DefaultGitTimeout, violations);
         CheckGenerations(scanned.Keys, violations);
         var resets = CollectResets(scanned, violations);
         return new LedgerVerification(violations, known.Keys.Count(scanned.ContainsKey), byGit, resets, restorable);

@@ -11,6 +11,26 @@ namespace Monarch.Cli;
 /// <summary><c>monarch recap|rest|mana</c> and <c>ledger verify</c>.</summary>
 internal static class ManaCommands
 {
+    /// <summary>ADR-0018: the integration branch and the protected branches whose remote state counts as trusted history; an unreadable config falls back to the defaults.</summary>
+    internal static IReadOnlyList<string> TrustedBranches(ProjectPaths paths)
+    {
+        SystemConfig config;
+        try
+        {
+            config = SystemConfigReader.Load(paths.Root);
+        }
+        catch (Exception)
+        {
+            config = SystemConfig.Default;
+        }
+
+        return TrustedBranches(config);
+    }
+
+    /// <summary>ADR-0018: see <see cref="TrustedBranches(ProjectPaths)"/>.</summary>
+    internal static IReadOnlyList<string> TrustedBranches(SystemConfig config) =>
+        [.. config.ProtectedBranches.Append(config.IntegrationBranch).Distinct(StringComparer.Ordinal)];
+
     private const string NoNext = "(noch nicht festgelegt)";
     private const string NoDecisions = "keine";
 
@@ -260,7 +280,7 @@ internal static class ManaCommands
             return 1;
         }
 
-        var result = LedgerVerifier.Verify(paths.Root);
+        var result = LedgerVerifier.Verify(paths.Root, TrustedBranches(paths));
         foreach (var file in result.Restorable ?? [])
         {
             env.Out.WriteLine($"{file}: original content is back (git stash pop / branch switch); the next ledger append anchors it again and writes LedgerAnchorRestored.");
@@ -307,7 +327,7 @@ internal static class ManaCommands
     /// </summary>
     public static string? VerifyBeforeClear(CliEnv env, ProjectPaths paths, string questId)
     {
-        var result = LedgerVerifier.Verify(paths.Root);
+        var result = LedgerVerifier.Verify(paths.Root, TrustedBranches(paths));
         if (result.Ok)
         {
             return null;
@@ -343,7 +363,7 @@ internal static class ManaCommands
             return 1;
         }
 
-        var reset = LedgerVerifier.Verify(paths.Root).Resets?.FirstOrDefault(r => string.Equals(r.Hash, eventHash, StringComparison.OrdinalIgnoreCase));
+        var reset = LedgerVerifier.Verify(paths.Root, TrustedBranches(paths)).Resets?.FirstOrDefault(r => string.Equals(r.Hash, eventHash, StringComparison.OrdinalIgnoreCase));
         if (reset is null)
         {
             env.Err.WriteLine($"refused: no LedgerAnchorReset event with hash {eventHash}.");

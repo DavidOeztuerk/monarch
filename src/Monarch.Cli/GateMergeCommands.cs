@@ -179,7 +179,7 @@ internal static partial class GateMergeCommands
         }
 
         // 1. ledger verify: local git, outside every forge deadline, so it runs before the timer of phase A starts
-        var ledgerCheck = LedgerVerifier.Verify(paths.Root);
+        var ledgerCheck = LedgerVerifier.Verify(paths.Root, ManaCommands.TrustedBranches(paths));
         if (!ledgerCheck.Ok)
         {
             var findings = string.Join("; ", ledgerCheck.Violations.Take(5).Select(v => $"{v.File}:{v.Line} {v.Kind}"));
