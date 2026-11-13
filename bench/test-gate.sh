@@ -116,10 +116,11 @@ expect 1 "limits cannot be raised through the environment" rel "$tmp/regress" \
   REL_LIMIT=99 REL_LIMIT_PLAIN=99 REL_LIMIT_LEDGER=99 LIMIT_RATIO=99 RATIO_LIMIT=99 LIMIT_MS=9999 GATE_PCT=95
 
 # --- C1 under load on the owner's Mac (GATE_MODE=c1-load, addendum of 2026-11-12 to ADR-0015, Q-0150). ---
-# Same statistic as the relative gate, one fixed limit of 1.64 for every scenario (owner decision), macOS only, never
+# Same statistic as the relative gate, one fixed limit of 1.70 for every scenario (owner decision of 2026-11-12,
+# ADR-0015 addendum of 2026-11-13, Q-0151: raised from 1.64, a declared loosening), macOS only, never
 # in CI. The cases run with a uname that reports Darwin and without CI variables, so the Linux runner checks them too.
 # Every exit-2 case uses data that would pass without the guard and checks the reason: an unknown mode also exits 2.
-c1_limit=1.64
+c1_limit=1.70
 mkdir -p "$tmp/darwinbin" && printf '#!/bin/sh\necho Darwin\n' >"$tmp/darwinbin/uname" && chmod +x "$tmp/darwinbin/uname"
 mkdir -p "$tmp/linuxbin" && printf '#!/bin/sh\necho Linux\n' >"$tmp/linuxbin/uname" && chmod +x "$tmp/linuxbin/uname"
 c1() { # dir, [env assignments...] -> exit code of the C1 load mode on a simulated Mac outside CI
@@ -136,19 +137,19 @@ reason() { # text, description: the last run must have named this reason
 }
 
 dataset "$tmp/c1-under" 5 "$(near "$c1_limit" -0.02)" "$(near "$c1_limit" -0.02)"
-expect 0 "c1-load: just under 1.64 in both classes passes" c1 "$tmp/c1-under"
-reason "1.64" "c1-load: the output shows the limit 1.64"
+expect 0 "c1-load: just under 1.70 in both classes passes" c1 "$tmp/c1-under"
+reason "1.70" "c1-load: the output shows the limit 1.70"
 dataset "$tmp/c1-over-plain" 5 "$(near "$c1_limit" 0.02)" 1.30
-expect 1 "c1-load: just over 1.64 without ledger fails" c1 "$tmp/c1-over-plain"
+expect 1 "c1-load: just over 1.70 without ledger fails" c1 "$tmp/c1-over-plain"
 dataset "$tmp/c1-over-ledger" 5 1.20 "$(near "$c1_limit" 0.02)"
-expect 1 "c1-load: just over 1.64 with ledger fails" c1 "$tmp/c1-over-ledger"
+expect 1 "c1-load: just over 1.70 with ledger fails" c1 "$tmp/c1-over-ledger"
 
 # Separate from the CI limits, which stay as they are (macOS: 1.47 without ledger, 1.70 with ledger).
 dataset "$tmp/c1-plain160" 5 1.60 1.30
 expect 0 "c1-load: 1.60 without ledger passes" c1 "$tmp/c1-plain160"
 expect 1 "relative on macOS: 1.60 without ledger still fails (CI limit 1.47 unchanged)" mac_rel "$tmp/c1-plain160"
 dataset "$tmp/c1-ledger168" 5 1.20 1.68
-expect 1 "c1-load: 1.68 with ledger fails" c1 "$tmp/c1-ledger168"
+expect 0 "c1-load: 1.68 with ledger passes (above the old limit 1.64, under 1.70)" c1 "$tmp/c1-ledger168"
 expect 0 "relative on macOS: 1.68 with ledger still passes (CI limit 1.70 unchanged)" mac_rel "$tmp/c1-ledger168"
 
 # The mode cannot loosen the CI gate: macOS only, not in CI (set counts, even empty), no MONARCH_BIN.

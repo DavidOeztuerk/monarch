@@ -88,3 +88,10 @@ Das ändert ein Kriterium, und es steht hier, damit es nicht still geschieht (Re
 - **Was nicht gelockert wurde:** Die 20 ms selbst, die CI-Schwellen und die CI-Schritte. Der neue Modus läuft nur auf macOS und verweigert die CI; der Selbsttest prüft, dass `ci.yml` beim relativen Gate bleibt.
 - **Was dünn ist:** Der Faktor stammt aus zwölf Minuten an einem Abend. Zwei von 48 Werten lagen im ersten Versuch über 1,64. Für Aufrufe mit Ledger lag das p95 bei 1,69; ob sie einen eigenen Wert bekommen, ist offen.
 - **Lehre:** Eine feste Zahl in Millisekunden braucht die Bedingung dazu, unter der sie gilt. Ohne sie misst sie die Maschine.
+
+### Nachtrag 13.11.2026: Schwelle 1,70 statt 1,64
+
+- **Was sich ändert:** Die Schwelle des Modus `c1-load` steigt von 1,64 auf 1,70 (Nachtrag vom 13.11. zu ADR-0015, Q-0151). Wo oben 1,64 steht, gilt jetzt 1,70.
+- **Wer entschieden hat:** der Owner am 12.11.2026 (Option 2), bewusst als Lockerung.
+- **Was das heißt:** Gegen 1,70 hätten alle 48 Abendwerte im ersten Versuch bestanden; der größte lag bei 1,69. Eine Verschlechterung zwischen dem 1,64- und dem 1,70-Fachen fällt in diesem Modus nicht mehr auf.
+- **Was nicht gelockert wurde:** Die 20 ms, die CI-Schwellen, die CI-Schritte und die Schutzprüfungen des Modus.
