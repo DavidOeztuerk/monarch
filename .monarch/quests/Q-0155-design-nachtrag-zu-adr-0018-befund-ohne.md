@@ -3,7 +3,7 @@ id: Q-0155
 gate: G-0112
 kind: main
 rank: A
-state: in_progress
+state: in_review
 dod:
   - Nachtrag in docs/adr/0018-ledger-historie-im-verify.md in einfacher Sprache: Trick B (git remote remove origin) ergibt einen Befund statt still auszulassen, mit enger Bedingung gegen Falsch-Positive; der G-0111-Test, der das Auslassen festhielt, wird nach Owner-Entscheid vom 14.11. strenger, das steht offen im ADR
   - Owner-Entscheide in ADR-0018, ADR-0010, ADR-0011 (G3) und plugin/README.md wörtlich korrigiert: update-ref entschieden am 13.11., set-url plus fetch entschieden am 14.11., git fetch . HEAD:refs/remotes/origin/develop nur als Vorschlag (in
