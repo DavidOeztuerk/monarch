@@ -3,7 +3,7 @@ id: Q-0156
 gate: G-0112
 kind: main
 rank: A
-state: proposed
+state: in_progress
 dod:
   - Umsetzung nach dem freigegebenen Nachtrag zu ADR-0018, TDD: neue Tests vorher rot, danach grün
   - Trick B als Test: Checkout ohne Start-Commit, Anker mit Einträgen, fremde Ledger-Historie, git remote remove origin, gefälschte Zeile committet → Befund
