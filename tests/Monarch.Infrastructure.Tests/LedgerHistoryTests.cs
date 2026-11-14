@@ -463,7 +463,7 @@ public sealed class LedgerHistoryTests
     }
 
     [Fact]
-    public void A_repository_without_remote_and_without_base_skips_the_history_check()
+    public void A_repository_without_remote_and_without_base_with_foreign_history_is_a_finding()
     {
         using var t = new TempDir();
         HistoryRepo.Git(t.Path, "init", "-q", "-b", "develop");
@@ -478,7 +478,7 @@ public sealed class LedgerHistoryTests
         HistoryRepo.Git(t.Path, "add", "-A", ".monarch/ledger");
         HistoryRepo.Git(t.Path, "commit", "-q", "-m", "foreign");
         var v = LedgerVerifier.Verify(t.Path, HistoryRepo.Trusted);
-        Assert.False(HistoryRepo.Unanchored(v), string.Join("; ", v.Violations));
+        Assert.True(HistoryRepo.Unanchored(v), string.Join("; ", v.Violations));
     }
 
     [Fact]
@@ -490,6 +490,231 @@ public sealed class LedgerHistoryTests
         HistoryRepo.DeleteLastLine(r.ForeignFull);
         r.Commit("forged");
         Assert.True(HistoryRepo.Unanchored(LedgerVerifier.Verify(r.Work)), "the base alone is enough; only commits after it count");
+    }
+
+    // ---- ADR-0018 addendum 14.11.2026: without origin and without base (Q-0156)
+
+    [Fact]
+    public void Without_origin_and_base_K_append_chained_is_found()
+    {
+        using var r = new HistoryRepo();
+        r.WithoutOriginAndBase();
+        r.W("checkout", "-q", "-b", "monarch/G-1-x");
+        HistoryRepo.AppendChained(r.ForeignFull);
+        r.Commit("forged");
+        var v = r.Verify();
+        Assert.False(v.Ok);
+        Assert.True(HistoryRepo.Unanchored(v), string.Join("; ", v.Violations));
+    }
+
+    [Fact]
+    public void Without_origin_and_base_K_delete_last_is_found()
+    {
+        using var r = new HistoryRepo();
+        r.WithoutOriginAndBase();
+        r.W("checkout", "-q", "-b", "monarch/G-1-x");
+        HistoryRepo.DeleteLastLine(r.ForeignFull);
+        r.Commit("forged");
+        var v = r.Verify();
+        Assert.False(v.Ok);
+        Assert.True(HistoryRepo.Unanchored(v), string.Join("; ", v.Violations));
+    }
+
+    [Fact]
+    public void Without_origin_and_base_a_commit_that_deletes_the_only_foreign_file_is_found()
+    {
+        using var r = new HistoryRepo();
+        r.WithoutOriginAndBase();
+        r.W("checkout", "-q", "-b", "monarch/G-1-x");
+        r.W("rm", "-q", "-f", r.ForeignRel);
+        r.Commit("delete foreign file");
+        Assert.False(File.Exists(r.ForeignFull));
+        Assert.True(HistoryRepo.Unanchored(r.Verify()));
+    }
+
+    [Fact]
+    public void Without_origin_and_base_a_merge_that_deletes_all_foreign_files_and_equals_a_parent_is_found()
+    {
+        using var r = new HistoryRepo(HistoryRepo.Older.Missing);
+        r.WithoutOriginAndBase();
+        r.W("checkout", "-q", "-b", "monarch/G-1-x", r.D0!);
+        r.Commit("own");
+        r.W("merge", "-q", "--no-commit", "--no-ff", "develop");
+        r.W("rm", "-q", "-f", r.ForeignRel);
+        r.Commit("merge");
+        Assert.Equal(2, r.W("rev-list", "--parents", "-n", "1", "HEAD").Split(' ').Length - 1);
+        Assert.False(File.Exists(r.ForeignFull));
+        Assert.True(HistoryRepo.Unanchored(r.Verify()));
+    }
+
+    private const string NewForeignRel = ".monarch/ledger/2026-10/s7.deadbeef.jsonl";
+
+    /// <summary>A repository without any foreign ledger history: no remote, no base, an anchor with entries and a writer-id. Returns the own file (relative).</summary>
+    private static string OwnOnlyRepo(string dir)
+    {
+        HistoryRepo.Git(dir, "init", "-q", "-b", "develop");
+        var store = new JsonlLedgerStore(new JsonlLedgerOptions { Root = dir }, new FixedClock());
+        store.Append("s1", "knight", "Note", P.Json("{}"));
+        HistoryRepo.Git(dir, "add", "-A", ".monarch/ledger");
+        HistoryRepo.Git(dir, "commit", "-q", "-m", "own");
+        Assert.Equal(string.Empty, HistoryRepo.Git(dir, "remote"));
+        Assert.False(File.Exists(Path.Combine(dir, ".monarch", "local", "ledger-base")));
+        Assert.True(File.Exists(Path.Combine(dir, ".monarch", "local", "writer-id")));
+        var anchor = File.ReadAllText(Path.Combine(dir, ".monarch", "local", "ledger-heads.json"));
+        Assert.Contains("s1", anchor);
+        return HistoryRepo.Git(dir, "ls-files", ".monarch/ledger").Split('\n').Single();
+    }
+
+    private static void CommitLedger(string dir, string message)
+    {
+        HistoryRepo.Git(dir, "add", "-A", ".monarch/ledger");
+        HistoryRepo.Git(dir, "commit", "-q", "--allow-empty", "-m", message);
+    }
+
+    [Fact]
+    public void Without_origin_and_base_an_own_file_renamed_to_a_new_foreign_name_with_a_chained_line_is_found()
+    {
+        using var t = new TempDir();
+        var own = OwnOnlyRepo(t.Path);
+        Directory.CreateDirectory(Path.Combine(t.Path, ".monarch", "ledger", "2026-10"));
+        HistoryRepo.Git(t.Path, "mv", own, NewForeignRel);
+        HistoryRepo.AppendChained(Path.Combine(t.Path, NewForeignRel));
+        CommitLedger(t.Path, "rename to a foreign name");
+        HistoryRepo.Git(t.Path, "checkout", "HEAD~1", "--", own);
+        CommitLedger(t.Path, "restore own file");
+        var v = LedgerVerifier.Verify(t.Path, HistoryRepo.Trusted);
+        Assert.True(HistoryRepo.Unanchored(v), string.Join("; ", v.Violations));
+    }
+
+    [Fact]
+    public void Without_origin_and_base_an_own_file_copied_to_a_new_foreign_name_with_a_chained_line_is_found()
+    {
+        using var t = new TempDir();
+        var own = OwnOnlyRepo(t.Path);
+        HistoryRepo.Git(t.Path, "config", "diff.renames", "copies");
+        Directory.CreateDirectory(Path.Combine(t.Path, ".monarch", "ledger", "2026-10"));
+        File.Copy(Path.Combine(t.Path, own), Path.Combine(t.Path, NewForeignRel));
+        HistoryRepo.AppendChained(Path.Combine(t.Path, NewForeignRel));
+        CommitLedger(t.Path, "copy to a foreign name");
+        Assert.True(File.Exists(Path.Combine(t.Path, own)));
+        var v = LedgerVerifier.Verify(t.Path, HistoryRepo.Trusted);
+        Assert.True(HistoryRepo.Unanchored(v), string.Join("; ", v.Violations));
+    }
+
+    [Fact]
+    public void Without_origin_and_base_an_orphan_root_with_a_forged_file_is_found_even_with_log_showroot_false()
+    {
+        using var t = new TempDir();
+        OwnOnlyRepo(t.Path);
+        HistoryRepo.Git(t.Path, "config", "log.showRoot", "false");
+        HistoryRepo.Git(t.Path, "checkout", "-q", "--orphan", "evil");
+        HistoryRepo.Git(t.Path, "rm", "-rfq", ".");
+        var line = LedgerCanonical.Serialize(1, DateTimeOffset.UnixEpoch, "forger", "QuestCleared", P.Json("{}"), LedgerCanonical.Genesis("s7.deadbeef"));
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(t.Path, NewForeignRel))!);
+        File.WriteAllText(Path.Combine(t.Path, NewForeignRel), LedgerCanonical.Seal(line, LedgerCanonical.ComputeHash(line)) + "\n");
+        HistoryRepo.Git(t.Path, "add", NewForeignRel);
+        HistoryRepo.Git(t.Path, "commit", "-q", "-m", "evil root");
+        HistoryRepo.Git(t.Path, "checkout", "-q", "develop");
+        HistoryRepo.Git(t.Path, "merge", "-q", "--allow-unrelated-histories", "--no-edit", "evil");
+        var v = LedgerVerifier.Verify(t.Path, HistoryRepo.Trusted);
+        Assert.True(HistoryRepo.Unanchored(v), string.Join("; ", v.Violations));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Without_origin_and_base_an_emptied_anchor_with_a_writer_id_and_foreign_history_is_a_finding(bool deleteAnchor)
+    {
+        using var r = new HistoryRepo();
+        r.WithoutOriginAndBase();
+        r.Commit("own");
+        var anchor = Path.Combine(r.Work, ".monarch", "local", "ledger-heads.json");
+        if (deleteAnchor)
+        {
+            File.Delete(anchor);
+        }
+        else
+        {
+            File.WriteAllText(anchor, """{"files":{},"restore":{}}""");
+        }
+
+        Assert.True(File.Exists(Path.Combine(r.Work, ".monarch", "local", "writer-id")));
+        Assert.True(HistoryRepo.Unanchored(r.Verify()));
+    }
+
+    [Fact]
+    public void A_shallow_repository_with_a_deleted_foreign_file_is_a_finding_when_shallow_is_set_to_head()
+    {
+        using var r = new HistoryRepo();
+        r.Append();
+        r.W("checkout", "-q", "-b", "monarch/G-1-x");
+        r.W("rm", "-q", "-f", r.ForeignRel);
+        r.Commit("delete foreign file");
+        var head = r.W("rev-parse", "HEAD");
+        var common = r.W("rev-parse", "--path-format=absolute", "--git-common-dir");
+        File.WriteAllText(Path.Combine(common, "shallow"), head + "\n");
+        Assert.Equal("true", r.W("rev-parse", "--is-shallow-repository"));
+        Assert.True(HistoryRepo.Unanchored(r.Verify()));
+    }
+
+    [Fact]
+    public void Without_origin_and_base_a_shallow_repository_after_deleting_all_foreign_files_is_a_finding()
+    {
+        using var r = new HistoryRepo();
+        r.WithoutOriginAndBase();
+        r.W("checkout", "-q", "-b", "monarch/G-1-x");
+        r.W("rm", "-q", "-f", r.ForeignRel);
+        r.Commit("delete foreign files");
+        var head = r.W("rev-parse", "HEAD");
+        var common = r.W("rev-parse", "--path-format=absolute", "--git-common-dir");
+        File.WriteAllText(Path.Combine(common, "shallow"), head + "\n");
+        Assert.Equal("true", r.W("rev-parse", "--is-shallow-repository"));
+        Assert.False(File.Exists(r.ForeignFull));
+        var v = r.Verify();
+        Assert.True(HistoryRepo.Unanchored(v), string.Join("; ", v.Violations));
+    }
+
+    [Fact]
+    public void Control_the_same_setup_without_a_shallow_file_reports_the_deleted_foreign_file()
+    {
+        using var r = new HistoryRepo();
+        r.Append();
+        r.W("checkout", "-q", "-b", "monarch/G-1-x");
+        r.W("rm", "-q", "-f", r.ForeignRel);
+        r.Commit("delete foreign file");
+        Assert.Equal("false", r.W("rev-parse", "--is-shallow-repository"));
+        Assert.True(HistoryRepo.Unanchored(r.Verify(), r.ForeignRel));
+    }
+
+    [Fact]
+    public void A_repository_without_remote_with_only_own_ledger_files_has_no_finding()
+    {
+        using var t = new TempDir();
+        HistoryRepo.Git(t.Path, "init", "-q", "-b", "develop");
+        var store = new JsonlLedgerStore(new JsonlLedgerOptions { Root = t.Path }, new FixedClock());
+        store.Append("s1", "knight", "Note", P.Json("{}"));
+        HistoryRepo.Git(t.Path, "add", "-A", ".monarch/ledger");
+        HistoryRepo.Git(t.Path, "commit", "-q", "-m", "first");
+        Assert.False(File.Exists(Path.Combine(t.Path, ".monarch", "local", "ledger-base")));
+        store.Append("s1", "knight", "Note", P.Json("{}"));
+        HistoryRepo.Git(t.Path, "add", "-A", ".monarch/ledger");
+        HistoryRepo.Git(t.Path, "commit", "-q", "-m", "second");
+        var v = LedgerVerifier.Verify(t.Path, HistoryRepo.Trusted);
+        Assert.False(HistoryRepo.Unanchored(v), string.Join("; ", v.Violations));
+    }
+
+    [Fact]
+    public void A_checkout_with_a_valid_base_and_without_origin_with_only_own_commits_is_ok()
+    {
+        using var r = new HistoryRepo();
+        r.Append();
+        Assert.True(File.Exists(r.BasePath));
+        r.W("remote", "remove", "origin");
+        r.W("checkout", "-q", "-b", "monarch/G-1-x");
+        r.Append();
+        r.Commit("own");
+        var v = r.Verify();
+        Assert.True(v.Ok, string.Join("; ", v.Violations));
     }
 
     // ---- limits: not detectable, by design (ADR-0018 Grenzen)

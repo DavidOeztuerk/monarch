@@ -70,6 +70,31 @@ internal static class LedgerHistory
             return; // no commit yet: nothing is branch-local
         }
 
+        // ADR-0018 exception 1: an empty anchor and no writer-id mean a fresh checkout without own ledger files.
+        var freshCheckout = anchored.Count == 0 && LedgerFiles.TryWriterId(root) is null;
+        if (!freshCheckout)
+        {
+            var shallow = GitAnchor.Isolated(root, ["rev-parse", "--is-shallow-repository"], null, timeout);
+            if (!shallow.Ok)
+            {
+                Fail(violations, shallow.Status == GitAnchor.GitStatus.TimedOut ? "git timed out while checking for a shallow repository" : "git failed while checking for a shallow repository");
+                return;
+            }
+
+            switch (shallow.Text.Trim())
+            {
+                case "true":
+                    violations.Add(new LedgerViolation(LedgerFiles.LedgerDir, 0, LedgerViolationKind.UnanchoredCommit,
+                        "The repository is shallow; the ledger history cannot be checked. Set up origin, then run 'git fetch --unshallow'."));
+                    return;
+                case "false":
+                    break;
+                default:
+                    Fail(violations, "git answered the shallow check with an unexpected value");
+                    return;
+            }
+        }
+
         var trusted = resolved.Skip(1).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
         if (trusted.Count == 0)
         {
@@ -82,6 +107,10 @@ internal static class LedgerHistory
             {
                 violations.Add(new LedgerViolation(LedgerFiles.LedgerDir, 0, LedgerViolationKind.UnanchoredCommit,
                     $"No trusted state: the worktree has no valid base and no remote state of {branchText} is resolvable although 'origin' is configured. {FetchHint}"));
+            }
+            else if (!freshCheckout)
+            {
+                CheckWholeHistory(root, anchored, timeout, violations);
             }
 
             return;
@@ -159,6 +188,41 @@ internal static class LedgerHistory
                         $"Commit {short7} (merge) {problem}; the commit is on no remote state of {branchText} and the file was not written by this worktree. {FetchHint}"));
                 }
             }
+        }
+    }
+
+    /// <summary>ADR-0018 (addendum): without origin and base, any commit in the whole history that adds a ledger path outside the anchor is a finding.</summary>
+    private static void CheckWholeHistory(string root, ISet<string> anchored, TimeSpan timeout, List<LedgerViolation> violations)
+    {
+        var list = GitAnchor.Isolated(root, ["rev-list", "HEAD"], null, timeout);
+        if (!list.Ok)
+        {
+            Fail(violations, list.Status == GitAnchor.GitStatus.TimedOut ? "git timed out in rev-list" : "git rev-list failed");
+            return;
+        }
+
+        var ids = list.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim()).Where(IsCommitId).ToList();
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        var diff = GitAnchor.Isolated(
+            root,
+            ["diff-tree", "--stdin", "-r", "--root", "--no-renames", "-m", "-z", "--relative", "--diff-filter=A", "--name-only", "--no-commit-id", "--", LedgerFiles.LedgerDir],
+            Encoding.ASCII.GetBytes(string.Join("\n", ids) + "\n"),
+            timeout);
+        if (!diff.Ok)
+        {
+            Fail(violations, diff.Status == GitAnchor.GitStatus.TimedOut ? "git timed out in diff-tree" : "git diff-tree failed");
+            return;
+        }
+
+        var paths = Encoding.UTF8.GetString(diff.Output).Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        if (paths.Any(p => !anchored.Contains(p)))
+        {
+            violations.Add(new LedgerViolation(LedgerFiles.LedgerDir, 0, LedgerViolationKind.UnanchoredCommit,
+                "No trusted state: origin and the worktree base are missing, but the history contains ledger files of other writers. Set up origin again ('git remote add origin <url>', then 'git fetch')."));
         }
     }
 
