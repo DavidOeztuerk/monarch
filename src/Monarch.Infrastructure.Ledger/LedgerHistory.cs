@@ -20,7 +20,8 @@ internal static class LedgerHistory
     /// <param name="branches">Integration branch and protected branches.</param>
     /// <param name="timeout">Time limit of each git call.</param>
     /// <param name="violations">Receives the findings.</param>
-    public static void Check(string root, ISet<string> anchored, IEnumerable<string> branches, TimeSpan timeout, List<LedgerViolation> violations)
+    /// <param name="pinnedHead">The commit that <c>HEAD</c> pointed to when <c>verify</c> began; the comparison with the tree and this check use the same commit. Null: resolve <c>HEAD</c> here.</param>
+    public static void Check(string root, ISet<string> anchored, IEnumerable<string> branches, TimeSpan timeout, List<LedgerViolation> violations, string? pinnedHead = null)
     {
         var names = branches.Where(IsBranchName).Distinct(StringComparer.Ordinal).ToList();
         var branchText = names.Count == 0 ? "develop/main" : string.Join("/", names);
@@ -43,7 +44,7 @@ internal static class LedgerHistory
         }
 
         var baseId = ReadBase(root);
-        var inputs = new List<string> { "HEAD^{commit}" };
+        var inputs = new List<string> { (pinnedHead ?? "HEAD") + "^{commit}" };
         if (baseId is not null)
         {
             inputs.Add(baseId + "^{commit}");
@@ -302,7 +303,7 @@ internal static class LedgerHistory
         return result;
     }
 
-    private static Dictionary<string, byte[]?>? ReadBlobs(string root, HashSet<string> blobs, TimeSpan timeout)
+    internal static Dictionary<string, byte[]?>? ReadBlobs(string root, HashSet<string> blobs, TimeSpan timeout)
     {
         var order = blobs.OrderBy(b => b, StringComparer.Ordinal).ToList();
         var r = GitAnchor.Isolated(root, ["cat-file", "--batch"], Encoding.ASCII.GetBytes(string.Join("\n", order) + "\n"), timeout);

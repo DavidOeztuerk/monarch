@@ -4,39 +4,23 @@ using System.Diagnostics;
 namespace Monarch.Infrastructure.Ledger;
 
 /// <summary>
-/// Git as secondary anchor: a ledger file that is tracked and unmodified against <c>HEAD</c> is protected by the
-/// content-addressed, reviewed git history even when the local head anchor does not know it (fresh clone, merge).
-/// Used on the hook path only when the ledger file exists, has no local anchor and the hook writes (deny, ask or signal);
-/// falls back to "not anchored" when git is unavailable. git is resolved by <c>ToolLocator</c> from absolute <c>PATH</c> entries only.
+/// Git as secondary anchor: a ledger file that equals its blob in the tree of the <c>HEAD</c> commit is protected by the content-addressed,
+/// reviewed git history even when the local head anchor does not know it (fresh clone, merge). <c>verify</c> reads that tree itself
+/// (ADR-0010, addendum 15.11.2026) and never asks <c>git diff</c>, which answers from the index. The ledger store uses <see cref="IsTracked"/>
+/// and <see cref="HeadCommit"/>. Falls back to "not anchored" when git is unavailable. git is resolved by <c>ToolLocator</c> from absolute <c>PATH</c> entries only.
 /// </summary>
 internal static class GitAnchor
 {
     private const int TimeoutMs = 10_000;
 
-    /// <summary>Returns whether <paramref name="relative"/> is tracked by git and equals its committed content.</summary>
-    public static bool IsAnchoredByGit(string root, string relative) =>
-        Run(root, "ls-files", "--error-unmatch", "--", relative) && Run(root, "diff", "--quiet", "HEAD", "--", relative);
-
     /// <summary>Returns whether <paramref name="relative"/> is tracked by git, regardless of its content.</summary>
     public static bool IsTracked(string root, string relative) => Run(root, "ls-files", "--error-unmatch", "--", relative);
 
-    /// <summary>Lists the ledger files in the git index (second, independent source); null when git is unavailable or this is no repository.</summary>
-    public static List<string>? TrackedLedgerFiles(string root) =>
-        Capture(root, "ls-files", "-z", "--", LedgerFiles.LedgerDir) is { } o ? Split(o) : null;
-
-    /// <summary>Lists ledger files whose working tree differs from <c>HEAD</c> (including deleted ones); null when unavailable.</summary>
-    public static HashSet<string>? ChangedAgainstHead(string root) =>
-        Capture(root, "diff", "-z", "--name-only", "--relative", "HEAD", "--", LedgerFiles.LedgerDir) is { } o ? [.. Split(o)] : null;
-
-    /// <summary>Returns the content of <paramref name="relative"/> at <c>HEAD</c>, or null when it is not part of HEAD.</summary>
-    public static byte[]? HeadBlob(string root, string relative) => Capture(root, "show", "HEAD:./" + relative);
-
-    private static List<string> Split(byte[] output) =>
-        [.. System.Text.Encoding.UTF8.GetString(output).Split('\0', StringSplitOptions.RemoveEmptyEntries)];
+    /// <summary>Lists the ledger files in the git index (an additional source that can only add findings), isolated like the history check.</summary>
+    public static GitResult TrackedLedgerFiles(string root, TimeSpan timeout) =>
+        Isolated(root, ["ls-files", "-z", "--", LedgerFiles.LedgerDir], null, timeout);
 
     private static bool Run(string root, params string[] args) => Execute(root, args, out _);
-
-    private static byte[]? Capture(string root, params string[] args) => Execute(root, args, out var output) ? output : null;
 
     private static bool Execute(string root, string[] args, out byte[] output)
     {

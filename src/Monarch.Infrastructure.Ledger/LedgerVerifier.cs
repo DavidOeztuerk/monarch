@@ -43,6 +43,8 @@ public static class LedgerVerifier
             violations.Add(new LedgerViolation(problem.File, 0, LedgerViolationKind.AnchorInvalid, problem.Detail));
         }
 
+        var timeout = gitTimeout ?? DefaultGitTimeout;
+        var view = LedgerHeadView.Read(root, timeout);
         var known = anchor.Heads.Files;
         var restorable = new List<string>();
         var allResets = scanned.SelectMany(s => s.Value.Resets.Select(r => r with { File = s.Key })).ToList();
@@ -62,7 +64,7 @@ public static class LedgerVerifier
                 continue;
             }
 
-            if (GitAnchor.IsAnchoredByGit(root, file))
+            if (IsAnchoredByGit(root, file, view))
             {
                 byGit++;
             }
@@ -100,8 +102,8 @@ public static class LedgerVerifier
             }
         }
 
-        CheckAgainstGit(root, scanned, violations);
-        LedgerHistory.Check(root, new HashSet<string>(anchor.Heads.Files.Keys.Concat(anchor.Heads.Restore.Keys), StringComparer.Ordinal), trustedBranches, gitTimeout ?? DefaultGitTimeout, violations);
+        CheckAgainstGit(root, view, violations);
+        LedgerHistory.Check(root, new HashSet<string>(anchor.Heads.Files.Keys.Concat(anchor.Heads.Restore.Keys), StringComparer.Ordinal), trustedBranches, timeout, violations, view.Commit);
         CheckGenerations(scanned.Keys, violations);
         var resets = CollectResets(scanned, violations);
         return new LedgerVerification(violations, known.Keys.Count(scanned.ContainsKey), byGit, resets, restorable);
@@ -152,19 +154,25 @@ public static class LedgerVerifier
     }
 
     /// <summary>
-    /// Second, independent source: the ledger files tracked by git. A tracked file must exist and must extend its
-    /// <c>HEAD</c> blob byte for byte (append-only); fewer lines or a different prefix is tampering even when the local
-    /// anchor was rewritten consistently. Silently skipped when git is unavailable.
+    /// Second, independent source: the ledger files in the tree of the <c>HEAD</c> commit (ADR-0010, addendum 15.11.2026). Every file of the tree that
+    /// is on disk must extend its blob byte for byte (append-only); fewer lines or a different prefix is tampering even when the local
+    /// anchor was rewritten consistently. The index only adds findings (tracked but missing). Silently skipped when git is unavailable;
+    /// a git failure in a repository is a finding.
     /// </summary>
-    private static void CheckAgainstGit(string root, Dictionary<string, FileScan> scanned, List<LedgerViolation> violations)
+    private static void CheckAgainstGit(string root, LedgerHeadView head, List<LedgerViolation> violations)
     {
-        if (GitAnchor.TrackedLedgerFiles(root) is not { } tracked)
+        if (!head.InRepository)
         {
             return;
         }
 
-        var changed = GitAnchor.ChangedAgainstHead(root) ?? [];
-        foreach (var file in tracked.Where(f => f.EndsWith(".jsonl", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
+        foreach (var (file, detail) in head.Problems)
+        {
+            violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.HeadMismatch, detail));
+        }
+
+        var files = head.Blobs.Keys.Concat(head.Special.Keys).Concat(head.Index).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+        foreach (var file in files)
         {
             if (!File.Exists(LedgerFiles.Full(root, file)))
             {
@@ -172,7 +180,13 @@ public static class LedgerVerifier
                 continue;
             }
 
-            if (!changed.Contains(file) || !scanned.ContainsKey(file) || GitAnchor.HeadBlob(root, file) is not { } blob)
+            if (head.Special.TryGetValue(file, out var mode))
+            {
+                violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.HeadMismatch, $"Ledger path is no regular file in the HEAD tree (mode {mode})."));
+                continue;
+            }
+
+            if (!head.Blobs.TryGetValue(file, out var blob))
             {
                 continue;
             }
@@ -196,6 +210,24 @@ public static class LedgerVerifier
             violations.Add(have < expected
                 ? new LedgerViolation(file, have, LedgerViolationKind.Truncated, $"File has {have} lines, the HEAD version has {expected}.")
                 : new LedgerViolation(file, 0, LedgerViolationKind.HeadMismatch, "Content is not an append-only extension of the HEAD version."));
+        }
+    }
+
+    /// <summary>A foreign file without a local anchor counts as anchored by git only when it is in the index and in the HEAD tree with exactly the committed bytes.</summary>
+    private static bool IsAnchoredByGit(string root, string file, LedgerHeadView head)
+    {
+        if (!head.InRepository || head.Commit is null || !head.Index.Contains(file) || !head.Blobs.ContainsKey(file))
+        {
+            return false;
+        }
+
+        try
+        {
+            return head.EqualsCommitted(file, LedgerFiles.ReadAllShared(LedgerFiles.Full(root, file)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 
