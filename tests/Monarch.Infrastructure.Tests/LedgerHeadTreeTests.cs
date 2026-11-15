@@ -102,7 +102,80 @@ public sealed class LedgerHeadTreeTests : IDisposable
         var v = _t.Verify();
 
         Assert.False(v.Ok, "verify treated a blob that git cannot read as unchanged");
-        Assert.Contains(v.Violations, x => x.Kind == LedgerViolationKind.HeadMismatch);
+        Assert.Contains(v.Violations, x => x.Kind == LedgerViolationKind.HeadMismatch && x.File == _t.ForeignRel);
+    }
+
+    [Fact]
+    public void A_missing_head_commit_object_with_a_forgery_is_a_finding_not_no_commit()
+    {
+        _t.Append();
+        ForgeUntracked();
+        var head = _t.W("rev-parse", "HEAD");
+        var loose = Path.Combine(_t.RepoDir, ".git", "objects", head[..2], head[2..]);
+        Assert.True(File.Exists(loose), "test setup: the HEAD commit is not a loose object");
+        File.Move(loose, loose + ".bak");
+
+        var v = _t.Verify();
+
+        Assert.False(v.Ok, "verify treated a missing HEAD commit as 'no commit yet'");
+        Assert.Contains(v.Violations, x => x.File == ".monarch/ledger" && x.Kind == LedgerViolationKind.HeadMismatch);
+    }
+
+    [Fact]
+    public void A_head_pointing_to_a_blob_with_a_forgery_is_a_finding_not_no_commit()
+    {
+        _t.Append();
+        ForgeUntracked();
+        var blob = _t.W("rev-parse", "HEAD:" + _t.ForeignRel);
+        File.WriteAllText(Path.Combine(_t.RepoDir, ".git", "HEAD"), blob + "\n");
+
+        var v = _t.Verify();
+
+        Assert.False(v.Ok, "verify treated a HEAD that is no commit as 'no commit yet'");
+        Assert.Contains(v.Violations, x => x.File == ".monarch/ledger" && x.Kind == LedgerViolationKind.HeadMismatch);
+    }
+
+    [Fact]
+    public void A_gitlink_below_the_ledger_folder_is_a_head_mismatch_not_truncated()
+    {
+        _t.Append();
+        var dir = Path.Combine(Path.GetDirectoryName(_t.ForeignFull)!, "sub.jsonl");
+        _t.W("update-index", "--add", "--cacheinfo", "160000," + _t.W("rev-parse", "HEAD") + "," + Path.GetRelativePath(_t.Work, dir).Replace('\\', '/'));
+        _t.W("commit", "-q", "-m", "gitlink");
+        _t.W("push", "-q", "origin", "HEAD:develop");
+
+        var v = _t.Verify();
+
+        Assert.Contains(v.Violations, x => x.File.EndsWith("sub.jsonl", StringComparison.Ordinal) && x.Kind == LedgerViolationKind.HeadMismatch);
+        Assert.DoesNotContain(v.Violations, x => x.File.EndsWith("sub.jsonl", StringComparison.Ordinal) && x.Kind == LedgerViolationKind.Truncated);
+    }
+
+    [Fact]
+    public void A_tracked_ledger_file_that_cannot_be_read_is_a_head_mismatch_not_skipped()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root")
+        {
+            return; // permissions cannot deny the read here
+        }
+
+        _t.Append();
+        File.SetUnixFileMode(_t.ForeignFull, UnixFileMode.None);
+        try
+        {
+            var v = _t.Verify();
+
+            Assert.Contains(v.Violations, x => x.File == _t.ForeignRel && x.Kind == LedgerViolationKind.HeadMismatch && x.Detail.Contains("could not be read", StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.SetUnixFileMode(_t.ForeignFull, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    private void ForgeUntracked()
+    {
+        _t.W("rm", "-q", "--cached", "--", _t.ForeignRel);
+        File.Delete(_t.ForeignFull);
     }
 
     [Fact]
@@ -116,6 +189,7 @@ public sealed class LedgerHeadTreeTests : IDisposable
         var v = _t.Verify();
 
         Assert.False(v.Ok, "verify treated a blob that git cannot read as unchanged");
+        Assert.Contains(v.Violations, x => x.Kind == LedgerViolationKind.HeadMismatch && (x.File == _t.ForeignRel || x.File == ".monarch/ledger"));
     }
 
     private string LooseBlob()

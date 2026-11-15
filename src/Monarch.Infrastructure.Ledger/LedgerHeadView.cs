@@ -75,29 +75,51 @@ internal sealed class LedgerHeadView
 
     private void ReadCommit(string root, TimeSpan timeout)
     {
-        var r = GitAnchor.Isolated(root, ["cat-file", "--batch-check"], Encoding.ASCII.GetBytes("HEAD^{commit}\n"), timeout);
-        if (!r.Ok)
+        // "No commit" is only an unborn HEAD (a symbolic ref to a branch without a commit). A HEAD that names a missing object or a non-commit is a finding.
+        var resolve = GitAnchor.Isolated(root, ["rev-parse", "-q", "--verify", "HEAD"], null, timeout);
+        if (resolve.Status == GitAnchor.GitStatus.Ok)
         {
-            Fail(Why(r, "cat-file"));
+            var id = resolve.Text.Trim();
+            if (!LedgerHistory.IsCommitId(id))
+            {
+                Fail("git answered the resolution of HEAD with an unexpected value");
+                return;
+            }
+
+            var r = GitAnchor.Isolated(root, ["cat-file", "--batch-check"], Encoding.ASCII.GetBytes(id + "^{commit}\n"), timeout);
+            if (!r.Ok)
+            {
+                Fail(Why(r, "cat-file"));
+                return;
+            }
+
+            var answers = r.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            var parts = answers.Length == 1 ? answers[0].Split(' ') : [];
+            if (parts.Length >= 2 && parts[1] == "commit" && parts[0] == id)
+            {
+                Commit = id;
+            }
+            else
+            {
+                Fail("HEAD does not point to a readable commit (object missing or no commit)");
+            }
+
             return;
         }
 
-        var answers = r.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        if (answers.Length != 1)
+        if (resolve.Status == GitAnchor.GitStatus.TimedOut)
         {
-            Fail("git answered the resolution of HEAD with an unexpected number of lines");
+            Fail("git timed out in rev-parse");
             return;
         }
 
-        var parts = answers[0].Split(' ');
-        if (parts.Length >= 2 && parts[1] == "commit" && LedgerHistory.IsCommitId(parts[0]))
+        var symbolic = GitAnchor.Isolated(root, ["symbolic-ref", "-q", "HEAD"], null, timeout);
+        if (symbolic.Status == GitAnchor.GitStatus.Ok)
         {
-            Commit = parts[0];
+            return; // unborn: HEAD is a symbolic ref to a branch without a commit
         }
-        else if (!(parts.Length == 2 && parts[1] == "missing"))
-        {
-            Fail("git answered the resolution of HEAD with an unexpected value");
-        }
+
+        Fail(symbolic.Status == GitAnchor.GitStatus.TimedOut ? "git timed out in symbolic-ref" : "HEAD does not point to a readable commit (object missing or no commit)");
     }
 
     private void ReadIndex(string root, TimeSpan timeout)

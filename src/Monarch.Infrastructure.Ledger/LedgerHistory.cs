@@ -68,7 +68,9 @@ internal static class LedgerHistory
         var resolved = answers.Select(a => a.Split(' ') is { Length: >= 2 } p && p[1] == "commit" && IsCommitId(p[0]) ? p[0] : null).ToList();
         if (resolved[0] is not { } head)
         {
-            return; // no commit yet: nothing is branch-local
+            // No commit yet (unborn HEAD) or no readable one. Called from LedgerVerifier only: a HEAD that is missing or no commit is
+            // reported there as a HeadMismatch by LedgerHeadView, so it is not a silent pass; here nothing is branch-local.
+            return;
         }
 
         // ADR-0018 exception 1: an empty anchor and no writer-id mean a fresh checkout without own ledger files.
@@ -111,7 +113,7 @@ internal static class LedgerHistory
             }
             else if (!freshCheckout)
             {
-                CheckWholeHistory(root, anchored, timeout, violations);
+                CheckWholeHistory(root, anchored, head, timeout, violations);
             }
 
             return;
@@ -193,9 +195,9 @@ internal static class LedgerHistory
     }
 
     /// <summary>ADR-0018 (addendum): without origin and base, any commit in the whole history that adds a ledger path outside the anchor is a finding.</summary>
-    private static void CheckWholeHistory(string root, ISet<string> anchored, TimeSpan timeout, List<LedgerViolation> violations)
+    private static void CheckWholeHistory(string root, ISet<string> anchored, string head, TimeSpan timeout, List<LedgerViolation> violations)
     {
-        var list = GitAnchor.Isolated(root, ["rev-list", "HEAD"], null, timeout);
+        var list = GitAnchor.Isolated(root, ["rev-list", head], null, timeout);
         if (!list.Ok)
         {
             Fail(violations, list.Status == GitAnchor.GitStatus.TimedOut ? "git timed out in rev-list" : "git rev-list failed");

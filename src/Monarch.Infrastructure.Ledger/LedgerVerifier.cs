@@ -174,15 +174,15 @@ public static class LedgerVerifier
         var files = head.Blobs.Keys.Concat(head.Special.Keys).Concat(head.Index).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
         foreach (var file in files)
         {
-            if (!File.Exists(LedgerFiles.Full(root, file)))
-            {
-                violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.Truncated, "Ledger file is tracked by git but missing."));
-                continue;
-            }
-
             if (head.Special.TryGetValue(file, out var mode))
             {
                 violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.HeadMismatch, $"Ledger path is no regular file in the HEAD tree (mode {mode})."));
+                continue;
+            }
+
+            if (!File.Exists(LedgerFiles.Full(root, file)))
+            {
+                violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.Truncated, "Ledger file is tracked by git but missing."));
                 continue;
             }
 
@@ -198,6 +198,7 @@ public static class LedgerVerifier
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                violations.Add(new LedgerViolation(file, 0, LedgerViolationKind.HeadMismatch, "Ledger file of the HEAD tree could not be read."));
                 continue;
             }
 

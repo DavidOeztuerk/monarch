@@ -234,7 +234,7 @@ public sealed class LedgerHistoryTests
         r.Append();
         r.Commit("own");
         Assert.True(r.Verify().Ok);
-        var v = LedgerVerifier.Verify(r.Work, HistoryRepo.Trusted, TimeSpan.FromMilliseconds(1));
+        var v = LedgerVerifier.Verify(r.Work, HistoryRepo.Trusted, TimeSpan.Zero);
         Assert.False(v.Ok);
         Assert.True(HistoryRepo.Unanchored(v));
     }
