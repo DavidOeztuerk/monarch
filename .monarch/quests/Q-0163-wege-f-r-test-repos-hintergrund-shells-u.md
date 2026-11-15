@@ -3,7 +3,7 @@ id: Q-0163
 gate: G-0117
 kind: main
 rank: E
-state: in_progress
+state: in_review
 dod:
   - Vorher: dotnet test monarch.slnx -c Release auf dem unveränderten Stand (Basis 52615df), bestandene Tests je Testprojekt im PR notiert; nachher alle grün, Anzahl gleich vorher plus neue Tests; Release-Build ohne Warnung (TreatWarningsAsErrors, Directory.Build.props:7)
   - Kein src-Code, keine Hook-, Skript-, Bench- oder CI-Änderung: git diff origin/develop --stat -- src .github bench plugin/hooks plugin/scripts ist leer; keine bestehende Testdatei geändert und keine Testzeile entfernt: git diff origin/develop --numstat -- tests zeigt nur neue Dateien mit 0 gelöschten Zeilen
