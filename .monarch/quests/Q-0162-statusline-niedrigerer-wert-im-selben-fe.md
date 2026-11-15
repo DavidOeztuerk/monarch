@@ -3,7 +3,7 @@ id: Q-0162
 gate: G-0116
 kind: main
 rank: E
-state: in_review
+state: cleared
 dod:
   - Maximum-Regel bleibt: hoehere Nutzung oder spaeteres resets_at gewinnt wie bisher (bestehende StatuslineTests unveraendert gruen)
   - Niedrigerer Wochenwert bei gleichem resets_at wird uebernommen, wenn zwei frische Snapshots derselben Session mindestens 10 Minuten auseinander liegen, der spaetere nicht unter dem ersten und unter dem Maximum liegt; uebernommen wird der spaetere Wert
