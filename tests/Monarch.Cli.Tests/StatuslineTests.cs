@@ -326,8 +326,8 @@ public class StatuslineTests
         At(p, 1, "A", 50, R1, 57, W1);
         At(p, 12, "A", 50, R1, 55, W1);
         Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
-        Assert.Equal(55, Week(p).GetProperty("candidate").GetProperty("used_percentage").GetDouble());
-        Assert.Equal("2026-10-27T12:12:00Z", Week(p).GetProperty("candidate").GetProperty("first_seen_at").GetString());
+        Assert.Equal(55, Week(p).GetProperty("candidates").GetProperty("A").GetProperty("used_percentage").GetDouble());
+        Assert.Equal("2026-10-27T12:12:00Z", Week(p).GetProperty("candidates").GetProperty("A").GetProperty("first_seen_at").GetString());
         At(p, 23, "A", 50, R1, 55, W1);
         Assert.Equal(55, Week(p).GetProperty("used_percentage").GetDouble());
     }
@@ -338,7 +338,129 @@ public class StatuslineTests
         using var p = Held();
         At(p, 1, "A", 50, R1, 57, W1);
         At(p, 2, "A", 50, R1, 92, W1);
-        Assert.False(Week(p).TryGetProperty("candidate", out _));
+        Assert.False(HasCandidates(Week(p)));
+    }
+
+    private static bool HasCandidates(JsonElement w) =>
+        w.TryGetProperty("candidates", out var c) && c.ValueKind == JsonValueKind.Object && c.EnumerateObject().Any();
+
+    private static void NoSession(TempProject p, int minutes, int week)
+    {
+        p.Clock.UtcNow = TempProject.Now.AddMinutes(minutes);
+        var five = "\"five_hour\":{\"used_percentage\":50,\"resets_at\":" + R1 + "},";
+        p.Run(["statusline"], "{\"cwd\":" + JsonSerializer.Serialize(p.Root) + ",\"rate_limits\":{" + five + "\"seven_day\":{\"used_percentage\":" + week + ",\"resets_at\":" + W1 + "}}}");
+    }
+
+    [Fact]
+    public void A_stale_snapshot_of_another_session_at_the_maximum_leaves_the_candidate_alone()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 5, "B", 49, R1, 92, W1);
+        At(p, 11, "A", 50, R1, 57, W1);
+        Assert.Equal(57, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void Alternating_sessions_do_not_replace_each_others_candidates()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 3, "B", 50, R1, 58, W1);
+        At(p, 6, "A", 50, R1, 57, W1);
+        At(p, 8, "B", 50, R1, 58, W1);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+        At(p, 11, "A", 50, R1, 57, W1);
+        Assert.Equal(57, Week(p).GetProperty("used_percentage").GetDouble());
+        Assert.Equal("A", p.Events().Single(e => e.Type == "ManaWindowLowered").Payload.GetProperty("session").GetString());
+        Assert.False(HasCandidates(Week(p)));
+    }
+
+    [Fact]
+    public void A_fresh_snapshot_at_the_maximum_clears_all_candidates()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 2, "B", 50, R1, 58, W1);
+        At(p, 3, "C", 50, R1, 92, W1);
+        Assert.False(HasCandidates(Week(p)));
+    }
+
+    [Fact]
+    public void An_increase_discards_all_candidates()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 2, "B", 50, R1, 58, W1);
+        At(p, 3, "C", 50, R1, 95, W1);
+        Assert.False(HasCandidates(Week(p)));
+    }
+
+    [Fact]
+    public void A_window_change_discards_all_candidates()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 2, "A", 50, R1, 10, W1 + 604800);
+        Assert.Equal(10, Week(p).GetProperty("used_percentage").GetDouble());
+        Assert.False(HasCandidates(Week(p)));
+    }
+
+    [Fact]
+    public void A_candidate_from_the_future_is_restarted()
+    {
+        using var p = Held();
+        At(p, 30, "A", 50, R1, 57, W1);
+        At(p, 1, "A", 50, R1, 57, W1);
+        Assert.Equal("2026-10-27T12:01:00Z", Week(p).GetProperty("candidates").GetProperty("A").GetProperty("first_seen_at").GetString());
+        At(p, 11, "A", 50, R1, 57, W1);
+        Assert.Equal(57, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void A_missing_session_id_blocks_adoption()
+    {
+        using var p = Held();
+        NoSession(p, 1, 57);
+        NoSession(p, 20, 57);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void Without_an_awakened_project_there_is_no_ledger_event_but_last_lowered_is_kept()
+    {
+        using var p = new TempProject(awakened: false);
+        At(p, 0, "A", 50, R1, 92, W1);
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 11, "A", 50, R1, 57, W1);
+        Assert.Equal(57, Week(p).GetProperty("used_percentage").GetDouble());
+        Assert.Equal(57, Mana(p).GetProperty("last_lowered").GetProperty("new_pct").GetDouble());
+        Assert.Empty(p.Events());
+    }
+
+    [Fact]
+    public void A_ledger_failure_still_prints_the_line()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        var ledger = Path.Combine(p.Root, ".monarch", "ledger");
+        Directory.Delete(ledger, true);
+        File.WriteAllText(ledger, "not a directory");
+        p.Clock.UtcNow = TempProject.Now.AddMinutes(11);
+        var r = p.Run(["statusline"], Multi(p.Root, "A", 50, R1, 57, W1, 10));
+        Assert.Equal(0, r.Code);
+        Assert.Contains("W 57%", r.Out, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_mana_file_in_the_old_schema_is_read()
+    {
+        using var p = new TempProject();
+        File.WriteAllText(Path.Combine(p.Home, "mana.json"),
+            "{\"schema\":1,\"written_at\":\"2026-10-27T11:59:00Z\",\"rate_limits\":{\"five_hour\":{\"used_percentage\":40,\"resets_at\":" + R1 + ",\"observed_at\":\"2026-10-27T11:59:00Z\"},\"seven_day\":{\"used_percentage\":70,\"resets_at\":" + W1 + ",\"observed_at\":\"2026-10-27T11:59:00Z\"}}}");
+        At(p, 1, "A", 41, R1, 60, W1);
+        Assert.Equal(70, Week(p).GetProperty("used_percentage").GetDouble());
+        Assert.Equal(60, Week(p).GetProperty("candidates").GetProperty("A").GetProperty("used_percentage").GetDouble());
     }
 
     [Fact]
@@ -354,5 +476,16 @@ public class StatuslineTests
         Assert.Contains("7d: 92% used", r.Out, StringComparison.Ordinal);
         Assert.Contains("Statusline zuletzt 57% um 12:18Z", r.Out, StringComparison.Ordinal);
         Assert.Contains("Kandidat seit 12:18Z", r.Out, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_five_hour_raw_value_is_shown_by_mana()
+    {
+        using var p = Held();
+        At(p, 1, "A", 49, R1, 92, W1);
+        var r = p.Run(["mana"]);
+        var line = r.Out.Split('\n').Single(l => l.StartsWith("5h: ", StringComparison.Ordinal));
+        Assert.Contains("5h: 50% used", line, StringComparison.Ordinal);
+        Assert.Contains("Statusline zuletzt 49% um 12:01Z", line, StringComparison.Ordinal);
     }
 }

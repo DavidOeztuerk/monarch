@@ -172,8 +172,8 @@ internal static class Statusline
         var proof = IsFreshFiveHour(prev?.RateLimits?.FiveHour, input.RateLimits?.FiveHour);
         var limits = new RateLimits
         {
-            FiveHour = MergeWindow(prev?.RateLimits?.FiveHour, fresh5 ? input.RateLimits!.FiveHour : null, stamp, null, false, "five_hour", out _),
-            SevenDay = MergeWindow(prev?.RateLimits?.SevenDay, fresh7 ? input.RateLimits!.SevenDay : null, stamp, input.SessionId, proof, "seven_day", out lowered),
+            FiveHour = MergeWindow(prev?.RateLimits?.FiveHour, fresh5 ? input.RateLimits!.FiveHour : null, stamp, now, null, false, "five_hour", out _),
+            SevenDay = MergeWindow(prev?.RateLimits?.SevenDay, fresh7 ? input.RateLimits!.SevenDay : null, stamp, now, input.SessionId, proof, "seven_day", out lowered),
         };
         var fresh = fresh5 && fresh7;
         return new ManaFile
@@ -213,7 +213,7 @@ internal static class Statusline
     /// Exception (<paramref name="canLower"/>): a lower value in the same window is adopted when two fresh snapshots of one session lie at least <see cref="LowerConfirm"/> apart
     /// (the later one not below the first, both below the held maximum); the later value is kept.
     /// </remarks>
-    private static RateWindow? MergeWindow(RateWindow? prev, RateWindow? incoming, string stamp, string? session, bool canLower, string name, out WindowLowered? lowered)
+    private static RateWindow? MergeWindow(RateWindow? prev, RateWindow? incoming, string stamp, DateTimeOffset now, string? session, bool canLower, string name, out WindowLowered? lowered)
     {
         lowered = null;
         if (incoming is null)
@@ -236,31 +236,39 @@ internal static class Statusline
             return fresh;
         }
 
-        RateWindow Keep(WindowSighting? candidate) => new() { UsedPercentage = prev.UsedPercentage, ResetsAt = prev.ResetsAt, ObservedAt = prev.ObservedAt, LastSeen = seen, Candidate = candidate };
-        if (ir < pr || (ir == pr && iu == pu))
+        RateWindow Keep(Dictionary<string, WindowSighting>? candidates) => new() { UsedPercentage = prev.UsedPercentage, ResetsAt = prev.ResetsAt, ObservedAt = prev.ObservedAt, LastSeen = seen, Candidates = candidates is { Count: > 0 } ? candidates : null };
+        if (ir < pr)
         {
-            return Keep(ir < pr ? prev.Candidate : null);
+            return Keep(prev.Candidates);
+        }
+
+        if (iu == pu)
+        {
+            // At the maximum: only a fresh snapshot (any session) withdraws the candidates.
+            return Keep(canLower ? null : prev.Candidates);
         }
 
         // Same window, lower value.
         if (!canLower || session is null)
         {
-            return Keep(prev.Candidate);
+            return Keep(prev.Candidates);
         }
 
-        var c = prev.Candidate;
-        if (c is { UsedPercentage: { } cu, ResetsAt: { } cr } && c.SessionId == session && cr == ir && iu >= cu)
+        var candidates = prev.Candidates is null ? new Dictionary<string, WindowSighting>(StringComparer.Ordinal) : new Dictionary<string, WindowSighting>(prev.Candidates, StringComparer.Ordinal);
+        if (candidates.TryGetValue(session, out var c) && c is { UsedPercentage: { } cu, ResetsAt: { } cr } && cr == ir && iu >= cu
+            && ManaStore.ParseStamp(c.FirstSeenAt) is { } first && first <= now.AddMinutes(1))
         {
-            if (ManaStore.ParseStamp(c.FirstSeenAt) is { } first && ManaStore.ParseStamp(stamp) is { } at && at - first >= LowerConfirm)
+            if (ManaStore.ParseStamp(stamp) is { } at && at - first >= LowerConfirm)
             {
                 lowered = new WindowLowered { Window = name, OldPct = pu, NewPct = iu, ResetsAt = ir, FirstSeenAt = c.FirstSeenAt, ConfirmedAt = stamp, Session = session };
                 return new RateWindow { UsedPercentage = iu, ResetsAt = ir, ObservedAt = stamp, LastSeen = seen };
             }
 
-            return Keep(c);
+            return Keep(candidates);
         }
 
-        return Keep(new WindowSighting { UsedPercentage = iu, ResetsAt = ir, FirstSeenAt = stamp, SessionId = session });
+        candidates[session] = new WindowSighting { UsedPercentage = iu, ResetsAt = ir, FirstSeenAt = stamp, SessionId = session };
+        return Keep(candidates);
     }
 
     private static Dictionary<string, SessionEntry> MergeSessions(ManaFile? prev, StatuslineInput input, DateTimeOffset now)
@@ -297,8 +305,18 @@ internal static class Statusline
             && prev.RateLimits?.SevenDay?.ResetsAt == next.RateLimits?.SevenDay?.ResetsAt
             && prev.RateLimits?.FiveHour?.LastSeen?.UsedPercentage == next.RateLimits?.FiveHour?.LastSeen?.UsedPercentage
             && prev.RateLimits?.SevenDay?.LastSeen?.UsedPercentage == next.RateLimits?.SevenDay?.LastSeen?.UsedPercentage
-            && prev.RateLimits?.SevenDay?.Candidate?.UsedPercentage == next.RateLimits?.SevenDay?.Candidate?.UsedPercentage
+            && SameCandidates(prev.RateLimits?.SevenDay?.Candidates, next.RateLimits?.SevenDay?.Candidates)
             && prev.LastLowered?.ConfirmedAt == next.LastLowered?.ConfirmedAt;
+    }
+
+    private static bool SameCandidates(Dictionary<string, WindowSighting>? a, Dictionary<string, WindowSighting>? b)
+    {
+        if ((a?.Count ?? 0) != (b?.Count ?? 0))
+        {
+            return false;
+        }
+
+        return a is null || b is null || a.All(kv => b.TryGetValue(kv.Key, out var o) && o.UsedPercentage == kv.Value.UsedPercentage && o.FirstSeenAt == kv.Value.FirstSeenAt);
     }
 
     private static string Format(ManaFile m, ActiveFile? active, bool neutral, DateTimeOffset now, double? context)

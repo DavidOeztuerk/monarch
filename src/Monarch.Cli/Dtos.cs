@@ -145,8 +145,8 @@ internal sealed class RateWindow
     /// <summary>The raw value of the latest statusline snapshot, whether or not it was kept.</summary>
     [JsonPropertyName("last_seen")] public WindowSighting? LastSeen { get; set; }
 
-    /// <summary>A fresh, lower value waiting for confirmation by a later snapshot of the same session.</summary>
-    [JsonPropertyName("candidate")] public WindowSighting? Candidate { get; set; }
+    /// <summary>Fresh, lower values per session, each waiting for confirmation by a later snapshot of the same session.</summary>
+    [JsonPropertyName("candidates")] public Dictionary<string, WindowSighting>? Candidates { get; set; }
 }
 
 /// <summary>One sighting of a rate-limit window (<c>first_seen_at</c> is only set for candidates).</summary>
