@@ -26,7 +26,7 @@ public sealed class LedgerIndexTrustTests : IDisposable
         var v = _t.Verify();
 
         Assert.False(v.Ok, "verify trusted the index flag " + flag);
-        Assert.Contains(v.Violations, x => x.File == _t.ForeignRel);
+        Assert.Contains(v.Violations, x => x.File == _t.ForeignRel && x.Kind == LedgerViolationKind.UnknownFile);
     }
 
     [Theory]
@@ -40,7 +40,44 @@ public sealed class LedgerIndexTrustTests : IDisposable
         var v = _t.Verify();
 
         Assert.False(v.Ok, "verify trusted the index flag " + flag);
-        Assert.Contains(v.Violations, x => x.File == _t.ForeignRel);
+        Assert.Contains(v.Violations, x => x.File == _t.ForeignRel && x.Kind == LedgerViolationKind.Truncated);
+    }
+
+    [Fact]
+    public void A_foreign_file_removed_from_the_index_and_deleted_is_a_finding()
+    {
+        _t.Append();
+        _t.W("rm", "-q", "--cached", "--", _t.ForeignRel);
+        File.Delete(_t.ForeignFull);
+
+        var v = _t.Verify();
+
+        Assert.False(v.Ok, "verify trusted the index for a file that is part of HEAD");
+        Assert.Contains(v.Violations, x => x.File == _t.ForeignRel && x.Kind == LedgerViolationKind.Truncated);
+    }
+
+    [Fact]
+    public void Control_a_foreign_file_removed_from_the_index_and_truncated_is_unknown()
+    {
+        _t.Append();
+        _t.W("rm", "-q", "--cached", "--", _t.ForeignRel);
+        HistoryRepo.DeleteLastLine(_t.ForeignFull);
+
+        var v = _t.Verify();
+
+        Assert.Contains(v.Violations, x => x.File == _t.ForeignRel && x.Kind == LedgerViolationKind.UnknownFile);
+    }
+
+    [Fact]
+    public void Control_an_orphan_checkout_after_deleting_a_foreign_file_is_a_finding()
+    {
+        _t.Append();
+        File.Delete(_t.ForeignFull);
+        _t.W("checkout", "-q", "--orphan", "void");
+
+        var v = _t.Verify();
+
+        Assert.Contains(v.Violations, x => x.File == _t.ForeignRel && x.Kind == LedgerViolationKind.Truncated);
     }
 
     [Theory]
