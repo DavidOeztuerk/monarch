@@ -3,7 +3,7 @@ id: Q-0161
 gate: G-0115
 kind: main
 rank: A
-state: proposed
+state: abandoned
 dod:
   - Umsetzung nach ADR-0019, TDD: die roten Tests aus Q-0160 werden gruen
   - Gegenproben gruen, kein bestehender Test geaendert oder aufgeweicht, Hook-Latenz-Gates unveraendert gruen

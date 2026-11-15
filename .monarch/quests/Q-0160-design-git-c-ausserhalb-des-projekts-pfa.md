@@ -3,7 +3,7 @@ id: Q-0160
 gate: G-0115
 kind: main
 rank: A
-state: in_progress
+state: abandoned
 dod:
   - Issue 105 nachgestellt als rote Tests in tests/Monarch.Policy.Tests/GitDirOutsideProjectTests.cs: git -C mit literalem absolutem Ordner ausserhalb des Projekts, Regel 2 (Operand .monarch/ledger/...) und Regel 5 (checkout -f) melden heute deny bzw. ask
   - Gegenproben gruen: git -C auf die Projekt-Root oder einen Unterordner, git -C mit Variable, Tilde oder Glob, zusaetzliche --git-dir/--work-tree/GIT_*-Angaben, git -C ueber einen Symlink ins Projekt bleiben deny bzw. ask
