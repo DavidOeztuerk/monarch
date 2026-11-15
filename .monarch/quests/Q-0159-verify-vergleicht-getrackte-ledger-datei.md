@@ -14,5 +14,6 @@ scope:
   exclude: [".github/**", "bench/**", "plugin/hooks/**"]
 estimate: { session_pct: 20, weekly_pct: 5, gold_usd: 0 }
 boss: "dotnet test gruen mit den neuen Faellen (vorher rot), CI auf dem Gate-Branch gruen auf beiden Betriebssystemen"
+board: { pr: 109 }
 ---
 # verify vergleicht getrackte Ledger-Dateien byteweise mit HEAD (#103)

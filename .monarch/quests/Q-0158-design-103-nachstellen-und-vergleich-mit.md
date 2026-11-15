@@ -13,5 +13,6 @@ scope:
   exclude: ["src/**", ".github/**", "bench/**", "plugin/**"]
 estimate: { session_pct: 10, weekly_pct: 2, gold_usd: 0 }
 boss: "Warden-Designrunde approve ueber den Nachtrag; roter Test belegt #103"
+board: { pr: 109 }
 ---
 # Design: #103 nachstellen und Vergleich mit HEAD ohne Index (Nachtrag ADR-0010)
