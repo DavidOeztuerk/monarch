@@ -20,5 +20,6 @@ scope:
   exclude: ["src/**", ".github/**", "bench/**", "plugin/hooks/**", "plugin/scripts/**"]
 estimate: { session_pct: 14, weekly_pct: 3, gold_usd: 0 }
 boss: "Warden-Schlussrunde approve; grep -n auf den fertigen Dateien belegt die zwei Sätze in SKILL.md und identische neue Zeilen in warden.md und knight.md; dotnet test -c Release grün"
+board: { pr: 118 }
 ---
 # Wege für Test-Repos, Hintergrund-Shells und zwei Regelsätze mit Policy-Belegen
