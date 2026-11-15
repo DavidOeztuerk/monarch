@@ -90,7 +90,7 @@ public sealed class LedgerIndexTrustTests : IDisposable
         var v = _t.Verify();
 
         Assert.False(v.Ok, "verify trusted the index flag " + flag);
-        Assert.Contains(v.Violations, x => x.File == _t.ForeignRel);
+        Assert.Contains(v.Violations, x => x.File == _t.ForeignRel && x.Kind == LedgerViolationKind.UnknownFile);
     }
 
     [Theory]
