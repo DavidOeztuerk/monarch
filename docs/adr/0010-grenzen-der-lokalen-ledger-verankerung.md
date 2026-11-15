@@ -144,6 +144,7 @@ Restrisiko gemäß ADR-0011 (G3) bewusst.
 
 ### Folgen
 
-- ADR-0018, Entscheidung Punkt 5, sagt, die Prüfung gegen `HEAD` „bleibt davon unberührt“ (mit veraltetem Verweis `LedgerVerifier.cs:154`); dort kommt ein Verweis auf diesen Nachtrag hin (Q-0159).
-- `plugin/README.md`, Abschnitt „Ledger“: der neue Fehlalarm (Filter, LFS) und die Grenze „ohne Commit und ohne Index-Eintrag“ (Q-0159).
+- ADR-0018, Entscheidung Punkt 5, sagt, die Prüfung gegen `HEAD` „bleibt davon unberührt“ (mit veraltetem Verweis `LedgerVerifier.cs:154`); dort kommt ein Verweis auf diesen Nachtrag hin.
+- `plugin/README.md`, Abschnitt „Ledger“: der neue Fehlalarm (Filter, LFS) und die Grenze „ohne Commit und ohne Index-Eintrag“.
+- Beides liegt außerhalb der Quest-Scopes und kommt nach `quest submit` von Q-0159 als eigener Doku-Commit in dasselbe Gate, vor der Schlussrunde des Wardens.
 - Folge-Issue #108 (HEAD zurücksetzen).
