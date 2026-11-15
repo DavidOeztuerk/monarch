@@ -105,6 +105,8 @@ internal sealed class ManaFile
     [JsonPropertyName("rate_limits_stale")] public bool RateLimitsStale { get; set; }
 
     [JsonPropertyName("sessions")] public Dictionary<string, SessionEntry>? Sessions { get; set; }
+
+    [JsonPropertyName("last_lowered")] public WindowLowered? LastLowered { get; set; }
 }
 
 /// <summary>Per-session context usage (HP is session-local, not account-global) and the session's model.</summary>
@@ -139,6 +141,44 @@ internal sealed class RateWindow
     [JsonPropertyName("resets_at")] public long? ResetsAt { get; set; }
 
     [JsonPropertyName("observed_at")] public string? ObservedAt { get; set; }
+
+    /// <summary>The raw value of the latest statusline snapshot, whether or not it was kept.</summary>
+    [JsonPropertyName("last_seen")] public WindowSighting? LastSeen { get; set; }
+
+    /// <summary>A fresh, lower value waiting for confirmation by a later snapshot of the same session.</summary>
+    [JsonPropertyName("candidate")] public WindowSighting? Candidate { get; set; }
+}
+
+/// <summary>One sighting of a rate-limit window (<c>first_seen_at</c> is only set for candidates).</summary>
+internal sealed class WindowSighting
+{
+    [JsonPropertyName("used_percentage")] public double? UsedPercentage { get; set; }
+
+    [JsonPropertyName("resets_at")] public long? ResetsAt { get; set; }
+
+    [JsonPropertyName("observed_at")] public string? ObservedAt { get; set; }
+
+    [JsonPropertyName("first_seen_at")] public string? FirstSeenAt { get; set; }
+
+    [JsonPropertyName("session_id")] public string? SessionId { get; set; }
+}
+
+/// <summary>Record of the latest automatic lowering of a window (kept in mana.json for projects without a ledger).</summary>
+internal sealed class WindowLowered
+{
+    [JsonPropertyName("window")] public string? Window { get; set; }
+
+    [JsonPropertyName("old_pct")] public double? OldPct { get; set; }
+
+    [JsonPropertyName("new_pct")] public double? NewPct { get; set; }
+
+    [JsonPropertyName("resets_at")] public long? ResetsAt { get; set; }
+
+    [JsonPropertyName("first_seen_at")] public string? FirstSeenAt { get; set; }
+
+    [JsonPropertyName("confirmed_at")] public string? ConfirmedAt { get; set; }
+
+    [JsonPropertyName("session")] public string? Session { get; set; }
 }
 
 /// <summary>Claude Code statusline stdin (subset).</summary>

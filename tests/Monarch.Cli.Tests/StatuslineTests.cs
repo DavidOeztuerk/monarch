@@ -205,4 +205,154 @@ public class StatuslineTests
         var five = Mana(p).GetProperty("rate_limits").GetProperty("five_hour");
         return five.GetProperty("used_percentage").GetDouble() == best!.Value.Used && five.GetProperty("resets_at").GetInt64() == best.Value.Reset;
     }
+
+    private static void At(TempProject p, int minutes, string session, int five, long r5, int week, long r7)
+    {
+        p.Clock.UtcNow = TempProject.Now.AddMinutes(minutes);
+        p.Run(["statusline"], Multi(p.Root, session, five, r5, week, r7, 10));
+    }
+
+    private static void WeekOnly(TempProject p, int minutes, string session, int week)
+    {
+        p.Clock.UtcNow = TempProject.Now.AddMinutes(minutes);
+        p.Run(["statusline"], "{\"session_id\":\"" + session + "\",\"cwd\":" + JsonSerializer.Serialize(p.Root) + ",\"rate_limits\":{\"seven_day\":{\"used_percentage\":" + week + ",\"resets_at\":" + W1 + "}}}");
+    }
+
+    private static JsonElement Week(TempProject p) => Mana(p).GetProperty("rate_limits").GetProperty("seven_day");
+
+    private static TempProject Held()
+    {
+        var p = new TempProject();
+        At(p, 0, "A", 50, R1, 92, W1);
+        return p;
+    }
+
+    [Fact]
+    public void Two_fresh_snapshots_of_one_session_ten_minutes_apart_lower_the_week()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+        At(p, 11, "A", 51, R1, 57, W1);
+        Assert.Equal(57, Week(p).GetProperty("used_percentage").GetDouble());
+        Assert.Equal("2026-10-27T12:11:00Z", Week(p).GetProperty("observed_at").GetString());
+        var lowered = p.Events().Single(e => e.Type == "ManaWindowLowered").Payload;
+        Assert.Equal("seven_day", lowered.GetProperty("window").GetString());
+        Assert.Equal(92, lowered.GetProperty("old_pct").GetDouble());
+        Assert.Equal(57, lowered.GetProperty("new_pct").GetDouble());
+        Assert.Equal(W1, lowered.GetProperty("resets_at").GetInt64());
+        Assert.Equal("2026-10-27T12:01:00Z", lowered.GetProperty("first_seen_at").GetString());
+        Assert.Equal("2026-10-27T12:11:00Z", lowered.GetProperty("confirmed_at").GetString());
+        Assert.Equal("A", lowered.GetProperty("session").GetString());
+        Assert.Equal(57, Mana(p).GetProperty("last_lowered").GetProperty("new_pct").GetDouble());
+    }
+
+    [Fact]
+    public void A_single_snapshot_is_not_adopted()
+    {
+        using var p = Held();
+        At(p, 30, "A", 50, R1, 57, W1);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+        Assert.DoesNotContain(p.Events(), e => e.Type == "ManaWindowLowered");
+    }
+
+    [Fact]
+    public void Snapshots_less_than_ten_minutes_apart_are_not_adopted()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 10, "A", 50, R1, 57, W1);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void Different_sessions_are_not_adopted()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 20, "B", 50, R1, 57, W1);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void A_missing_five_hour_window_in_the_second_snapshot_blocks_adoption()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        WeekOnly(p, 20, "A", 57);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void A_missing_five_hour_window_in_the_first_snapshot_blocks_adoption()
+    {
+        using var p = Held();
+        WeekOnly(p, 1, "A", 57);
+        At(p, 20, "A", 50, R1, 57, W1);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void A_five_hour_window_with_lower_usage_is_no_proof_of_freshness()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 20, "A", 49, R1, 57, W1);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void A_five_hour_window_with_an_earlier_reset_is_no_proof_of_freshness()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1 - 100, 57, W1);
+        At(p, 20, "A", 50, R1 - 100, 57, W1);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void A_slightly_higher_second_value_is_adopted_as_is()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 12, "A", 50, R1, 58, W1);
+        Assert.Equal(58, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void A_value_below_the_candidate_restarts_the_candidate()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 12, "A", 50, R1, 55, W1);
+        Assert.Equal(92, Week(p).GetProperty("used_percentage").GetDouble());
+        Assert.Equal(55, Week(p).GetProperty("candidate").GetProperty("used_percentage").GetDouble());
+        Assert.Equal("2026-10-27T12:12:00Z", Week(p).GetProperty("candidate").GetProperty("first_seen_at").GetString());
+        At(p, 23, "A", 50, R1, 55, W1);
+        Assert.Equal(55, Week(p).GetProperty("used_percentage").GetDouble());
+    }
+
+    [Fact]
+    public void A_value_at_or_above_the_maximum_clears_the_candidate()
+    {
+        using var p = Held();
+        At(p, 1, "A", 50, R1, 57, W1);
+        At(p, 2, "A", 50, R1, 92, W1);
+        Assert.False(Week(p).TryGetProperty("candidate", out _));
+    }
+
+    [Fact]
+    public void The_raw_value_is_stored_and_shown_by_mana()
+    {
+        using var p = Held();
+        At(p, 18, "A", 50, R1, 57, W1);
+        var seen = Week(p).GetProperty("last_seen");
+        Assert.Equal(57, seen.GetProperty("used_percentage").GetDouble());
+        Assert.Equal("2026-10-27T12:18:00Z", seen.GetProperty("observed_at").GetString());
+        Assert.Equal("A", seen.GetProperty("session_id").GetString());
+        var r = p.Run(["mana"]);
+        Assert.Contains("7d: 92% used", r.Out, StringComparison.Ordinal);
+        Assert.Contains("Statusline zuletzt 57% um 12:18Z", r.Out, StringComparison.Ordinal);
+        Assert.Contains("Kandidat seit 12:18Z", r.Out, StringComparison.Ordinal);
+    }
 }

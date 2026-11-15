@@ -34,6 +34,29 @@ internal static class ManaCommands
     private const string NoNext = "(noch nicht festgelegt)";
     private const string NoDecisions = "keine";
 
+    /// <summary>Shows the raw statusline value (and a pending candidate) when it differs from the value in use.</summary>
+    private static string RawNote(RateWindow? w, double effective)
+    {
+        if (w?.LastSeen?.UsedPercentage is not { } raw)
+        {
+            return string.Empty;
+        }
+
+        if (Math.Abs(raw - effective) < 1e-9 && w.Candidate is null)
+        {
+            return string.Empty;
+        }
+
+        static string Time(string? stamp) => ManaStore.ParseStamp(stamp) is { } t ? t.UtcDateTime.ToString("HH:mm'Z'", CultureInfo.InvariantCulture) : "?";
+        var note = $"Statusline zuletzt {Pct(raw)} um {Time(w.LastSeen.ObservedAt)}";
+        if (w.Candidate is not null)
+        {
+            note += $"; Kandidat seit {Time(w.Candidate.FirstSeenAt)}";
+        }
+
+        return $" ({note})";
+    }
+
     private static string Pct(double v) => v.ToString("0.#", CultureInfo.InvariantCulture) + "%";
 
     /// <summary>Writes <c>.monarch/recap/RECAP.md</c> and records the mana it cost.</summary>
@@ -241,7 +264,8 @@ internal static class ManaCommands
         }
 
         var config = SystemConfigReader.Load(paths.Root);
-        var snap = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
+        var manaFile = ManaStore.Read(env.Home);
+        var snap = ManaStore.ToSnapshot(manaFile, env.Clock.UtcNow);
         var resolved = ManaSupport.Resolve(paths.Root, config);
         var ledger = new ProjectLedger(paths, env.Clock);
         env.Out.WriteLine($"Plan {config.Plan}: start limits 5h {Pct(config.Limits.FiveHourPct)}, 7d {Pct(config.Limits.SevenDayPct)}");
@@ -254,7 +278,7 @@ internal static class ManaCommands
 
         ManaSupport.Snapshot(ledger, ledger.SessionId(), snap, "mana");
         env.Out.WriteLine($"5h: {Pct(snap.Effective5h)} used, resets {ManaSupport.Iso(snap.FiveHourResetsAt)}{(snap.IsStale ? " (stale)" : string.Empty)}");
-        env.Out.WriteLine($"7d: {Pct(snap.Effective7d)} used, resets {ManaSupport.Iso(snap.SevenDayResetsAt)}");
+        env.Out.WriteLine($"7d: {Pct(snap.Effective7d)} used, resets {ManaSupport.Iso(snap.SevenDayResetsAt)}{RawNote(manaFile?.RateLimits?.SevenDay, snap.Effective7d)}");
         var (pair, factor) = ManaCalibration.Current(env, paths);
         var raw5 = estimate ?? ManaSupport.Step5h;
         var step5 = raw5 * factor.Factor;

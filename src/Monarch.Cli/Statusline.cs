@@ -9,6 +9,7 @@ namespace Monarch.Cli;
 internal static class Statusline
 {
     private static readonly TimeSpan Debounce = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan LowerConfirm = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SessionTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan WrapTimeout = TimeSpan.FromSeconds(5);
 
@@ -116,7 +117,7 @@ internal static class Statusline
         var input = JsonSerializer.Deserialize(raw, CliJson.Default.StatuslineInput) ?? new StatuslineInput();
         var now = env.Clock.UtcNow;
         var prev = ManaStore.ReadForMerge(env.Home);
-        var next = Merge(prev, input, now);
+        var next = Merge(prev, input, now, out var lowered);
         if (!Unchanged(prev, next, now))
         {
             Files.WriteAtomic(ManaStore.PathOf(env.Home), JsonSerializer.Serialize(next, CliJson.Default.ManaFile));
@@ -124,6 +125,11 @@ internal static class Statusline
 
         var cwd = input.Workspace?.CurrentDir ?? input.Cwd ?? env.Cwd;
         var paths = ProjectPaths.Locate(cwd, env.Home);
+        if (lowered is not null && paths is not null)
+        {
+            LogLowered(env, paths, input.SessionId, lowered);
+        }
+
         var neutral = false;
         ActiveFile? active = null;
         if (paths is not null)
@@ -141,16 +147,33 @@ internal static class Statusline
         return Format(next, active, neutral, now, ManaStore.ContextOf(next, input.SessionId));
     }
 
-    private static ManaFile Merge(ManaFile? prev, StatuslineInput input, DateTimeOffset now)
+    /// <summary>A lowering is a ledger event; a ledger failure never reaches the statusline.</summary>
+    private static void LogLowered(CliEnv env, ProjectPaths paths, string? sessionId, WindowLowered l)
+    {
+        try
+        {
+            var ledger = new ProjectLedger(paths, env.Clock);
+            ledger.Append(ledger.SessionId(sessionId), "statusline", "ManaWindowLowered",
+                ("window", l.Window), ("old_pct", l.OldPct), ("new_pct", l.NewPct), ("resets_at", l.ResetsAt),
+                ("first_seen_at", l.FirstSeenAt), ("confirmed_at", l.ConfirmedAt), ("session", l.Session));
+        }
+        catch (Exception)
+        {
+            // Best effort: mana.json keeps last_lowered.
+        }
+    }
+
+    private static ManaFile Merge(ManaFile? prev, StatuslineInput input, DateTimeOffset now, out WindowLowered? lowered)
     {
         string stamp;
         var fresh5 = input.RateLimits?.FiveHour is { UsedPercentage: not null };
         var fresh7 = input.RateLimits?.SevenDay is { UsedPercentage: not null };
         stamp = ManaStore.Stamp(now);
+        var proof = IsFreshFiveHour(prev?.RateLimits?.FiveHour, input.RateLimits?.FiveHour);
         var limits = new RateLimits
         {
-            FiveHour = MergeWindow(prev?.RateLimits?.FiveHour, fresh5 ? input.RateLimits!.FiveHour : null, stamp),
-            SevenDay = MergeWindow(prev?.RateLimits?.SevenDay, fresh7 ? input.RateLimits!.SevenDay : null, stamp),
+            FiveHour = MergeWindow(prev?.RateLimits?.FiveHour, fresh5 ? input.RateLimits!.FiveHour : null, stamp, null, false, "five_hour", out _),
+            SevenDay = MergeWindow(prev?.RateLimits?.SevenDay, fresh7 ? input.RateLimits!.SevenDay : null, stamp, input.SessionId, proof, "seven_day", out lowered),
         };
         var fresh = fresh5 && fresh7;
         return new ManaFile
@@ -164,18 +187,42 @@ internal static class Statusline
             RateLimits = limits.FiveHour is null && limits.SevenDay is null ? null : limits,
             RateLimitsAt = fresh ? ManaStore.Stamp(now) : prev?.RateLimitsAt,
             RateLimitsStale = !fresh,
+            LastLowered = lowered ?? prev?.LastLowered,
         };
     }
 
-    /// <summary>Rate limits are account-global: the later <c>resets_at</c> wins, and within one window the higher usage wins (usage is monotonic per window).</summary>
-    private static RateWindow? MergeWindow(RateWindow? prev, RateWindow? incoming, string stamp)
+    /// <summary>A snapshot is fresh proof when it carries a 5h window at least as new as the stored one (later reset, or same reset and at least the same usage).</summary>
+    private static bool IsFreshFiveHour(RateWindow? stored, RateWindow? incoming)
     {
+        if (incoming is not { UsedPercentage: { } iu, ResetsAt: { } ir })
+        {
+            return false;
+        }
+
+        if (stored?.UsedPercentage is not { } su)
+        {
+            return true;
+        }
+
+        var sr = stored.ResetsAt ?? 0;
+        return ir > sr || (ir == sr && iu >= su);
+    }
+
+    /// <summary>Rate limits are account-global: the later <c>resets_at</c> wins, and within one window the higher usage wins (usage is monotonic per window).</summary>
+    /// <remarks>
+    /// Exception (<paramref name="canLower"/>): a lower value in the same window is adopted when two fresh snapshots of one session lie at least <see cref="LowerConfirm"/> apart
+    /// (the later one not below the first, both below the held maximum); the later value is kept.
+    /// </remarks>
+    private static RateWindow? MergeWindow(RateWindow? prev, RateWindow? incoming, string stamp, string? session, bool canLower, string name, out WindowLowered? lowered)
+    {
+        lowered = null;
         if (incoming is null)
         {
             return prev;
         }
 
-        var fresh = new RateWindow { UsedPercentage = incoming.UsedPercentage, ResetsAt = incoming.ResetsAt, ObservedAt = stamp };
+        var seen = new WindowSighting { UsedPercentage = incoming.UsedPercentage, ResetsAt = incoming.ResetsAt, ObservedAt = stamp, SessionId = session };
+        var fresh = new RateWindow { UsedPercentage = incoming.UsedPercentage, ResetsAt = incoming.ResetsAt, ObservedAt = stamp, LastSeen = seen };
         if (prev?.UsedPercentage is not { } pu)
         {
             return fresh;
@@ -183,12 +230,37 @@ internal static class Statusline
 
         var pr = prev.ResetsAt ?? 0;
         var ir = incoming.ResetsAt ?? 0;
-        if (ir > pr || (ir == pr && incoming.UsedPercentage > pu))
+        var iu = incoming.UsedPercentage ?? 0;
+        if (ir > pr || (ir == pr && iu > pu))
         {
             return fresh;
         }
 
-        return prev;
+        RateWindow Keep(WindowSighting? candidate) => new() { UsedPercentage = prev.UsedPercentage, ResetsAt = prev.ResetsAt, ObservedAt = prev.ObservedAt, LastSeen = seen, Candidate = candidate };
+        if (ir < pr || (ir == pr && iu == pu))
+        {
+            return Keep(ir < pr ? prev.Candidate : null);
+        }
+
+        // Same window, lower value.
+        if (!canLower || session is null)
+        {
+            return Keep(prev.Candidate);
+        }
+
+        var c = prev.Candidate;
+        if (c is { UsedPercentage: { } cu, ResetsAt: { } cr } && c.SessionId == session && cr == ir && iu >= cu)
+        {
+            if (ManaStore.ParseStamp(c.FirstSeenAt) is { } first && ManaStore.ParseStamp(stamp) is { } at && at - first >= LowerConfirm)
+            {
+                lowered = new WindowLowered { Window = name, OldPct = pu, NewPct = iu, ResetsAt = ir, FirstSeenAt = c.FirstSeenAt, ConfirmedAt = stamp, Session = session };
+                return new RateWindow { UsedPercentage = iu, ResetsAt = ir, ObservedAt = stamp, LastSeen = seen };
+            }
+
+            return Keep(c);
+        }
+
+        return Keep(new WindowSighting { UsedPercentage = iu, ResetsAt = ir, FirstSeenAt = stamp, SessionId = session });
     }
 
     private static Dictionary<string, SessionEntry> MergeSessions(ManaFile? prev, StatuslineInput input, DateTimeOffset now)
@@ -222,7 +294,11 @@ internal static class Statusline
             && prev.RateLimits?.FiveHour?.UsedPercentage == next.RateLimits?.FiveHour?.UsedPercentage
             && prev.RateLimits?.FiveHour?.ResetsAt == next.RateLimits?.FiveHour?.ResetsAt
             && prev.RateLimits?.SevenDay?.UsedPercentage == next.RateLimits?.SevenDay?.UsedPercentage
-            && prev.RateLimits?.SevenDay?.ResetsAt == next.RateLimits?.SevenDay?.ResetsAt;
+            && prev.RateLimits?.SevenDay?.ResetsAt == next.RateLimits?.SevenDay?.ResetsAt
+            && prev.RateLimits?.FiveHour?.LastSeen?.UsedPercentage == next.RateLimits?.FiveHour?.LastSeen?.UsedPercentage
+            && prev.RateLimits?.SevenDay?.LastSeen?.UsedPercentage == next.RateLimits?.SevenDay?.LastSeen?.UsedPercentage
+            && prev.RateLimits?.SevenDay?.Candidate?.UsedPercentage == next.RateLimits?.SevenDay?.Candidate?.UsedPercentage
+            && prev.LastLowered?.ConfirmedAt == next.LastLowered?.ConfirmedAt;
     }
 
     private static string Format(ManaFile m, ActiveFile? active, bool neutral, DateTimeOffset now, double? context)
