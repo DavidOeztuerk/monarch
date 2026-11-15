@@ -16,5 +16,6 @@ scope:
   exclude: [".github/**", "bench/**", "plugin/hooks/**", "src/Monarch.Policy/**"]
 estimate: { session_pct: 15, weekly_pct: 3, gold_usd: 0 }
 boss: "dotnet test gruen mit den neuen Faellen (vorher rot), CI auf dem Gate-Branch gruen auf beiden Betriebssystemen, Warden-Schlussrunde approve"
+board: { pr: 114 }
 ---
 # Statusline: niedrigerer Wert im selben Fenster nach zwei frischen Snapshots uebernehmen, Rohwert speichern (Issue 113)
