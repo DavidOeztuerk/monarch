@@ -136,6 +136,22 @@ public sealed class LedgerHeadTreeTests : IDisposable
     }
 
     [Fact]
+    public void A_branch_ref_with_garbage_and_a_forgery_is_a_finding_not_unborn()
+    {
+        _t.Append();
+        ForgeUntracked();
+        var branch = _t.W("symbolic-ref", "HEAD");
+        var loose = Path.Combine(_t.Work, _t.W("rev-parse", "--git-path", branch));
+        Assert.True(File.Exists(loose), "precondition: the branch ref is a loose file");
+        File.WriteAllText(loose, "garbage\n");
+
+        var v = _t.Verify();
+
+        Assert.False(v.Ok, "verify treated a branch with a broken ref as unborn");
+        Assert.Contains(v.Violations, x => x.File == ".monarch/ledger" && x.Kind == LedgerViolationKind.HeadMismatch);
+    }
+
+    [Fact]
     public void A_gitlink_below_the_ledger_folder_is_a_head_mismatch_not_truncated()
     {
         _t.Append();
