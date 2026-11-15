@@ -48,6 +48,9 @@ dass ein korrupter Anker beim nächsten Append still neu aufgebaut wurde.
    Dort darf sich eine Ledger-Datei nur ändern, wenn sie im lokalen Anker steht; ein Merge darf
    eine fremde Datei nur übernehmen, nie kürzen oder löschen (`UnanchoredCommit`). Im Append
    läuft Git dafür zusätzlich höchstens einmal je Worktree (Basis beim Anfang bei null).
+   **Nachtrag 15.11.2026 (#103, G-0114):** Ob eine Datei gegenüber `HEAD` geändert ist, fragt
+   `verify` nicht mehr Git, sondern vergleicht die Bytes selbst mit dem Blob an `HEAD` (siehe
+   Nachtrag am Ende).
 4. Derselbe Schreiber-Dateiname in zwei Monatsordnern ist ein Befund
    (`DuplicateGeneration`). Weitergehende Lückenfreiheit über Dateigenerationen ist aus den
    vorhandenen Daten nicht ableitbar: es gibt keinen Generationszähler, `seq` zählt je Datei.
@@ -81,3 +84,50 @@ Ereignisse, die nicht committet waren, sind spurlos weg. Das ist **nicht erkennb
 Erkennbar sind nur gepushte Commits auf einem geschützten Branch und die Forge-Evidence;
 deshalb sind Ledger-Dateien zu committen und zu pushen (Q-0108), und der Owner trägt dieses
 Restrisiko gemäß ADR-0011 (G3) bewusst.
+
+## Nachtrag 15.11.2026: Vergleich mit HEAD ohne Index (#103, G-0114, Q-0158/Q-0159)
+
+### Kurzfassung
+
+- Bisher fragte `verify` Git, ob eine Ledger-Datei gegenüber `HEAD` geändert ist (`git diff HEAD`). Git beantwortet das aus dem Index. Ein Befehl, `git update-index --assume-unchanged <datei>` (oder `--skip-worktree`), genügt, damit Git eine geänderte Datei als unverändert meldet.
+- Folge: Eine nicht committete Fälschung einer fremden, getrackten Ledger-Datei (letzte Zeile gelöscht oder kettenkorrekte Zeile angehängt) kam ohne Befund durch `verify`, auch in einem Checkout mit `origin`.
+- Neu: `verify` liest die Blobs an `HEAD` und vergleicht die Bytes jeder Datei selbst. Index-Kennzeichen und Stat-Daten spielen keine Rolle mehr.
+
+### Befund (nachgestellt)
+
+- `GitAnchor.IsAnchoredByGit` (`git ls-files --error-unmatch` und `git diff --quiet HEAD`) entscheidet, ob eine fremde Datei ohne lokalen Anker „anchored by git“ ist (`LedgerVerifier.cs:65`).
+- `GitAnchor.ChangedAgainstHead` (`git diff --name-only HEAD`) wählt aus, welche getrackten Dateien gegen den HEAD-Blob geprüft werden (`LedgerVerifier.cs:166`, :175). Was Git nicht als geändert meldet, wird nie verglichen.
+- Mit `assume-unchanged` oder `skip-worktree` liefern beide „unverändert“. `LedgerIndexTrustTests` hält das fest: Vor der Umsetzung sind 6 Fälle rot (K-append-chained und K-delete-last, je mit beiden Kennzeichen, dazu ein frischer Klon), die 3 Gegenproben grün.
+- Dieselbe Klasse, nicht einzeln getestet: `core.ignoreStat` (setzt `assume-unchanged` beim Aktualisieren), `core.fsmonitor` (ein Hook, der „nichts geändert“ meldet) und der Stat-Vergleich mit `core.checkStat=minimal` oder `core.trustctime=false` samt zurückgesetzter Änderungszeit. Das sind Index-Kennzeichen oder Einstellungen in `.git/config`; `.git` ist kein Schutzpfad.
+
+### Entscheidung
+
+1. **Quelle ist der Baum von `HEAD`, nicht der Index.** `git ls-tree -r -z HEAD -- .monarch/ledger` liefert Pfad und Blob-ID jeder committeten Ledger-Datei, `git cat-file --batch` die Inhalte. Das sind zwei Git-Aufrufe je `verify`, unabhängig von der Zahl der Dateien. Beide laufen mit derselben Isolation wie die Historienprüfung (ADR-0018, Entscheidung Punkt 6: ohne geerbte `GIT_*`, ohne Replace-Objekte, ohne Grafts).
+2. **Fremde Datei ohne lokalen Anker:** gilt nur als „anchored by git“, wenn sie im Baum von `HEAD` liegt und ihre Bytes dem Blob genau gleichen. Sonst `UnknownFile` wie bisher.
+3. **Jede Datei aus dem Baum von `HEAD`:** fehlt sie auf der Platte, ist das wie bisher `Truncated` („tracked by git but missing“). Sonst muss sie den Blob byte-genau als Anfang enthalten; weniger Zeilen sind `Truncated`, anderer Inhalt `HeadMismatch`. Das gilt für jede Datei, nicht mehr nur für die, die Git als geändert meldet.
+4. **Neu angelegte, noch nicht committete Dateien** liegen nicht im Baum von `HEAD`. Für sie gilt wie bisher nur der lokale Anker (eigene Datei) oder `UnknownFile` (fremde Datei).
+5. **Git-Fehler:** Ohne Git, außerhalb eines Repositories oder ohne Commit entfällt der Vergleich still wie bisher. Steht fest, dass ein Repository mit Commit da ist, ist jeder Fehler und jede Zeitüberschreitung von `ls-tree` oder `cat-file` ein Befund, nie „unverändert“ (wie ADR-0018, Entscheidung Punkt 5).
+6. `GitAnchor.IsAnchoredByGit` und `GitAnchor.ChangedAgainstHead` entfallen; einen anderen Aufrufer gibt es nicht (`git grep` in `src`).
+
+### Was ok bleibt
+
+- Index-Kennzeichen ohne Änderung an der Datei: kein Befund (Gegenprobe in `LedgerIndexTrustTests`).
+- Eine unveränderte, committete fremde Datei in einem frischen Klon bleibt „anchored by git“ (`GitAnchoredLedgerTests.Committed_unmodified_file_without_local_anchor_is_anchored_by_git`).
+- Eigene Appends an eine committete Datei verlängern den Blob und bleiben ok.
+
+### Falsch-Positive und Ausweg
+
+- Wandelt Git Ledger-Dateien beim Auschecken um, weichen die Bytes vom Blob ab, und `verify` meldet einen Befund. Das betrifft `core.autocrlf=true`, eine `text`- oder `eol`-Regel in `.gitattributes` und Clean-/Smudge-Filter (etwa Git LFS) für `.monarch/ledger`. Bisher glich `git diff` das aus.
+- Ausweg: in `.gitattributes` die Zeile `.monarch/ledger/** -text -filter` und die Dateien neu auschecken. Die Umwandlung selbst nachzubilden scheidet aus, denn Filter sind Befehle aus der Repo-Konfiguration und damit fälschbar.
+- Monarch läuft heute auf macOS und Linux (Release-Builds `osx-arm64`, `linux-x64`); dort ist `core.autocrlf` ohne eigene Einstellung nicht gesetzt.
+
+### Grenzen (bleiben)
+
+- Datei und Anker einer nicht committeten Ledger-Datei gemeinsam gefälscht, „frischer Klon“, History-Rewrite: unverändert wie oben beschrieben.
+- Die Prüfung kennt nur `HEAD`. Wer die Fälschung committet, landet bei der Historienprüfung aus ADR-0018.
+
+### Tests (Q-0159, TDD)
+
+- Rot vor der Umsetzung, grün danach: die 6 Fälle aus `LedgerIndexTrustTests`.
+- Gegenproben grün: Index-Kennzeichen ohne Änderung; dieselbe Fälschung ohne Kennzeichen; alle Tests in `GitAnchoredLedgerTests` und `LedgerHistoryTests` unverändert.
+- Dazu: ein Projekt in einem Unterordner des Repositories (Pfade aus `ls-tree` passen zu den Anker-Schlüsseln) und ein Git-Fehler bei vorhandenem Commit ist ein Befund.
