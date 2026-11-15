@@ -20,7 +20,8 @@ internal static class LedgerHistory
     /// <param name="branches">Integration branch and protected branches.</param>
     /// <param name="timeout">Time limit of each git call.</param>
     /// <param name="violations">Receives the findings.</param>
-    public static void Check(string root, ISet<string> anchored, IEnumerable<string> branches, TimeSpan timeout, List<LedgerViolation> violations)
+    /// <param name="pinnedHead">The commit that <c>HEAD</c> pointed to when <c>verify</c> began; the comparison with the tree and this check use the same commit. Null: resolve <c>HEAD</c> here.</param>
+    public static void Check(string root, ISet<string> anchored, IEnumerable<string> branches, TimeSpan timeout, List<LedgerViolation> violations, string? pinnedHead = null)
     {
         var names = branches.Where(IsBranchName).Distinct(StringComparer.Ordinal).ToList();
         var branchText = names.Count == 0 ? "develop/main" : string.Join("/", names);
@@ -43,7 +44,7 @@ internal static class LedgerHistory
         }
 
         var baseId = ReadBase(root);
-        var inputs = new List<string> { "HEAD^{commit}" };
+        var inputs = new List<string> { (pinnedHead ?? "HEAD") + "^{commit}" };
         if (baseId is not null)
         {
             inputs.Add(baseId + "^{commit}");
@@ -67,7 +68,9 @@ internal static class LedgerHistory
         var resolved = answers.Select(a => a.Split(' ') is { Length: >= 2 } p && p[1] == "commit" && IsCommitId(p[0]) ? p[0] : null).ToList();
         if (resolved[0] is not { } head)
         {
-            return; // no commit yet: nothing is branch-local
+            // No commit yet (unborn HEAD) or no readable one. Called from LedgerVerifier only: a HEAD that is missing or no commit is
+            // reported there as a HeadMismatch by LedgerHeadView, so it is not a silent pass; here nothing is branch-local.
+            return;
         }
 
         // ADR-0018 exception 1: an empty anchor and no writer-id mean a fresh checkout without own ledger files.
@@ -110,7 +113,7 @@ internal static class LedgerHistory
             }
             else if (!freshCheckout)
             {
-                CheckWholeHistory(root, anchored, timeout, violations);
+                CheckWholeHistory(root, anchored, head, timeout, violations);
             }
 
             return;
@@ -192,9 +195,9 @@ internal static class LedgerHistory
     }
 
     /// <summary>ADR-0018 (addendum): without origin and base, any commit in the whole history that adds a ledger path outside the anchor is a finding.</summary>
-    private static void CheckWholeHistory(string root, ISet<string> anchored, TimeSpan timeout, List<LedgerViolation> violations)
+    private static void CheckWholeHistory(string root, ISet<string> anchored, string head, TimeSpan timeout, List<LedgerViolation> violations)
     {
-        var list = GitAnchor.Isolated(root, ["rev-list", "HEAD"], null, timeout);
+        var list = GitAnchor.Isolated(root, ["rev-list", head], null, timeout);
         if (!list.Ok)
         {
             Fail(violations, list.Status == GitAnchor.GitStatus.TimedOut ? "git timed out in rev-list" : "git rev-list failed");
@@ -302,7 +305,7 @@ internal static class LedgerHistory
         return result;
     }
 
-    private static Dictionary<string, byte[]?>? ReadBlobs(string root, HashSet<string> blobs, TimeSpan timeout)
+    internal static Dictionary<string, byte[]?>? ReadBlobs(string root, HashSet<string> blobs, TimeSpan timeout)
     {
         var order = blobs.OrderBy(b => b, StringComparer.Ordinal).ToList();
         var r = GitAnchor.Isolated(root, ["cat-file", "--batch"], Encoding.ASCII.GetBytes(string.Join("\n", order) + "\n"), timeout);
