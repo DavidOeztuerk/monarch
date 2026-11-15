@@ -3,7 +3,7 @@ id: Q-0157
 gate: G-0113
 kind: main
 rank: B
-state: in_review
+state: cleared
 dod:
   - plugin/skills/regeln/SKILL.md Regel 3, Punkt Rank S: an ADR-0007 angeglichen (jede mutierende Aktion einzeln mit dem Owner)
   - plugin/agents/strategist.md: Planfreigabe durch den Nutzer nur bei Rank S, Gate B zu Rank korrigiert
@@ -16,5 +16,6 @@ scope:
   exclude: ["src/**", "tests/**", ".github/**", "bench/**", "plugin/hooks/**"]
 estimate: { session_pct: 8, weekly_pct: 2, gold_usd: 0 }
 boss: "Warden-Schlussrunde approve; grep auf den fertigen Dateien belegt, dass Rank S, Planfreigabe, Regel 6, Regel 10 und CLAUDE.md Regel 3 dem Owner-Entscheid vom 15.11.2026 entsprechen"
+board: { pr: 106 }
 ---
 # Regeln widerspruchsfrei nach Owner-Entscheid vom 15.11.2026
