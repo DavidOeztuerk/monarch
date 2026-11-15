@@ -147,6 +147,20 @@ internal sealed class HistoryRepo : IDisposable
 
     public static void AppendChained(string file) => File.AppendAllText(file, ChainedLine(file) + "\n");
 
+    /// <summary>Own append (anchor and writer-id exist), then the base is deleted (checkout from before the version) and origin removed.</summary>
+    public void WithoutOriginAndBase()
+    {
+        Append();
+        File.Delete(BasePath);
+        W("remote", "remove", "origin");
+    }
+
+    /// <summary>Relative path (forward slashes) of the ledger file this worktree writes.</summary>
+    public string OwnRel() =>
+        Directory.GetFiles(Path.Combine(Work, ".monarch", "ledger"), "*.jsonl", SearchOption.AllDirectories)
+            .Select(f => Path.GetRelativePath(Work, f).Replace('\\', '/'))
+            .Single(f => f != ForeignRel);
+
     public static bool Unanchored(LedgerVerification v, string? file = null) =>
         v.Violations.Any(x => x.Kind == LedgerViolationKind.UnanchoredCommit && (file is null || x.File == file));
 
