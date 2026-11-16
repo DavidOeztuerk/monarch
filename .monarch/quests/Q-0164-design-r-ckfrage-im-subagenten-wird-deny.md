@@ -17,5 +17,6 @@ scope:
   exclude: ["src/**", ".github/**", "bench/**", "plugin/**"]
 estimate: { session_pct: 15, weekly_pct: 3, gold_usd: 0 }
 boss: "Warden-Designrunde approve über den Nachtrag; Subagent-Fälle mit neuer Erwartung rot, Main-Fälle und Klon-Test grün (dotnet test-Ausgabe im PR)"
+board: { pr: 120 }
 ---
 # Design: Rückfrage im Subagenten wird Deny mit Ausweg (Nachtrag ADR-0003), rote Tests, Klon unter .monarch nachgestellt (Issue 119)
