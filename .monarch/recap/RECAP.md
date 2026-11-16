@@ -1,10 +1,10 @@
 # RECAP
 
 ## Stand
-- Zeitpunkt: 2026-11-16T08:57:15Z
+- Zeitpunkt: 2026-11-16T09:53:14Z
 - Plan: Pro
-- Mana 5h: 41% (Limit 90%, Reset 2026-11-16T13:20:00Z)
-- Mana 7d: 88% (Limit 96%, Reset 2026-11-18T11:00:00Z)
+- Mana 5h: 66% (Limit 90%, Reset 2026-11-16T13:20:00Z)
+- Mana 7d: 92% (Limit 96%, Reset 2026-11-18T11:00:00Z)
 - Limits: 5h 90%, 7d 96% (adaptive)
 
 ## Aktiv
@@ -33,13 +33,13 @@
 - Q-0150: Heikle Quest nach Standardregel 3: Warden-Runde über das Design vor dem Code, kein src-Code, kein anderer Test und keine andere Schwelle aufgeweicht, Schlussrunde des Wardens mit Verdict am Head-SHA
 
 ## Nächster konkreter Schritt
-G-0118 fortsetzen in .claude/worktrees/G-0118 (PR 120, Entwurf, Head nach diesem Commit). Q-0164 ist eingereicht und an PR 120 gelinkt: ADR-0003-Nachtrag (Warden-Designrunde approve am Head 14e638d), rote Tests HookSubagentAskTests.cs (17 gesamt, 5 rot, 12 gruen am Head cb5f5ff), Klon-Test zu Issue 119 (bestaetigt, Label Schutzluecke gesetzt, Kommentar geschrieben). CI auf dem Branch ist bis Q-0165 absichtlich rot. Als Naechstes Q-0165 (Rank A, Schaetzung 25/6): erst wenn der Owner OFFEN 1 bis 5 im Nachtrag beantwortet hat und die Woche reicht (7d-Reset 18.11.2026 11:00 UTC; Stand 16.11. 88 von 96). Dann quest accept und start Q-0165, Knight per TDD: reine Umwandlungsfunktion im HookRunner, Tests fuer Quellen 6 und 8 und wirft-nie, Quellen 3 und 4 falls ohne Git-Repo ausloesbar; Issue 121 (4 minor zum Nachtrag) dabei miterledigen. Danach Q-0166 (subagent-stop, Issue 116) nach Owner-Antwort zu Befehlszeilen im Ledger und zur Headless-Messung, dann genau eine Warden-Schlussrunde, gate verdict, gate merge. Kosten je Agent im Kurzbericht nennen; Deny-Zaehler Policy-Fall ausserhalb des Repos bisher 0.
+Waechter hat quest accept Q-0165 am 16.11.2026 09:53 UTC verweigert (5h 66 + 25 + 5 ueber 90; 7d 92 + 6 ueber 96). Owner loest ein Reset-Ticket ein und schreibt weiter; dann warten, bis monarch mana den gesenkten Wochenwert zeigt (Ereignis ManaWindowLowered, fruehestens nach 10 Minuten) und auch das 5h-Fenster passt (Reset 13:20 UTC), danach ohne Rueckfrage weiter. Reihenfolge: (1) quest accept und start Q-0165. (2) Owner-Antworten vom 16.11. woertlich als Owner-Entscheid in den ADR-0003-Nachtrag (Abschnitt OFFEN ab Zeile 179 und die Vorschlag-Ueberschriften :62, :81, :148, :159; Satz :58-60 mit der Beobachtung vom 15.11.2026 aus Issue 105 ergaenzen), dabei Issue 121 (4 minor) erledigen. (3) Knight per TDD: reine Umwandlungsfunktion im HookRunner nach Combine, wirft nie; Tests in HookSubagentAskTests.cs fuer Quellen 6 und 8 und wirft-nie; 5 rote Tests gruen; Main unveraendert; Latenz-Gate gruen. (4) Q-0166: je Hintergrund-Shell nur Programmname, PID, Laufzeit; eine Headless-Messung erlaubt, dokumentiert wie ADR-0001; erreicht der Hinweis die Hauptsession nicht, nur das Ledger-Ereignis. (5) Eine Warden-Schlussrunde, gate verdict, gate merge nach develop, Aufraeumen. Kein neuer Scout oder Strategist. Nach jedem Agenten ps und dotnet build-server shutdown. Wrapper-Issue ist angelegt: 122. Reicht es danach: Gate zu Issue 72 nur planen und Zuschnitt im Kurzbericht zeigen. PR 120 Entwurf, Head 5d561bb plus dieser Commit.
 
 ## Offene Entscheidungen
-- OFFEN 1: Subagent-Kriterium agent_id (Vorschlag) oder agent_type; Teammates nicht gemessen
-- OFFEN 2: Hook-Fehler-Rueckfragen im Subagenten ebenfalls Deny (Vorschlag: ja)
-- OFFEN 3: Deny auch fuer Subagenten im Vordergrund einer interaktiven Session (Vorschlag: ja, wie im Auftrag)
-- OFFEN 4: Rueckfragen des Wrappers bleiben im Subagenten ask (Vorschlag: in diesem Gate so lassen, Issue)
-- OFFEN 5: Zaehlen umgewandelte Rueckfragen kuenftig als Regelverstoss (Vorschlag: nein)
-- Q-0166: Befehlszeilen im Ledger vollstaendig, gekuerzt oder gar nicht (Empfehlung: gekuerzt)
-- Q-0166: eine Headless-Messung erlaubt, oder nur Ledger-Ereignis bauen
+- ENTSCHIEDEN Owner 16.11.2026, woertlich: 1. Erkennung über agent_id. Eine Hauptsession mit --agent behält ihre Rückfrage, Teammates bekommen ein Deny.
+- ENTSCHIEDEN Owner 16.11.2026, woertlich: 2. Hook-Fehler im Subagenten: Deny mit dem festen Ausweg-Satz.
+- ENTSCHIEDEN Owner 16.11.2026, woertlich: 3. Das Deny gilt für jeden Subagenten, auch im Vordergrund. Ergänz im Nachtrag die Beobachtung vom 15.11.2026 (#105): Die Rückfrage eines Hintergrund-Wardens hat beim Owner einen Dialog gezeigt und rund 5 h gewartet. Der Satz "ein Subagent kann keinen Dialog zeigen" stimmt so nicht.
+- ENTSCHIEDEN Owner 16.11.2026, woertlich: 4. Rückfragen des Wrappers bleiben in diesem Gate; als Issue festhalten.
+- ENTSCHIEDEN Owner 16.11.2026, woertlich: 5. Umgewandelte Rückfragen zählen nicht als Regelverstoß.
+- ENTSCHIEDEN Owner 16.11.2026, woertlich: 6. Q-0166 bucht je Hintergrund-Shell nur Programmname, PID und Laufzeit. Keine Argumente, auch nicht gekürzt. Das Repo ist öffentlich.
+- ENTSCHIEDEN Owner 16.11.2026, woertlich: 7. Eine Messung mit einem echten headless Lauf ist erlaubt, dokumentiert wie ADR-0001. Erreicht der Hinweis die Hauptsession nicht: nur das Ledger-Ereignis bauen.
