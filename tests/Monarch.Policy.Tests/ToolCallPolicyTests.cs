@@ -185,7 +185,7 @@ public class ToolCallPolicyTests
 
     // ---- shadow read-only
     [Theory]
-    [InlineData("warden"), InlineData("scout")]
+    [InlineData("warden"), InlineData("scout"), InlineData("monarch:warden"), InlineData("monarch:scout")]
     public void Read_only_shadows_cannot_write(string agent)
     {
         foreach (var tool in new[] { "Edit", "Write", "MultiEdit", "NotebookEdit" })
@@ -202,6 +202,10 @@ public class ToolCallPolicyTests
     {
         Allowed(Edit("src/a.cs", agent: "knight"));
         Denied(Edit("src/a.cs", agent: "scribe"), PolicyRules.ShadowReadOnly, Ctx(o: new PolicyOptions { ReadOnlyShadowTypes = ["scribe"] }));
+        Denied(Edit("src/a.cs", agent: "monarch:scribe"), PolicyRules.ShadowReadOnly, Ctx(o: new PolicyOptions { ReadOnlyShadowTypes = ["scribe"] }));
+        Allowed(Edit("src/a.cs", agent: "monarch:knight"));
+        // Config mit Präfix in der Liste (so schreibt man es aus dem Ledger ab) muss weiter schützen.
+        Denied(Edit("src/a.cs", agent: "monarch:scribe"), PolicyRules.ShadowReadOnly, Ctx(o: new PolicyOptions { ReadOnlyShadowTypes = ["monarch:scribe"] }));
     }
 
     // ---- refuse_high_rank_in_bypass_mode
