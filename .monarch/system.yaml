@@ -17,9 +17,10 @@ policy:
     auth: { min_rank: A, paths: ["src/**/Auth/**", "src/**/Identity/**", "src/**/Jwt*"] }
     payment: { min_rank: S, paths: ["src/**/Payments/**"] }
     migration: { min_rank: B, paths: ["**/Migrations/**"] }
-    policy: { min_rank: A, paths: ["src/Monarch.Policy/**", "src/Monarch.Cli/HookRunner.cs", "src/Monarch.Cli/ProjectPaths.cs", "plugin/scripts/**", "plugin/hooks/**"] }
+    policy: { min_rank: A, paths: ["src/Monarch.Policy/**", "src/Monarch.Cli/HookRunner.cs", "src/Monarch.Cli/ProjectPaths.cs", "src/Monarch.Cli/BackgroundShells.cs", "src/Monarch.Cli/CliEnv.cs", "src/Monarch.Cli/Dtos.cs", "src/Monarch.Cli/RuleTexts.cs", "src/Monarch.Cli/State.cs", "src/Monarch.Cli/Statusline.cs", "src/Monarch.Cli/Support.cs", "src/Monarch.Cli/SystemConfig.cs", "plugin/scripts/**", "plugin/hooks/**"] }
     ledger: { min_rank: A, paths: ["src/Monarch.Infrastructure.Ledger/**", "src/Monarch.Domain/LedgerEvents.cs"] }
     infra: { min_rank: A, paths: [".github/workflows/**", "scripts/install-local.sh"] }
+    mana: { min_rank: A, paths: ["src/Monarch.Cli/Statusline.cs", "src/Monarch.Cli/ManaCommands.cs", "src/Monarch.Cli/ManaCalibrationStore.cs", "src/Monarch.Domain/Mana.cs", "src/Monarch.Domain/ManaCalibration.cs", "src/Monarch.Application/Ports/IManaSensor.cs", "src/Monarch.Policy/ManaPolicy.cs"] }
   deny_bash: ["git push --force*", "git reset --hard*", "dotnet ef database drop*", "monarch permit*", "monarch promote*"]
   protect_paths: [".monarch/ledger/**", ".monarch/local/**", ".monarch/shadows/*/shadow.yaml", ".monarch/system.yaml", ".monarch/quests/**", ".monarch/gates/**", ".claude/settings*.json"]
   protect_secrets_extra: []
