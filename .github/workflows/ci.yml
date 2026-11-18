@@ -1,12 +1,12 @@
 name: ci
 
 on:
-  # Owner-Entscheid 18.11.2026 (ADR-0015, Nachtrag): push nur auf develop und main; jeder PR läuft nur einmal.
+  # Umsetzung zu ADR-0015, Nachtrag 18.11.2026 (Zusammenfassung): push nur auf develop und main; jeder PR läuft nur einmal.
   push:
     branches: [develop, main]
   pull_request:
   workflow_dispatch:
-  # Nachtlauf auf develop (Owner-Entscheid 18.11.2026). GitHub startet geplante Läufe erst, wenn die Datei auf main liegt.
+  # Umsetzung zu ADR-0015, Nachtrag 18.11.2026 (Zusammenfassung): Nachtlauf auf develop. GitHub startet geplante Läufe erst, wenn die Datei auf main liegt.
   schedule:
     - cron: "17 3 * * *"
 
@@ -15,7 +15,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Der Nachtlauf hat eine eigene Gruppe, sonst teilt er sie mit Pushes auf main (github.ref ist dort refs/heads/main).
+  group: ci-${{ github.event_name == 'schedule' && 'nightly' || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -107,7 +108,7 @@ jobs:
         run: sudo apt-get install -y hyperfine jq
       - name: Latency gate self-test
         run: bench/test-gate.sh
-      # Both latency steps block on both operating systems. Neither may carry continue-on-error (ADR-0015).
+      # Both latency steps block on the operating system they run on. macOS runs only on PR nach main, workflow_dispatch and schedule (ADR-0015, Nachtrag 18.11.2026). Neither may carry continue-on-error.
       - name: Hook latency, relative gate (direct)
         env:
           GATE_MODE: relative
