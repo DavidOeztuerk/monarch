@@ -326,3 +326,26 @@ Dieselbe Messung wie für 1,64: die Abendmessung vom 12.11., 20:42–20:54 (`evi
 
 - Ob C1 Teil 2 damit als erfüllt gilt, entscheidet weiter der Owner am Bericht.
 - Wer die 1,70 ändert, braucht einen Owner-Entscheid und trägt Messwerte hier nach.
+
+## Nachtrag 18.11.2026: macOS aus der CI für develop (G-0122, Q-0172, Q-0173)
+
+### Owner-Entscheid (wörtlich)
+
+„macOS läuft nicht mehr in der CI für Push und PR nach develop. Jeder PR läuft nur einmal.“
+
+### Zusammenfassung (nicht wörtlich, Umsetzung)
+
+- `push` läuft nur auf `develop` und `main`, nicht mehr auf `**`. `pull_request` bleibt.
+- Bei `push` und bei `pull_request` nach `develop`: `build-test` nur `ubuntu-latest`, `aot` nur `linux-x64`.
+- macOS (`build-test`, `aot` osx-arm64, Latenz-Gate) läuft nur bei `pull_request` nach `main`, über `workflow_dispatch` und in einem nächtlichen Lauf (`schedule`) auf `develop`. Die Latenz-Schritte bleiben ohne `continue-on-error`; scheitern sie, scheitert der Job. Der Job `aot (osx-arm64)` ist auf `main` aber kein Pflicht-Check (Branch-Regel, Stand 18.11.2026). Das macOS-Gate hält also nur dort, wo es läuft und Pflicht ist. Ob `aot (osx-arm64)` Pflicht auf `main` wird, entscheidet der Owner; das ist eine Einstellung im Repo.
+- Die Matrix wählt der Job `plan` in `.github/workflows/ci.yml`. Er gibt die Matrizen für `build-test` und `aot` aus.
+- Der Nachtlauf startet erst, wenn `ci.yml` auf `main` liegt, weil GitHub geplante Läufe nur auf dem Default-Branch startet. Das ist akzeptiert.
+- Schwellen (LIMIT_MS 20, 1,70 relativ) sind nicht geändert.
+
+### Folgen
+
+- Gate merge verlangt die Check-Runs am PR-Head und am develop-Head. Im Code steht kein fester macOS-Name; die Prüfung nimmt, was GitHub meldet.
+- Das Linux-Gate (`aot (linux-x64)`) hält develop weiter auf, über die Branch-Regel und gate merge.
+- Ein roter `workflow_dispatch`-Lauf auf develop sperrt Fix-PRs (`FixPrProof`, `GateMergeCommands.cs`), bis auch der Fix-Branch einen dispatch-Lauf hat. Das ist der dokumentierte Ausweg.
+- Der Nachtlauf hat eine eigene Concurrency-Gruppe. Die drei Checkouts lösen develop je Job auf; bewegt sich develop während des Nachtlaufs, können Jobs verschiedene Commits testen. Das ist offen.
+- Die Branch-Regeln (`develop`: `build-test (ubuntu-latest)`, `plugin`, `aot (linux-x64)`; `main`: zusätzlich `build-test (macos-latest)`) bleiben unverändert.
