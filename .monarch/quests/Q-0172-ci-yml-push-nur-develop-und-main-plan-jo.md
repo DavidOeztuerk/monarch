@@ -3,7 +3,7 @@ id: Q-0172
 gate: G-0122
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - push-Trigger nur auf develop und main
   - pull_request unverändert

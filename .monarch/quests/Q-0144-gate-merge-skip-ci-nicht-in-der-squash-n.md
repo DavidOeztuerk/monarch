@@ -3,7 +3,7 @@ id: Q-0144
 gate: G-0107
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - Bei squash setzt gate merge commit_title und commit_message selbst (PR-Titel und Quests, ohne Commit-Liste); Test: [skip ci] in einem Branch-Commit erscheint nicht im PUT.
   - Steht [skip ci] (oder eine von GitHub gleich behandelte Form) im PR-Titel, gelangt es nicht in den PUT; Test.

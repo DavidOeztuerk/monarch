@@ -3,7 +3,7 @@ id: Q-0167
 gate: G-0118
 kind: main
 rank: E
-state: in_review
+state: cleared
 dod:
   - Befund 1 der Schlussrunde (major): Ursache des macOS-Fehlers im Integrationsfall Real_ps_finds_the_hull_of_a_real_child_and_the_hook_leaves_it_running (KeyNotFoundException pid, CI-Lauf 44316981093) zuerst belegen: Läuft die ps-Frist ab, schreibt BackgroundShells.cs eine Zeile nach hook-errors.log ohne Inhalt einer Befehlszeile (Befund 2); der Test nennt bei fehlender PID den Inhalt von hook-errors.log und die Dauer in der Assert-Meldung; ein CI-Lauf auf macOS mit diesem Stand belegt die Ursache (Run-ID im PR)
   - Danach die belegte Ursache beheben, ohne die 2-s-Frist und ohne eine andere Schwelle zu ändern (eine Friständerung wäre eine Designänderung und geht an den Owner); kein Test wird aufgeweicht: der Integrationsfall prüft weiter PID der Hülle, Dauer unter 5 s und dass das Kind noch läuft
