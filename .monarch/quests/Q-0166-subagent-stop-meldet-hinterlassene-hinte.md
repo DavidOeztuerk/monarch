@@ -3,7 +3,7 @@ id: Q-0166
 gate: G-0118
 kind: main
 rank: A
-state: in_progress
+state: in_review
 dod:
   - Abhängigkeit: nach Q-0165 (gleiche Datei HookRunner.cs). Zuerst messen und als Nachtrag zu ADR-0001 in einfacher Sprache belegen (Claude-Code-Version, Befehl, Ergebnis): Felder des SubagentStop-Inputs; ob Hintergrund-Shells des Subagenten bei SubagentStop noch laufen und woran sie sich von Shells der Hauptsession und fremder Sitzungen unterscheiden; ob und über welches Feld eine Hook-Ausgabe die Hauptsession erreicht (Kandidaten: Ausgabe von SubagentStop, additionalContext im PostToolUse des Agent-Tools der Hauptsession). Unbelegtes bleibt als unbelegt markiert
   - Warden-Designrunde über den Nachtrag (eine Runde, höchstens eine Delta-Runde), danach TDD (vorher rot, danach grün)
@@ -18,5 +18,6 @@ scope:
   exclude: ["src/Monarch.Policy/**", ".github/**", "bench/**", "plugin/**"]
 estimate: { session_pct: 20, weekly_pct: 5, gold_usd: 0 }
 boss: "Nachtrag zu ADR-0001 mit Messung, Warden-Designrunde approve; dotnet test -c Release grün mit den neuen Fällen (vorher rot), CI grün auf macOS und Linux, Warden-Schlussrunde approve am Head-SHA"
+board: { pr: 120 }
 ---
 # subagent-stop meldet hinterlassene Hintergrund-Shells und beendet nichts (Issue 116 Punkt 1)
