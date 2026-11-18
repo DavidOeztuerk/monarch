@@ -36,6 +36,7 @@ internal static class StatusCommand
 
         var quests = new LocalFileBoard(paths.Root).ListQuestsAsync().GetAwaiter().GetResult();
         var counts = quests.GroupBy(q => q.State).OrderBy(g => g.Key).Select(g => (Name: QuestCommands.StateName(g.Key), Count: g.Count())).ToArray();
+        var forge = ForgeClearView.Derive(env, paths, quests);
         var xp = TotalXp(paths.Root);
         var level = 1 + (xp / 100);
         var snapshot = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
@@ -46,13 +47,23 @@ internal static class StatusCommand
 
         if (json)
         {
-            WriteJson(env, active, counts, xp, level, snapshot, limits, guard, ledger.Ok, hook);
+            WriteJson(env, active, counts, xp, level, snapshot, limits, guard, ledger.Ok, hook, forge);
             return 0;
         }
 
         var sb = new StringBuilder();
         sb.AppendLine(active is null ? "Active quest: none" : $"Active quest: {active.QuestId} [{active.Rank}] {active.State ?? "active"} (gate {active.GateId}, scope {string.Join(", ", active.Scope.Include)})");
         sb.AppendLine("Quests: " + (counts.Length == 0 ? "none" : string.Join(" · ", counts.Select(c => $"{c.Name} {c.Count}"))));
+        if (forge.Cleared.Count > 0)
+        {
+            sb.AppendLine("Cleared (Forge): " + string.Join(", ", forge.Cleared.Order(StringComparer.Ordinal)) + " (derived from merged PR and green checks; stored state unchanged)");
+        }
+
+        if (forge.Note is not null)
+        {
+            sb.AppendLine(ForgeClearView.NoteLine(forge.Note));
+        }
+
         sb.AppendLine($"Level {level} · XP {xp} (placeholder: 100 XP per level)");
         if (snapshot is null)
         {
@@ -109,7 +120,7 @@ internal static class StatusCommand
         return xp;
     }
 
-    private static void WriteJson(CliEnv env, ActiveFile? active, (string Name, int Count)[] counts, long xp, long level, ManaSnapshot? s, ManaLimits limits, ManaDecision? guard, bool ledgerOk, SecretScanResult hook)
+    private static void WriteJson(CliEnv env, ActiveFile? active, (string Name, int Count)[] counts, long xp, long level, ManaSnapshot? s, ManaLimits limits, ManaDecision? guard, bool ledgerOk, SecretScanResult hook, ForgeClearView.Result forge)
     {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
@@ -119,6 +130,10 @@ internal static class StatusCommand
             w.WriteStartObject("quests");
             foreach (var (name, count) in counts) w.WriteNumber(name, count);
             w.WriteEndObject();
+            w.WriteStartArray("clearedForge");
+            foreach (var id in forge.Cleared.Order(StringComparer.Ordinal)) w.WriteStringValue(id);
+            w.WriteEndArray();
+            if (forge.Note is null) w.WriteNull("forgeNote"); else w.WriteString("forgeNote", forge.Note);
             w.WriteNumber("xp", xp);
             w.WriteNumber("level", level);
             if (s is null)
