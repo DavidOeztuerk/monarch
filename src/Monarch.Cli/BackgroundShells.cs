@@ -114,7 +114,7 @@ internal static class BackgroundShells
             int?[] pids;
             try
             {
-                pids = FindPids(shells, env);
+                pids = FindPids(shells, env, log);
             }
             catch (Exception ex)
             {
@@ -249,12 +249,18 @@ internal static class BackgroundShells
 
     private static string Encode(string command) => "eval '" + command.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
 
-    private static int?[] FindPids(List<Shell> shells, CliEnv env)
+    private static int?[] FindPids(List<Shell> shells, CliEnv env, Action<Exception> log)
     {
         var text = env.ProcessList is { } inject ? inject() : RealPs(env);
         var result = new int?[shells.Count];
         if (text is null)
         {
+            // Only the deadline, never a command line, goes to hook-errors.log.
+            if (env.ProcessList is null)
+            {
+                log(new TimeoutException($"ps: Frist {(int)PsDeadline.TotalMilliseconds} ms überschritten"));
+            }
+
             return result;
         }
 
@@ -308,6 +314,11 @@ internal static class BackgroundShells
             if (hits.Count == 1)
             {
                 result[i] = hits[0].Pid;
+            }
+            else
+            {
+                // Only the count, never the command line.
+                log(new InvalidOperationException(hits.Count == 0 ? "ps: 0 Treffer für eine Hintergrund-Shell" : "ps: mehr als 1 Treffer für eine Hintergrund-Shell"));
             }
         }
 

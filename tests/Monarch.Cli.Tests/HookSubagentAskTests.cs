@@ -9,7 +9,7 @@ namespace Monarch.Cli.Tests;
 /// Main cases (ask, text unchanged) and the boundary cases that keep ask stay unchanged.
 /// Subagent cases (agent_id set, also without agent_type) expect deny; they were red in Q-0164 and are green since Q-0165.
 /// Sources 6 and 8 (hook_error) and "the conversion never throws" are covered via the pure function HookRunner.ConvertAskForSubagent (Q-0165).
-/// Not covered, no hook trigger without a git repository: sources 3 and 4 (push without refspec, unreadable config or branch).
+/// Sources 3 and 4 (push without refspec, unreadable config or branch) run over a rebuilt .git in the project root (Q-0167).
 /// </summary>
 public sealed class HookSubagentAskTests
 {
@@ -21,8 +21,28 @@ public sealed class HookSubagentAskTests
         "integration_push" => new TempProject(activeRank: "B"),
         "checkout_force" => new TempProject(activeRank: "A"),
         "config_error" => new TempProject(activeRank: "A", systemYaml: "policy:\n  deny_bash: [unterminated\n"),
+        "push_config_unreadable" => WithGit(new TempProject(activeRank: "B"), "ref: refs/heads/feature", configIsDirectory: true), // source 3
+        "push_detached_head" => WithGit(new TempProject(activeRank: "B"), "0123456789abcdef0123456789abcdef01234567", configIsDirectory: false), // source 4
         _ => throw new ArgumentOutOfRangeException(nameof(scenario)),
     };
+
+    // Rebuilt .git as in ProtectBranchesTests.cs:20-22; an unreadable config is a directory in place of the file.
+    private static TempProject WithGit(TempProject p, string head, bool configIsDirectory)
+    {
+        var git = Path.Combine(p.Root, ".git");
+        Directory.CreateDirectory(git);
+        File.WriteAllText(Path.Combine(git, "HEAD"), head + "\n");
+        if (configIsDirectory)
+        {
+            Directory.CreateDirectory(Path.Combine(git, "config"));
+        }
+        else
+        {
+            File.WriteAllText(Path.Combine(git, "config"), "[core]\n\tbare = false\n");
+        }
+
+        return p;
+    }
 
     private static string Input(string scenario, string agentFields)
     {
@@ -31,6 +51,7 @@ public sealed class HookSubagentAskTests
             "rank_s" or "config_error" => ("Edit", """{"file_path":"src/a.cs"}"""),
             "integration_push" => ("Bash", """{"command":"git push origin develop"}"""),
             "checkout_force" => ("Bash", """{"command":"git checkout -f"}"""),
+            "push_config_unreadable" or "push_detached_head" => ("Bash", """{"command":"git push"}"""),
             _ => throw new ArgumentOutOfRangeException(nameof(scenario)),
         };
         return $$"""{"session_id":"sess1","hook_event_name":"PreToolUse","permission_mode":"default"{{agentFields}},"tool_name":"{{tool}}","tool_input":{{tin}}}""";
@@ -47,7 +68,17 @@ public sealed class HookSubagentAskTests
         return (o.GetProperty("permissionDecision").GetString(), o.GetProperty("permissionDecisionReason").GetString(), r.Out);
     }
 
-    public static TheoryData<string> Scenarios => new() { "rank_s", "integration_push", "checkout_force", "config_error" };
+    public static TheoryData<string> Scenarios => new() { "rank_s", "integration_push", "checkout_force", "config_error", "push_config_unreadable", "push_detached_head" };
+
+    [Theory]
+    [MemberData(nameof(Scenarios))]
+    public void Ledger_verify_stays_ok_after_a_converted_ask(string scenario)
+    {
+        using var p = Project(scenario);
+        var (decision, _, _) = Decide(p, Input(scenario, Sub));
+        Assert.Equal("deny", decision);
+        Assert.Equal(0, p.Run(["ledger", "verify"]).Code);
+    }
 
     [Theory]
     [MemberData(nameof(Scenarios))]
@@ -170,6 +201,7 @@ public sealed class HookSubagentAskTests
         var main = string.IsNullOrWhiteSpace(agentId);
         if (main) return ReferenceEquals(d, input) && !converted;
         if (input.Kind != PolicyDecisionKind.Allow && d.Kind == PolicyDecisionKind.Allow) return false;
+        if (input.Kind == PolicyDecisionKind.Ask && d.Kind != PolicyDecisionKind.Deny) return false;
         return converted == (input.Kind == PolicyDecisionKind.Ask) && (converted || ReferenceEquals(d, input));
     }
 }

@@ -294,6 +294,46 @@ public sealed class HookSubagentStopShellsTests
     public void No_matching_process_gives_no_pid() =>
         Assert.Null(PidFor("sleep 301", 500, Ps("500 1 claude", "601 600 sleep 301", "700 500 /bin/zsh -c other")));
 
+    [Theory]
+    [InlineData(0, "ps: 0 Treffer")]
+    [InlineData(2, "ps: mehr als 1 Treffer")]
+    public void A_pid_search_without_exactly_one_hit_logs_only_the_count_and_never_a_command_line(int hulls, string expected)
+    {
+        using var p = new TempProject(activeRank: "B");
+        HookWith(p, "post-tool-use", Start("a1", "t1", "sleep 301"));
+        var lines = new List<string> { "500 1 claude" };
+        for (var i = 0; i < hulls; i++)
+        {
+            lines.Add($"{600 + i} 500 {Hull}'sleep 301'");
+        }
+
+        HookWith(p, "subagent-stop", Stop("a1", Tasks(("t1", "sleep 301"))), Ps([.. lines]), 500);
+        var log = File.ReadAllText(p.LocalPath("hook-errors.log"));
+        Assert.Contains(expected, log, StringComparison.Ordinal);
+        Assert.DoesNotContain("sleep", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("zsh", log, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void One_hit_writes_nothing_to_the_error_log()
+    {
+        using var p = new TempProject(activeRank: "B");
+        HookWith(p, "post-tool-use", Start("a1", "t1", "sleep 301"));
+        HookWith(p, "subagent-stop", Stop("a1", Tasks(("t1", "sleep 301"))), Ps("600 500 " + Hull + "'sleep 301'"), 500);
+        Assert.False(File.Exists(p.LocalPath("hook-errors.log")));
+    }
+
+    [Fact]
+    public void Ledger_verify_stays_ok_after_a_background_shells_left_event()
+    {
+        using var p = new TempProject(activeRank: "B");
+        HookWith(p, "post-tool-use", Start("a1", "t1", "sleep 301"));
+        HookWith(p, "subagent-stop", Stop("a1", Tasks(("t1", "sleep 301"))), Ps("600 500 " + Hull + "'sleep 301'"), 500);
+        Assert.Single(Shells(p));
+        var v = p.Run(["ledger", "verify"]);
+        Assert.Equal(0, v.Code);
+    }
+
     [Fact]
     public void One_matching_hull_gives_its_pid_not_the_childs()
     {
@@ -367,7 +407,9 @@ public sealed class HookSubagentStopShellsTests
             Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), $"hook took {sw.Elapsed}");
             var shell = Assert.Single(Assert.Single(Shells(p)).GetProperty("shells").EnumerateArray());
             Assert.Equal("sleep", shell.GetProperty("program").GetString());
-            Assert.Equal(child.Id, shell.GetProperty("pid").GetInt32());
+            Assert.True(shell.TryGetProperty("pid", out var pidElement),
+                $"pid fehlt nach {sw.Elapsed}; hook-errors.log: {(File.Exists(p.LocalPath("hook-errors.log")) ? File.ReadAllText(p.LocalPath("hook-errors.log")) : "(fehlt)")}");
+            Assert.Equal(child.Id, pidElement.GetInt32());
             Assert.False(child.HasExited);
         }
         finally
