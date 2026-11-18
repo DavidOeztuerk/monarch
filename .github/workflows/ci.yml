@@ -1,17 +1,22 @@
 name: ci
 
 on:
+  # Umsetzung zu ADR-0015, Nachtrag 18.11.2026 (Zusammenfassung): push nur auf develop und main; jeder PR läuft nur einmal.
   push:
-    branches: ["**"]
+    branches: [develop, main]
   pull_request:
   workflow_dispatch:
+  # Umsetzung zu ADR-0015, Nachtrag 18.11.2026 (Zusammenfassung): Nachtlauf auf develop. GitHub startet geplante Läufe erst, wenn die Datei auf main liegt.
+  schedule:
+    - cron: "17 3 * * *"
 
 # Least privilege: jobs only read the repository.
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Der Nachtlauf hat eine eigene Gruppe, sonst teilt er sie mit Pushes auf main (github.ref ist dort refs/heads/main).
+  group: ci-${{ github.event_name == 'schedule' && 'nightly' || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -19,16 +24,38 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
+  # Entscheidet, welche Matrix läuft. macOS nur bei PR nach main, workflow_dispatch und schedule (ADR-0015, Nachtrag 18.11.2026).
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      build_matrix: ${{ steps.plan.outputs.build_matrix }}
+      aot_matrix: ${{ steps.plan.outputs.aot_matrix }}
+    steps:
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$EVENT" = "schedule" ] || { [ "$EVENT" = "pull_request" ] && [ "$BASE" = "main" ]; }; then
+            echo 'build_matrix={"os":["ubuntu-latest","macos-latest"]}' >> "$GITHUB_OUTPUT"
+            echo 'aot_matrix={"include":[{"os":"macos-latest","rid":"osx-arm64"},{"os":"ubuntu-latest","rid":"linux-x64"}]}' >> "$GITHUB_OUTPUT"
+          else
+            echo 'build_matrix={"os":["ubuntu-latest"]}' >> "$GITHUB_OUTPUT"
+            echo 'aot_matrix={"include":[{"os":"ubuntu-latest","rid":"linux-x64"}]}' >> "$GITHUB_OUTPUT"
+          fi
+
   build-test:
     name: build-test (${{ matrix.os }})
+    needs: plan
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+      matrix: ${{ fromJSON(needs.plan.outputs.build_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
           persist-credentials: false
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -40,13 +67,10 @@ jobs:
   aot:
     name: aot (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
-    needs: build-test
+    needs: [plan, build-test]
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: macos-latest, rid: osx-arm64 }
-          - { os: ubuntu-latest, rid: linux-x64 }
+      matrix: ${{ fromJSON(needs.plan.outputs.aot_matrix) }}
     env:
       # Latency gate (ADR-0015, docs/adr/0015-relatives-latenz-gate.md): the CI gates the ratio of the hook to the bare
       # program start (`monarch --version`) on the same runner, at the median. The limits are fixed in
@@ -61,6 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
           persist-credentials: false
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -83,7 +108,7 @@ jobs:
         run: sudo apt-get install -y hyperfine jq
       - name: Latency gate self-test
         run: bench/test-gate.sh
-      # Both latency steps block on both operating systems. Neither may carry continue-on-error (ADR-0015).
+      # Both latency steps block on the operating system they run on. macOS runs only on PR nach main, workflow_dispatch and schedule (ADR-0015, Nachtrag 18.11.2026). Neither may carry continue-on-error.
       - name: Hook latency, relative gate (direct)
         env:
           GATE_MODE: relative
@@ -112,6 +137,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
           persist-credentials: false
       - name: Shell syntax
         run: |
