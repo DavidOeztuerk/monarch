@@ -12,7 +12,7 @@ description: Standardregeln für jede Session in einem Monarch-Projekt. Lesen vo
    - Den Haupt-Checkout nie auf einen anderen Branch umstellen, nie committen, nie anfassen.
    - In der Worktree vorher `git status` prüfen. Uncommittete Hook-Ledger-Zeilen nicht verwerfen; sie kommen mit dem ersten Commit mit, wenn `monarch ledger verify` ok ist.
    - **Aufräumen nach Merge und Clear macht die Session selbst:**
-     1. `monarch ledger verify` in der Worktree.
+     1. `monarch ledger verify` in der Worktree, und `monarch gate check <G-xxxx>` muss grün sein. Erst dann wird die Worktree entfernt (Owner 18.11.2026; bei G-0118 fehlte deshalb IntegrationRunChecked).
      2. Den restlichen Monarch-Stand committen (`git add .monarch`, also Ledger-Zeilen und Quest-Status „cleared“) und auf den **Gate-Branch** pushen, damit er versioniert erhalten bleibt. Die Commit-Message endet in der ersten Zeile mit **`[skip ci]`**, denn ohne Code-Änderung braucht es keinen CI-Lauf. **Vor dem Merge nie `[skip ci]` auf dem Gate-Branch:** Bei Squash landet es in der Merge-Nachricht, und `develop` bekommt keinen CI-Lauf. Der Aufräum-Commit nach dem Merge trägt ihn.
      3. ExitWorktree (keep).
      4. `git worktree remove <pfad>` **ohne** `--force`.
