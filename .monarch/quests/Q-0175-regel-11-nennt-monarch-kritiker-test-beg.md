@@ -3,7 +3,7 @@ id: Q-0175
 gate: G-0123
 kind: side
 rank: E
-state: proposed
+state: cleared
 dod:
   - Test prüft nur die Zeile von Regel 11 und verlangt monarch:kritiker; vor der Textänderung rot, danach grün
   - regeln/SKILL.md Regel 11 enthält monarch:kritiker

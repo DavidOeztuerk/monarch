@@ -3,7 +3,7 @@ id: Q-0174
 gate: G-0123
 kind: main
 rank: A
-state: proposed
+state: cleared
 dod:
   - Test mit agent_type monarch:warden und monarch:scout ist vor dem Fix rot (Deny erwartet, Allow geliefert) und nach dem Fix grün
   - monarch:knight darf weiterhin schreiben; monarch:scribe mit Config-Erweiterung wird verweigert
