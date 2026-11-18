@@ -13,5 +13,6 @@ scope:
   include: ["src/Monarch.Policy/ToolCallPolicy.cs", "tests/Monarch.Policy.Tests/ToolCallPolicyTests.cs"]
   exclude: []
 estimate: { session_pct: 4, weekly_pct: 1, gold_usd: 0 }
+board: { pr: 140 }
 ---
 # Shadow-Schutz erkennt monarch:-Präfix (#136)

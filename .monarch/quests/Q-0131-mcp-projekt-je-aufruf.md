@@ -5,7 +5,7 @@ kind: main
 rank: A
 severity: high
 risk_tags: [policy]
-state: in_review
+state: cleared
 scope:
   repo: monarch
   include: ["src/Monarch.Mcp/**", "src/Monarch.Cli/McpTools.cs", "src/Monarch.Cli/ProjectPaths.cs", "src/Monarch.Cli/CliEnv.cs", "tests/**", "docs/adr/0013-*", "plugin/README.md", "plugin/skills/**", "plugin/.mcp.json"]

@@ -3,7 +3,7 @@ id: Q-0145
 gate: G-0107
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - git und gh werden absolut aus PATH aufgelöst, ohne cwd, ohne Verzeichnis des Binaries und ohne relative oder leere PATH-Einträge; ein Fehlschlag ist ein klarer Fehler ohne Rückfall.
   - Alle Process.Start-Stellen sind geprüft: Git.cs, MergeMethodResolver.cs, GitAnchor.cs, GitHubTokenProvider.cs; WakeCommands, SecretScanHook und Statusline nutzen bereits absolute Pfade, das steht im ADR.

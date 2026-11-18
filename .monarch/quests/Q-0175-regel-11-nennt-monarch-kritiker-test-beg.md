@@ -11,5 +11,6 @@ scope:
   include: ["plugin/skills/regeln/SKILL.md", "tests/Monarch.Cli.Tests/KritikerShadowTests.cs"]
   exclude: []
 estimate: { session_pct: 2, weekly_pct: 0.5, gold_usd: 0 }
+board: { pr: 140 }
 ---
 # Regel 11 nennt monarch:kritiker; Test begrenzt auf die Regel-Zeile (#137)

@@ -3,7 +3,7 @@ id: Q-0158
 gate: G-0114
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - 
   - Nachtrag zu ADR-0010 Punkt 3 in einfacher Sprache: Vergleich mit HEAD byteweise gegen den HEAD-Blob statt ueber git diff (Index), Begruendung, Grenzen, Kosten, Tests
