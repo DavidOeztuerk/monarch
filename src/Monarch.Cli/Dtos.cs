@@ -21,6 +21,12 @@ internal sealed class HookInput
 
     [JsonPropertyName("tool_input")] public HookToolInput? ToolInput { get; set; }
 
+    /// <summary>Raw <c>tool_response</c>; any JSON shape is accepted, so a wrong type never makes the whole input unreadable.</summary>
+    [JsonPropertyName("tool_response")] public System.Text.Json.JsonElement? ToolResponse { get; set; }
+
+    /// <summary>Raw <c>background_tasks</c> of SubagentStop (session-wide list); any JSON shape is accepted.</summary>
+    [JsonPropertyName("background_tasks")] public System.Text.Json.JsonElement? BackgroundTasks { get; set; }
+
     /// <summary>Parses hook JSON.</summary>
     public static HookInput? Parse(string json) => System.Text.Json.JsonSerializer.Deserialize(json, CliJson.Default.HookInput);
 }

@@ -16,7 +16,9 @@ namespace Monarch.Cli;
 /// <param name="StdinIsTty">True when stdin is an interactive terminal; owner-only commands (ADR-0011 rule 7) need it. Tests inject it.</param>
 /// <param name="Vars">Environment variables of the calling process; null reads the real process environment (tests inject a fixed set).</param>
 /// <param name="UserHome">The user's home, whose <c>.monarch</c> is never a project; null resolves the real home (tests inject a temp directory).</param>
-internal sealed record CliEnv(string Cwd, string Home, TextReader In, TextWriter Out, TextWriter Err, IClock Clock, HttpMessageHandler? Http = null, GitHubTokenProvider? Tokens = null, bool StdinIsTty = false, IReadOnlyDictionary<string, string?>? Vars = null, string? UserHome = null)
+/// <param name="ProcessList">Process list as <c>pid ppid command</c> lines (the output of <c>ps -ww -A -o pid=,ppid=,command=</c>) for the subagent-stop hook; null runs the real <c>ps</c> (tests inject a fixed list). May return null for "unavailable".</param>
+/// <param name="HookParentPid">Parent process of the hook (Claude Code); null reads it from the process list (the line of this process). Tests inject it.</param>
+internal sealed record CliEnv(string Cwd, string Home, TextReader In, TextWriter Out, TextWriter Err, IClock Clock, HttpMessageHandler? Http = null, GitHubTokenProvider? Tokens = null, bool StdinIsTty = false, IReadOnlyDictionary<string, string?>? Vars = null, string? UserHome = null, Func<string?>? ProcessList = null, int? HookParentPid = null)
 {
     /// <summary>Value of an environment variable of the calling process.</summary>
     public string? GetVar(string name) => Vars is null ? Environment.GetEnvironmentVariable(name) : Vars.GetValueOrDefault(name);

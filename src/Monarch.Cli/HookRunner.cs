@@ -6,12 +6,47 @@ using Monarch.Policy;
 namespace Monarch.Cli;
 
 /// <summary>
-/// The hook hot path: no SQLite, no processes, no network, no DI container. Any failure is logged to
+/// The hook hot path: no SQLite, no network, no DI container; no processes except the single <c>ps</c> of subagent-stop when a subagent left
+/// background shells (Q-0166, reports only, ends nothing). Any failure is logged to
 /// <c>.monarch/local/hook-errors.log</c> and never becomes a silent allow for rank A or higher (ADR-0003).
 /// </summary>
 internal static class HookRunner
 {
-    private const string ErrorReason = "Monarch-Hook-Fehler: Freigabe nötig";
+    internal const string ErrorReason = "Monarch-Hook-Fehler: Freigabe nötig";
+
+    internal const string SubagentWay = "Im Subagenten gibt es keine Rückfrage. Stoppe diesen Schritt und melde ihn mit Befehl und Grund der Hauptsession.";
+
+    /// <summary>
+    /// Subagent ask becomes deny with the fixed way out (ADR-0003 addendum, Q-0165). Pure; never throws: on any failure the input
+    /// (so an ask) is returned unchanged. Only Ask is converted, only when <paramref name="agentId"/> has a non-whitespace character.
+    /// </summary>
+    internal static (PolicyDecision Decision, bool Converted) ConvertAskForSubagent(PolicyDecision decision, string? agentId)
+    {
+        try
+        {
+            if (decision is not { Kind: PolicyDecisionKind.Ask } || string.IsNullOrWhiteSpace(agentId))
+            {
+                return (decision, false);
+            }
+
+            return (PolicyDecision.Deny(decision.Rule, decision.Reason + " " + SubagentWay), true);
+        }
+        catch (Exception)
+        {
+            return (decision, false);
+        }
+    }
+
+    private static HookSpecificOutput ErrorOutput(string? agentId)
+    {
+        var (d, _) = ConvertAskForSubagent(PolicyDecision.Ask("hook_error", ErrorReason), agentId);
+        return new HookSpecificOutput
+        {
+            HookEventName = "PreToolUse",
+            PermissionDecision = d.Kind == PolicyDecisionKind.Deny ? "deny" : "ask",
+            PermissionDecisionReason = d.Reason,
+        };
+    }
 
     /// <summary>Handles one hook event; always returns 0.</summary>
     public static int Run(string evt, CliEnv env)
@@ -61,7 +96,7 @@ internal static class HookRunner
                     Log(primary, env, evt, ex);
                 }
 
-                Emit(env, new HookSpecificOutput { HookEventName = "PreToolUse", PermissionDecision = "ask", PermissionDecisionReason = ErrorReason });
+                Emit(env, ErrorOutput(input.AgentId));
                 return 0;
             }
         }
@@ -101,10 +136,24 @@ internal static class HookRunner
         var ledger = new ProjectLedger(paths, env.Clock);
         switch (evt)
         {
-            case "post-tool-use": Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "ToolUsed",
-                ("tool", input.ToolName), ("agent_type", input.AgentType), ("agent_id", input.AgentId), ("file", FileOf(input)), ("quest", ActiveId(paths)))); break;
-            case "subagent-stop": Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "ShadowRunCompleted",
-                ("agent_id", input.AgentId), ("agent_type", input.AgentType), ("quest", ActiveId(paths)))); break;
+            case "post-tool-use":
+                Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "ToolUsed",
+                    ("tool", input.ToolName), ("agent_type", input.AgentType), ("agent_id", input.AgentId), ("file", FileOf(input)), ("quest", ActiveId(paths))));
+                Append(paths, env, () => BackgroundShells.Remember(input, env), "background-shells");
+                break;
+            case "subagent-stop":
+                Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "ShadowRunCompleted",
+                    ("agent_id", input.AgentId), ("agent_type", input.AgentType), ("quest", ActiveId(paths))));
+                // Own try: a failure here only goes to hook-errors.log. Reports only; ends nothing, prints nothing.
+                Append(paths, env, () =>
+                {
+                    if (BackgroundShells.Report(input, env, ex => Log(paths, env, "background-shells", ex)) is { } shells)
+                    {
+                        ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "BackgroundShellsLeft",
+                            ("agent_id", input.AgentId), ("agent_type", input.AgentType), ("quest", ActiveId(paths)), ("shells", shells));
+                    }
+                }, "background-shells");
+                break;
             case "stop": Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "TurnStopped", ("quest", ActiveId(paths)))); break;
             case "session-start": SessionStart(input, paths, env); break;
             case "pre-compact": PreCompact(input, paths, ledger); break;
@@ -120,7 +169,7 @@ internal static class HookRunner
     private static string? ActiveId(ProjectPaths paths) => ActiveStore.Read(paths)?.QuestId;
 
     // A ledger failure after a decision was printed must not change the decision; it is only logged.
-    private static void Append(ProjectPaths paths, CliEnv env, Action append)
+    private static void Append(ProjectPaths paths, CliEnv env, Action append, string what = "ledger")
     {
         try
         {
@@ -128,7 +177,7 @@ internal static class HookRunner
         }
         catch (Exception ex)
         {
-            Log(paths, env, "ledger", ex);
+            Log(paths, env, what, ex);
         }
     }
 
@@ -185,7 +234,7 @@ internal static class HookRunner
             evaluated.Add(Evaluate(t, call, env, full: false, input));
         }
 
-        var decision = ToolCallPolicy.Combine(evaluated.Select(e => e.Decision));
+        var (decision, _) = ConvertAskForSubagent(ToolCallPolicy.Combine(evaluated.Select(e => e.Decision)), input.AgentId);
         if (decision.Kind != PolicyDecisionKind.Allow)
         {
             Emit(env, new HookSpecificOutput
@@ -204,7 +253,8 @@ internal static class HookRunner
                 continue;
             }
 
-            var kind = d.Kind == PolicyDecisionKind.Deny ? "deny" : "ask";
+            var converted = d.Kind == PolicyDecisionKind.Ask && ConvertAskForSubagent(d, input.AgentId).Converted;
+            var kind = d.Kind == PolicyDecisionKind.Deny || converted ? "deny" : "ask";
             var ledger = new ProjectLedger(paths, env.Clock);
             Append(paths, env, () =>
             {
@@ -212,7 +262,8 @@ internal static class HookRunner
                 if (d.Kind != PolicyDecisionKind.Allow)
                 {
                     ledger.Append(session, Actor(input), "PolicyDecided", ("rule", d.Rule), ("kind", kind), ("tool", input.ToolName),
-                        ("agent_type", input.AgentType), ("quest", active?.QuestId), ("reason", d.Reason));
+                        ("agent_type", input.AgentType), ("quest", active?.QuestId), ("reason", d.Reason),
+                        ("converted_from", converted ? "ask" : null), ("agent_id", converted ? input.AgentId : null));
                 }
 
                 if (signaled)
@@ -327,12 +378,14 @@ internal static class HookRunner
         }
 
         // Any failure on the PreToolUse path asks, whatever the rank (ADR-0003).
-        Emit(env, new HookSpecificOutput { HookEventName = "PreToolUse", PermissionDecision = "ask", PermissionDecisionReason = ErrorReason });
+        Emit(env, ErrorOutput(input?.AgentId));
+        var (_, converted) = ConvertAskForSubagent(PolicyDecision.Ask("hook_error", ErrorReason), input?.AgentId);
         Append(paths, env, () =>
         {
             var ledger = new ProjectLedger(paths, env.Clock);
-            ledger.Append(ledger.SessionId(input?.SessionId), input is null ? "hook" : Actor(input), "PolicyDecided", ("rule", "hook_error"), ("kind", "ask"),
-                ("tool", input?.ToolName), ("reason", ErrorReason));
+            ledger.Append(ledger.SessionId(input?.SessionId), input is null ? "hook" : Actor(input), "PolicyDecided", ("rule", "hook_error"),
+                ("kind", converted ? "deny" : "ask"), ("tool", input?.ToolName), ("reason", ErrorReason),
+                ("converted_from", converted ? "ask" : null), ("agent_id", converted ? input?.AgentId : null));
         });
     }
 
