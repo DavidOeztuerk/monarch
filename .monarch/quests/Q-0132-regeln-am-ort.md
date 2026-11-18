@@ -5,7 +5,7 @@ kind: main
 rank: A
 severity: medium
 risk_tags: [policy]
-state: in_review
+state: cleared
 scope:
   repo: monarch
   include: ["src/Monarch.Cli/QuestCommands.cs", "src/Monarch.Cli/HookRunner.cs", "src/Monarch.Cli/GateMergeCommands.cs", "src/Monarch.Infrastructure.Evidence/**", "src/Monarch.Policy/ToolCallPolicy.cs", "tests/**", "plugin/skills/**", "plugin/README.md", "docs/adr/0007-*"]

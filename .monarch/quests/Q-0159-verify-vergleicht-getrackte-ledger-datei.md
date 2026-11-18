@@ -3,7 +3,7 @@ id: Q-0159
 gate: G-0114
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - Umsetzung nach dem Nachtrag zu ADR-0010, TDD: die roten Tests aus Q-0158 werden gruen
   - Gegenproben gruen: gesetzte Index-Kennzeichen ohne Aenderung bleiben ok; unveraenderte committete Datei ohne lokalen Anker bleibt anchored by git; bestehende Tests unveraendert

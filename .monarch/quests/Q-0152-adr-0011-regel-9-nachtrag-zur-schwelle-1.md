@@ -3,7 +3,7 @@ id: Q-0152
 gate: G-0110
 kind: side
 rank: A
-state: in_review
+state: cleared
 dod:
   - ADR-0011 Regel 9 bekommt einen kurzen Nachtrag vom 13.11.2026: Nach Owner-Entscheid vom 12.11. gilt unter Last 1,70 statt 1,64, als Lockerung benannt, Verweis auf den Nachtrag vom 13.11. in ADR-0015
   - Sonst ändert sich in ADR-0011 nichts
