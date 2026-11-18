@@ -204,6 +204,8 @@ public class ToolCallPolicyTests
         Denied(Edit("src/a.cs", agent: "scribe"), PolicyRules.ShadowReadOnly, Ctx(o: new PolicyOptions { ReadOnlyShadowTypes = ["scribe"] }));
         Denied(Edit("src/a.cs", agent: "monarch:scribe"), PolicyRules.ShadowReadOnly, Ctx(o: new PolicyOptions { ReadOnlyShadowTypes = ["scribe"] }));
         Allowed(Edit("src/a.cs", agent: "monarch:knight"));
+        // Config mit Präfix in der Liste (so schreibt man es aus dem Ledger ab) muss weiter schützen.
+        Denied(Edit("src/a.cs", agent: "monarch:scribe"), PolicyRules.ShadowReadOnly, Ctx(o: new PolicyOptions { ReadOnlyShadowTypes = ["monarch:scribe"] }));
     }
 
     // ---- refuse_high_rank_in_bypass_mode

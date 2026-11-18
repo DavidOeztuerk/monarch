@@ -453,7 +453,8 @@ public static partial class ToolCallPolicy
         // Plugin-Agents kommen als "monarch:<name>" (agent_type im Hook); die Liste kennt die nackten Namen.
         if (call.AgentType is not { Length: > 0 } raw) return null;
         var agent = raw.StartsWith("monarch:", StringComparison.Ordinal) ? raw["monarch:".Length..] : raw;
-        if (!ctx.Options.ReadOnlyShadowTypes.Contains(agent)) return null;
+        // Die Liste darf beide Schreibweisen enthalten (nackt oder mit Präfix, wie im Ledger); beide zählen.
+        if (!ctx.Options.ReadOnlyShadowTypes.Contains(raw) && !ctx.Options.ReadOnlyShadowTypes.Contains(agent)) return null;
         if (Array.IndexOf(FileMutators, call.ToolName) >= 0)
             return PolicyDecision.Deny(PolicyRules.ShadowReadOnly, $"Shadow '{agent}' ist read-only und darf keine Dateien ändern.");
         foreach (var seg in segments)
