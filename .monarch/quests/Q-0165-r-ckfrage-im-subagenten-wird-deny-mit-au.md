@@ -3,7 +3,7 @@ id: Q-0165
 gate: G-0118
 kind: main
 rank: A
-state: proposed
+state: in_progress
 dod:
   - Abhängigkeit: startet erst nach Q-0164 (Nachtrag freigegeben, rote Tests auf dem Gate-Branch). Umsetzung genau nach dem Nachtrag, TDD: die roten Fälle aus Q-0164 werden grün, keine weitere Verhaltensänderung
   - Main unverändert: ohne Subagent-Kennung gibt jede Ask-Quelle weiter ask mit unverändertem Text; bestehende Tests grün und unverändert, u. a. HookTests.cs:79-90, :122-132, :146-151, :172-179, ToolCallPolicyTests.cs:274-284, ProtectBranchesTests.cs:183-228
