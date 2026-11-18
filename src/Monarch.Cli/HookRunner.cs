@@ -11,7 +11,18 @@ namespace Monarch.Cli;
 /// </summary>
 internal static class HookRunner
 {
-    private const string ErrorReason = "Monarch-Hook-Fehler: Freigabe nötig";
+    internal const string ErrorReason = "Monarch-Hook-Fehler: Freigabe nötig";
+
+    internal const string SubagentWay = "Im Subagenten gibt es keine Rückfrage. Stoppe diesen Schritt und melde ihn mit Befehl und Grund der Hauptsession.";
+
+    /// <summary>
+    /// Subagent ask becomes deny with the fixed way out (ADR-0003 addendum, Q-0165). Pure; never throws: on any failure the input
+    /// (so an ask) is returned unchanged. Only Ask is converted, only when <paramref name="agentId"/> has a non-whitespace character.
+    /// </summary>
+    internal static (PolicyDecision Decision, bool Converted) ConvertAskForSubagent(PolicyDecision decision, string? agentId)
+    {
+        return (decision, false);
+    }
 
     /// <summary>Handles one hook event; always returns 0.</summary>
     public static int Run(string evt, CliEnv env)

@@ -1,4 +1,6 @@
 using System.Text.Json;
+using FsCheck.Xunit;
+using Monarch.Policy;
 
 namespace Monarch.Cli.Tests;
 
@@ -101,5 +103,73 @@ public sealed class HookSubagentAskTests
         using var p = Project("rank_s");
         var (decision, _, _) = Decide(p, Input("rank_s", agentFields));
         Assert.Equal(expected, decision);
+    }
+
+    // Pure function (Q-0165). Sources 6 and 8 (hook_error) have no hook trigger; they are checked here with the real HookRunner text.
+
+    private static PolicyDecision AskOf(string rule, string reason) => PolicyDecision.Ask(rule, reason);
+
+    [Theory]
+    [InlineData("protect_branches", "Push auf develop braucht Freigabe")]
+    [InlineData("rank_s_approval", "Rank S")]
+    [InlineData("hook_error", HookRunner.ErrorReason)] // sources 6 and 8
+    public void Pure_ask_in_a_subagent_becomes_deny_with_the_exact_reason(string rule, string reason)
+    {
+        var (d, converted) = HookRunner.ConvertAskForSubagent(AskOf(rule, reason), "a1");
+        Assert.True(converted);
+        Assert.Equal(PolicyDecisionKind.Deny, d.Kind);
+        Assert.Equal(rule, d.Rule);
+        Assert.Equal(reason + " " + Way, d.Reason);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t\n")]
+    public void Pure_ask_in_main_stays_unchanged(string? agentId)
+    {
+        var ask = AskOf("hook_error", HookRunner.ErrorReason);
+        var (d, converted) = HookRunner.ConvertAskForSubagent(ask, agentId);
+        Assert.False(converted);
+        Assert.Same(ask, d);
+    }
+
+    [Theory]
+    [InlineData("a1")]
+    [InlineData(null)]
+    public void Pure_deny_and_allow_stay_unchanged(string? agentId)
+    {
+        var deny = PolicyDecision.Deny("deny_bash", "nein");
+        var (d1, c1) = HookRunner.ConvertAskForSubagent(deny, agentId);
+        Assert.False(c1);
+        Assert.Same(deny, d1);
+        var (d2, c2) = HookRunner.ConvertAskForSubagent(PolicyDecision.Allow, agentId);
+        Assert.False(c2);
+        Assert.Same(PolicyDecision.Allow, d2);
+    }
+
+    [Fact]
+    public void Pure_function_survives_a_null_reason_and_a_null_decision()
+    {
+        var (d, converted) = HookRunner.ConvertAskForSubagent(new PolicyDecision(PolicyDecisionKind.Ask, "r", null!), "a1");
+        Assert.True(converted);
+        Assert.Equal(PolicyDecisionKind.Deny, d.Kind);
+        Assert.EndsWith(Way, d.Reason);
+        var (n, nc) = HookRunner.ConvertAskForSubagent(null!, "a1");
+        Assert.False(nc);
+        Assert.Null(n);
+    }
+
+    [Property(MaxTest = 200)]
+    public bool Pure_function_never_weakens_and_leaves_main_identical(int kind, string? agentId, string? rule, string? reason)
+    {
+        var k = (PolicyDecisionKind)(int)(((long)kind % 3 + 3) % 3);
+        var input = new PolicyDecision(k, rule ?? "", reason ?? "");
+        var (d, converted) = HookRunner.ConvertAskForSubagent(input, agentId);
+        var main = string.IsNullOrWhiteSpace(agentId);
+        if (main) return ReferenceEquals(d, input) && !converted;
+        if (input.Kind != PolicyDecisionKind.Allow && d.Kind == PolicyDecisionKind.Allow) return false;
+        return converted == (input.Kind == PolicyDecisionKind.Ask) && (converted || ReferenceEquals(d, input));
     }
 }
