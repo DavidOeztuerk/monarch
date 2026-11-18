@@ -326,3 +326,23 @@ Dieselbe Messung wie für 1,64: die Abendmessung vom 12.11., 20:42–20:54 (`evi
 
 - Ob C1 Teil 2 damit als erfüllt gilt, entscheidet weiter der Owner am Bericht.
 - Wer die 1,70 ändert, braucht einen Owner-Entscheid und trägt Messwerte hier nach.
+
+## Nachtrag 18.11.2026: macOS aus der CI für develop (G-0122, Q-0172, Q-0173)
+
+### Owner-Entscheid (wörtlich)
+
+„macOS läuft nicht mehr in der CI für Push und PR nach develop. Jeder PR läuft nur einmal.“
+
+### Zusammenfassung (nicht wörtlich, Umsetzung)
+
+- `push` läuft nur auf `develop` und `main`, nicht mehr auf `**`. `pull_request` bleibt.
+- Bei `push` und bei `pull_request` nach `develop`: `build-test` nur `ubuntu-latest`, `aot` nur `linux-x64`.
+- macOS (`build-test`, `aot` osx-arm64, Latenz-Gate) läuft nur bei `pull_request` nach `main`, über `workflow_dispatch` und in einem nächtlichen Lauf (`schedule`) auf `develop`. Das Latenz-Gate blockiert weiter, es wird nicht entschärft.
+- Die Matrix wählt der Job `plan` in `.github/workflows/ci.yml`. Er gibt die Matrizen für `build-test` und `aot` aus.
+- Der Nachtlauf startet erst, wenn `ci.yml` auf `main` liegt, weil GitHub geplante Läufe nur auf dem Default-Branch startet. Das ist akzeptiert.
+- Schwellen (LIMIT_MS 20, 1,70 relativ) sind nicht geändert.
+
+### Folgen
+
+- Gate merge verlangt die Check-Runs am PR-Head und am develop-Head. Im Code steht kein fester macOS-Name; die Prüfung nimmt, was GitHub meldet.
+- Die Branch-Regeln (`develop`: `build-test (ubuntu-latest)`, `plugin`, `aot (linux-x64)`; `main`: zusätzlich `build-test (macos-latest)`) bleiben unverändert.
