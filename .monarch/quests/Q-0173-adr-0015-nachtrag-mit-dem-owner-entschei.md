@@ -3,7 +3,7 @@ id: Q-0173
 gate: G-0122
 kind: side
 rank: A
-state: in_review
+state: cleared
 dod:
   - Nachtrag mit Datum 18.11.2026
   - Owner-Entscheid wörtlich: "macOS läuft nicht mehr in der CI für Push und PR nach develop. Jeder PR läuft nur einmal."

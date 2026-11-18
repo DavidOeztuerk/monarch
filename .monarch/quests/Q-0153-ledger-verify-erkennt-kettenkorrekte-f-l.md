@@ -3,7 +3,7 @@ id: Q-0153
 gate: G-0111
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - docs/adr/0018-ledger-historie-im-verify.md in einfacher Sprache: was verify heute prüft, was neu dazukommt, welche Grenzen bleiben (Klon ohne Anker, History-Rewrite), welche legitimen Abläufe ok bleiben
   - Der Ansatz deckt die Fälle K-delete-last und K-append-chained aus Issue 71 ab und lockert keine Schutzregel
