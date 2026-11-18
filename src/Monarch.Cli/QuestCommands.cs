@@ -185,9 +185,17 @@ internal static class QuestCommands
         }
 
         var quests = new LocalFileBoard(paths.Root).ListQuestsAsync().GetAwaiter().GetResult();
-        foreach (var q in quests.Where(q => state is null || StateName(q.State) == state.Replace('-', '_').ToLowerInvariant()))
+        var shown = quests.Where(q => state is null || StateName(q.State) == state.Replace('-', '_').ToLowerInvariant()).ToList();
+        var derived = ForgeClearView.Derive(env, paths, shown);
+        foreach (var q in shown)
         {
-            env.Out.WriteLine($"{q.Id.Value}  [{q.Rank}] {q.Kind.ToString().ToLowerInvariant(),-9} {StateName(q.State),-12} {q.Title}");
+            var mark = derived.Cleared.Contains(q.Id.Value) ? "  -> cleared (Forge)" : string.Empty;
+            env.Out.WriteLine($"{q.Id.Value}  [{q.Rank}] {q.Kind.ToString().ToLowerInvariant(),-9} {StateName(q.State),-12} {q.Title}{mark}");
+        }
+
+        if (derived.Note is not null)
+        {
+            env.Err.WriteLine(ForgeClearView.NoteLine(derived.Note));
         }
 
         return 0;
