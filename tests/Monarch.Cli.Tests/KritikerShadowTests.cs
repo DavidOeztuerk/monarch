@@ -60,8 +60,9 @@ public class KritikerShadowTests
         var text = File.ReadAllText(PluginFile("skills", "regeln", "SKILL.md"));
         var idx = text.IndexOf("\n11. ", StringComparison.Ordinal);
         Assert.True(idx >= 0, "Regel 11 fehlt");
-        var rule = text[idx..];
-        Assert.Contains("Kritiker", rule, StringComparison.Ordinal);
+        var end = text.IndexOf('\n', idx + 1);
+        var rule = end < 0 ? text[idx..] : text[idx..end];
+        Assert.Contains("`monarch:kritiker`", rule, StringComparison.Ordinal);
     }
 
     [Fact]
