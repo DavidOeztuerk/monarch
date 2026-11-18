@@ -14,7 +14,7 @@ internal static class StatusCommand
     private const double StepEstimate7d = 1;
 
     /// <summary>Runs the command.</summary>
-    public static int Run(CliEnv env, bool json)
+    public static int Run(CliEnv env, bool json, bool askForge = true)
     {
         var paths = ProjectPaths.Locate(env.Cwd, env.Home);
         if (paths is null)
@@ -36,7 +36,7 @@ internal static class StatusCommand
 
         var quests = new LocalFileBoard(paths.Root).ListQuestsAsync().GetAwaiter().GetResult();
         var counts = quests.GroupBy(q => q.State).OrderBy(g => g.Key).Select(g => (Name: QuestCommands.StateName(g.Key), Count: g.Count())).ToArray();
-        var forge = ForgeClearView.Derive(env, paths, quests);
+        var forge = askForge ? ForgeClearView.Derive(env, paths, quests) : ForgeClearView.Result.None;
         var xp = TotalXp(paths.Root);
         var level = 1 + (xp / 100);
         var snapshot = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
