@@ -6,9 +6,9 @@ namespace Monarch.Cli.Tests;
 
 /// <summary>
 /// Q-0164: ask in a subagent becomes deny with the fixed way out (ADR-0003, addendum of 16.11.2026, approved at 14e638d).
-/// Main cases (ask, text unchanged) and the boundary cases that keep ask are green today.
-/// Red until Q-0165: every case that expects deny for a subagent (agent_id set), including agent_id without agent_type.
-/// Not covered here, open for Q-0165: sources 6 and 8 (hook_error at HookRunner.cs:64 and :330) and "the conversion never throws", both via the pure function.
+/// Main cases (ask, text unchanged) and the boundary cases that keep ask stay unchanged.
+/// Subagent cases (agent_id set, also without agent_type) expect deny; they were red in Q-0164 and are green since Q-0165.
+/// Sources 6 and 8 (hook_error) and "the conversion never throws" are covered via the pure function HookRunner.ConvertAskForSubagent (Q-0165).
 /// Not covered, no hook trigger without a git repository: sources 3 and 4 (push without refspec, unreadable config or branch).
 /// </summary>
 public sealed class HookSubagentAskTests
