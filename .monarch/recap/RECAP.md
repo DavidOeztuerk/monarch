@@ -1,10 +1,10 @@
 # RECAP
 
 ## Stand
-- Zeitpunkt: 2026-11-18T21:28:10Z
+- Zeitpunkt: 2026-11-18T21:49:11Z
 - Plan: Pro
-- Mana 5h: 7% (Limit 90%, Reset 2026-11-19T02:00:00Z)
-- Mana 7d: 19% (Limit 96%, Reset 2026-11-25T11:00:00Z)
+- Mana 5h: 19% (Limit 90%, Reset 2026-11-19T02:00:00Z)
+- Mana 7d: 21% (Limit 96%, Reset 2026-11-25T11:00:00Z)
 - Limits: 5h 90%, 7d 96% (adaptive)
 
 ## Aktiv
@@ -33,7 +33,7 @@
 - Q-0150: Heikle Quest nach Standardregel 3: Warden-Runde über das Design vor dem Code, kein src-Code, kein anderer Test und keine andere Schwelle aufgeweicht, Schlussrunde des Wardens mit Verdict am Head-SHA
 
 ## Nächster konkreter Schritt
-G-0122 (PR #133, Head 1d06e07): CI-Umbau fertig, Warden approve (Delta-Runde). Blockiert: Quest- und Gate-Stand liegen im Haupt-Checkout (untracked, von gate_plan geschrieben). Von der Worktree aus: quest accept/start/submit, gate verdict, gate merge meldet 'not found'/'not found in .monarch/quests'; cp in .monarch/quests wird von protect_paths verweigert. Entscheidung des Owners nötig, wie der Stand in den Gate-Branch kommt, bevor Schritt 1 gemergt werden kann. Danach Schritt 2 (PR #131: origin/develop in monarch/G-0121-kritiker-shadow, Konflikt-Check, push ohne Force, gate merge), Schritt 3 (PR #130: Worktree G-0120 auf cd09168, develop rein, regeln/SKILL.md-Konflikt mit G-0121 lösen, push, Warden, gate merge), Schritt 4 (Milestones v0.1/Phase 1+, Liste mit Begründung aus PolicyDecided und Kurzberichten).
+G-0122 (PR #133): Head ist 1f49458 (Monarch-Stand). Quests Q-0172 und Q-0173 sind inreview und mit PR 133 verknüpft. Schritte: 1) Recap-Korrektur committen (dieser Eintrag), schmale Warden-Prüfung nur des Recap-Commits. 2) gate verdict G-0122 am neuen Head, gate merge, gate check, Aufräumen. 3) Issues: DoD-Zeile Q-0172 zu C1-Kommentar (minor, Warden), github.sha im Nachtlauf (ADR offen), Reibung Gate-Planung vor Worktree (gate/SKILL.md). 4) Schritt 2: PR 131 – origin/develop in monarch/G-0121-kritiker-shadow, push ohne Force, gate merge. 5) Schritt 3: PR 130 – Worktree G-0120 auf cd09168, develop rein, Konflikte in regeln/SKILL.md mit G-0121, push, Warden, gate merge. 6) Schritt 4: Milestones v0.1 und Phase 1+, Begründung je Issue.
 
 ## Offene Entscheidungen
-- Blocker: Monarch-Quest- und Gate-Dateien liegen nur im Haupt-Checkout; Owner entscheidet, ob sie in den Gate-Branch kommen (z. B. durch Owner-Aktion oder erlaubten Befehl).
+- Mana-Kalibrierung: Quests wurden in Sekunden durchlaufen, Paar (haiku, unknown) steht jetzt bei Faktor 0.745 mit n=2 in .monarch/local/mana-calibration.json. Owner entscheidet, ob zurückgesetzt wird.
