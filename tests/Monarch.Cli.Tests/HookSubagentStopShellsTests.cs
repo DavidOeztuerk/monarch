@@ -168,7 +168,7 @@ public sealed class HookSubagentStopShellsTests
         var r = HookWith(p, "subagent-stop", Stop("a1", tasks), Ps("500 1 claude", "600 500 " + Hull + "'sleep 301'", "601 600 sleep 301"), 500);
         Assert.Equal(0, r.Code);
         Assert.Equal(string.Empty, r.Out);
-        Assert.Equal(["ShadowRunCompleted", "BackgroundShellsLeft"], p.Events().Select(e => e.Type).ToArray());
+        Assert.Equal(["ShadowRunCompleted", "BackgroundShellsLeft"], p.Events().Select(e => e.Type).Where(t => t != "ToolUsed").ToArray());
         var ev = Assert.Single(Shells(p));
         Assert.Equal("a1", ev.GetProperty("agent_id").GetString());
         Assert.Equal("knight", ev.GetProperty("agent_type").GetString());

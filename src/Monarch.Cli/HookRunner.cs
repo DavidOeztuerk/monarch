@@ -6,7 +6,8 @@ using Monarch.Policy;
 namespace Monarch.Cli;
 
 /// <summary>
-/// The hook hot path: no SQLite, no processes, no network, no DI container. Any failure is logged to
+/// The hook hot path: no SQLite, no network, no DI container; no processes except the single <c>ps</c> of subagent-stop when a subagent left
+/// background shells (Q-0166, reports only, ends nothing). Any failure is logged to
 /// <c>.monarch/local/hook-errors.log</c> and never becomes a silent allow for rank A or higher (ADR-0003).
 /// </summary>
 internal static class HookRunner
@@ -135,10 +136,24 @@ internal static class HookRunner
         var ledger = new ProjectLedger(paths, env.Clock);
         switch (evt)
         {
-            case "post-tool-use": Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "ToolUsed",
-                ("tool", input.ToolName), ("agent_type", input.AgentType), ("agent_id", input.AgentId), ("file", FileOf(input)), ("quest", ActiveId(paths)))); break;
-            case "subagent-stop": Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "ShadowRunCompleted",
-                ("agent_id", input.AgentId), ("agent_type", input.AgentType), ("quest", ActiveId(paths)))); break;
+            case "post-tool-use":
+                Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "ToolUsed",
+                    ("tool", input.ToolName), ("agent_type", input.AgentType), ("agent_id", input.AgentId), ("file", FileOf(input)), ("quest", ActiveId(paths))));
+                Append(paths, env, () => BackgroundShells.Remember(input, env), "background-shells");
+                break;
+            case "subagent-stop":
+                Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "ShadowRunCompleted",
+                    ("agent_id", input.AgentId), ("agent_type", input.AgentType), ("quest", ActiveId(paths))));
+                // Own try: a failure here only goes to hook-errors.log. Reports only; ends nothing, prints nothing.
+                Append(paths, env, () =>
+                {
+                    if (BackgroundShells.Report(input, env, ex => Log(paths, env, "background-shells", ex)) is { } shells)
+                    {
+                        ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "BackgroundShellsLeft",
+                            ("agent_id", input.AgentId), ("agent_type", input.AgentType), ("quest", ActiveId(paths)), ("shells", shells));
+                    }
+                }, "background-shells");
+                break;
             case "stop": Append(paths, env, () => ledger.Append(ledger.SessionId(input.SessionId), Actor(input), "TurnStopped", ("quest", ActiveId(paths)))); break;
             case "session-start": SessionStart(input, paths, env); break;
             case "pre-compact": PreCompact(input, paths, ledger); break;
@@ -154,7 +169,7 @@ internal static class HookRunner
     private static string? ActiveId(ProjectPaths paths) => ActiveStore.Read(paths)?.QuestId;
 
     // A ledger failure after a decision was printed must not change the decision; it is only logged.
-    private static void Append(ProjectPaths paths, CliEnv env, Action append)
+    private static void Append(ProjectPaths paths, CliEnv env, Action append, string what = "ledger")
     {
         try
         {
@@ -162,7 +177,7 @@ internal static class HookRunner
         }
         catch (Exception ex)
         {
-            Log(paths, env, "ledger", ex);
+            Log(paths, env, what, ex);
         }
     }
 
