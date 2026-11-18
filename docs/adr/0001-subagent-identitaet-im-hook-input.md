@@ -43,8 +43,9 @@ subagent“. Zusätzlich gibt es `SubagentStart` mit beiden Feldern.
 
 ## Nachtrag (18.11.2026, Q-0166): subagent-stop meldet Hintergrund-Shells
 
-**Status:** Entwurf, überarbeitet nach der Warden-Designrunde (changes-requested am
-Head 2ee936a); wartet auf die Delta-Runde. Oben bleibt alles wörtlich
+**Status:** Warden-Designrunde: changes-requested am Head 2ee936a und in der
+Delta-Runde am Head cd49329; approve nach der Prüfung des Fixes am Head aab86cd.
+Oben bleibt alles wörtlich
 stehen. Anlass: #116, Punkt 1.
 
 ### Owner-Entscheide (16.11.2026)
