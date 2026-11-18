@@ -198,8 +198,9 @@ nur Programmname, PID und Laufzeit.
   `ps`-Kind, sendet kein Signal und gibt nichts aus, auch kein
   `decision: block`. Fehler gehen nur nach `hook-errors.log`, Exit 0. Der
   Kommentar HookRunner.cs:9 wird angepasst.
-- Hinweis an die Hauptsession: keiner (Messung 6, Owner-Entscheid 7). Vorschlag
-  (nicht vom Owner entschieden): auch bei Agenten im Vordergrund keiner. Der
+- Hinweis an die Hauptsession: keiner (Messung 6, Owner-Entscheid 7). Auch bei
+  Agenten im Vordergrund keiner; Antwort des Owners vom 18.11.2026, wörtlich:
+  „Kein Hinweis auch für Agenten im Vordergrund.“ Begründung (Zusammenfassung): Der
   gemessene Weg dort (`PostToolUse` des Agent-Tools) bräuchte eine Änderung an
   `plugin/hooks/hooks.json`, und in Lauf A endete die Shell ohnehin mit dem
   Agenten. Die Hauptsession prüft weiter selbst mit `ps` (#116).
