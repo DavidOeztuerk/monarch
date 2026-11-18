@@ -144,13 +144,6 @@ public class ForgeClearViewTests
     [Fact]
     public void Two_quests_on_one_pr_share_the_requests()
     {
-        var (single, fs) = Setup(merged: true);
-        using (single)
-        {
-            Seed.Quest(single, "Q-0001", "in_review", extra: Pr7);
-            single.Run(["quest", "list"]);
-        }
-
         var (p, f) = Setup(merged: true);
         using (p)
         {
@@ -158,8 +151,131 @@ public class ForgeClearViewTests
             Seed.Quest(p, "Q-0002", "verified", extra: Pr7);
             var list = p.Run(["quest", "list"]);
             Assert.Equal(2, list.Out.Split("cleared (Forge)").Length - 1);
-            Assert.NotEmpty(fs.Paths);
-            Assert.Equal(fs.Paths, f.Paths);
+            Assert.Equal(1, f.Paths.Count(x => x == "GET /repos/o/r/pulls/7"));
+            Assert.Equal(1, f.Paths.Count(x => x.EndsWith("/check-runs", StringComparison.Ordinal)));
+            Assert.Equal(2, f.Paths.Count);
+        }
+    }
+
+    [Fact]
+    public void At_most_four_prs_are_asked_at_the_same_time()
+    {
+        var (p, f) = Setup(merged: true);
+        using (p)
+        {
+            for (var n = 1; n <= 6; n++)
+            {
+                f.Pulls[n] = (FakeForge.Sha, true);
+                Seed.Quest(p, $"Q-000{n}", "in_review", extra: $"board: {{ provider: github, pr: {n} }}\n");
+            }
+
+            var running = 0;
+            var peak = 0;
+            f.Intercept = async (req, ct) =>
+            {
+                if (req.RequestUri!.AbsolutePath.Contains("/pulls/", StringComparison.Ordinal))
+                {
+                    var now = Interlocked.Increment(ref running);
+                    int seen;
+                    while ((seen = Volatile.Read(ref peak)) < now && Interlocked.CompareExchange(ref peak, now, seen) != seen)
+                    {
+                    }
+
+                    await Task.Delay(100, ct);
+                    Interlocked.Decrement(ref running);
+                }
+
+                return null;
+            };
+            var list = p.Run(["quest", "list"]);
+            Assert.Equal(6, list.Out.Split("cleared (Forge)").Length - 1);
+            Assert.InRange(peak, 2, 4);
+        }
+    }
+
+    [Fact]
+    public async Task Deadline_keeps_proven_prs_and_names_the_unchecked_ones()
+    {
+        var (p, f) = Setup(merged: true);
+        using (p)
+        {
+            f.Pulls[8] = (FakeForge.Sha, true);
+            Seed.Quest(p, "Q-0001", "in_review", extra: Pr7);
+            Seed.Quest(p, "Q-0002", "in_review", extra: "board: { provider: github, pr: 8 }\n");
+            f.Intercept = async (req, ct) =>
+            {
+                if (req.RequestUri!.AbsolutePath.EndsWith("/pulls/8", StringComparison.Ordinal))
+                {
+                    await Task.Delay(Timeout.Infinite, ct);
+                }
+
+                return null;
+            };
+            var env = new CliEnv(p.Root, p.Home, new StringReader(string.Empty), new StringWriter(), new StringWriter(), p.Clock, f, new GitHubTokenProvider(_ => "tok-test", () => null), false, TempProject.NoVars);
+            var quests = await new LocalFileBoard(p.Root).ListQuestsAsync(TestContext.Current.CancellationToken);
+            var r = ForgeClearView.Derive(env, ProjectPaths.Locate(p.Root, p.Home)!, quests, TimeSpan.FromMilliseconds(500));
+            Assert.Equal(["Q-0001"], r.Cleared);
+            Assert.Contains("#8", r.Note, StringComparison.Ordinal);
+            Assert.DoesNotContain("#7", r.Note, StringComparison.Ordinal);
+            Assert.Contains("in time", r.Note, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Merge_into_another_base_than_the_integration_branch_is_not_cleared()
+    {
+        var (p, f) = Setup(merged: true);
+        using (p)
+        {
+            f.Bases[7] = "feature/x";
+            Seed.Quest(p, "Q-0001", "in_review", extra: Pr7);
+            Assert.DoesNotContain("cleared (Forge)", p.Run(["quest", "list"]).Out, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Empty_forge_answer_is_a_hint_and_not_a_crash()
+    {
+        var (p, f) = Setup(merged: true);
+        using (p)
+        {
+            Seed.Quest(p, "Q-0001", "in_review", extra: Pr7);
+            f.Intercept = (_, _) => Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("null") });
+            var list = p.Run(["quest", "list"]);
+            Assert.Equal(0, list.Code);
+            Assert.Contains("could not be derived", list.Err, StringComparison.Ordinal);
+            Assert.DoesNotContain("cleared (Forge)", list.Out, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Unresolvable_forge_is_a_hint()
+    {
+        using var p = new TempProject();
+        var f = new FakeForge();
+        p.Http = f;
+        Seed.Quest(p, "Q-0001", "in_review", extra: Pr7);
+        var list = p.Run(["quest", "list"]);
+        Assert.Equal(0, list.Code);
+        Assert.Contains("no repository", list.Err, StringComparison.Ordinal);
+        Assert.Contains("in_review", list.Out, StringComparison.Ordinal);
+        Assert.Empty(f.Paths);
+    }
+
+    [Fact]
+    public void Mcp_system_status_does_not_ask_the_forge()
+    {
+        var (p, f) = Setup(merged: true);
+        using (p)
+        {
+            Seed.Quest(p, "Q-0001", "in_review", extra: Pr7);
+            var o = new StringWriter();
+            const string call = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"system_status","arguments":{}}}""";
+            var env = new CliEnv(p.Root, p.Home, new StringReader(call + "\n"), o, new StringWriter(), p.Clock, f, new GitHubTokenProvider(_ => "t", () => null));
+            Assert.Equal(0, MonarchApp.Run(["mcp"], env));
+            Assert.Contains("in_review", o.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("Q-0001\\\"]", o.ToString(), StringComparison.Ordinal);
+            Assert.Empty(f.Paths);
         }
     }
 
