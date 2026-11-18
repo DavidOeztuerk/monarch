@@ -21,7 +21,30 @@ internal static class HookRunner
     /// </summary>
     internal static (PolicyDecision Decision, bool Converted) ConvertAskForSubagent(PolicyDecision decision, string? agentId)
     {
-        return (decision, false);
+        try
+        {
+            if (decision is not { Kind: PolicyDecisionKind.Ask } || string.IsNullOrWhiteSpace(agentId))
+            {
+                return (decision, false);
+            }
+
+            return (PolicyDecision.Deny(decision.Rule, decision.Reason + " " + SubagentWay), true);
+        }
+        catch (Exception)
+        {
+            return (decision, false);
+        }
+    }
+
+    private static HookSpecificOutput ErrorOutput(string? agentId)
+    {
+        var (d, _) = ConvertAskForSubagent(PolicyDecision.Ask("hook_error", ErrorReason), agentId);
+        return new HookSpecificOutput
+        {
+            HookEventName = "PreToolUse",
+            PermissionDecision = d.Kind == PolicyDecisionKind.Deny ? "deny" : "ask",
+            PermissionDecisionReason = d.Reason,
+        };
     }
 
     /// <summary>Handles one hook event; always returns 0.</summary>
@@ -72,7 +95,7 @@ internal static class HookRunner
                     Log(primary, env, evt, ex);
                 }
 
-                Emit(env, new HookSpecificOutput { HookEventName = "PreToolUse", PermissionDecision = "ask", PermissionDecisionReason = ErrorReason });
+                Emit(env, ErrorOutput(input.AgentId));
                 return 0;
             }
         }
@@ -196,7 +219,7 @@ internal static class HookRunner
             evaluated.Add(Evaluate(t, call, env, full: false, input));
         }
 
-        var decision = ToolCallPolicy.Combine(evaluated.Select(e => e.Decision));
+        var (decision, _) = ConvertAskForSubagent(ToolCallPolicy.Combine(evaluated.Select(e => e.Decision)), input.AgentId);
         if (decision.Kind != PolicyDecisionKind.Allow)
         {
             Emit(env, new HookSpecificOutput
@@ -215,7 +238,8 @@ internal static class HookRunner
                 continue;
             }
 
-            var kind = d.Kind == PolicyDecisionKind.Deny ? "deny" : "ask";
+            var converted = d.Kind == PolicyDecisionKind.Ask && ConvertAskForSubagent(d, input.AgentId).Converted;
+            var kind = d.Kind == PolicyDecisionKind.Deny || converted ? "deny" : "ask";
             var ledger = new ProjectLedger(paths, env.Clock);
             Append(paths, env, () =>
             {
@@ -223,7 +247,8 @@ internal static class HookRunner
                 if (d.Kind != PolicyDecisionKind.Allow)
                 {
                     ledger.Append(session, Actor(input), "PolicyDecided", ("rule", d.Rule), ("kind", kind), ("tool", input.ToolName),
-                        ("agent_type", input.AgentType), ("quest", active?.QuestId), ("reason", d.Reason));
+                        ("agent_type", input.AgentType), ("quest", active?.QuestId), ("reason", d.Reason),
+                        ("converted_from", converted ? "ask" : null), ("agent_id", converted ? input.AgentId : null));
                 }
 
                 if (signaled)
@@ -338,12 +363,14 @@ internal static class HookRunner
         }
 
         // Any failure on the PreToolUse path asks, whatever the rank (ADR-0003).
-        Emit(env, new HookSpecificOutput { HookEventName = "PreToolUse", PermissionDecision = "ask", PermissionDecisionReason = ErrorReason });
+        Emit(env, ErrorOutput(input?.AgentId));
+        var (_, converted) = ConvertAskForSubagent(PolicyDecision.Ask("hook_error", ErrorReason), input?.AgentId);
         Append(paths, env, () =>
         {
             var ledger = new ProjectLedger(paths, env.Clock);
-            ledger.Append(ledger.SessionId(input?.SessionId), input is null ? "hook" : Actor(input), "PolicyDecided", ("rule", "hook_error"), ("kind", "ask"),
-                ("tool", input?.ToolName), ("reason", ErrorReason));
+            ledger.Append(ledger.SessionId(input?.SessionId), input is null ? "hook" : Actor(input), "PolicyDecided", ("rule", "hook_error"),
+                ("kind", converted ? "deny" : "ask"), ("tool", input?.ToolName), ("reason", ErrorReason),
+                ("converted_from", converted ? "ask" : null), ("agent_id", converted ? input?.AgentId : null));
         });
     }
 
