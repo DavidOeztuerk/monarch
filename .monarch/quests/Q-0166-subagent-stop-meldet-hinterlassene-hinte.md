@@ -3,7 +3,7 @@ id: Q-0166
 gate: G-0118
 kind: main
 rank: A
-state: proposed
+state: in_progress
 dod:
   - Abhängigkeit: nach Q-0165 (gleiche Datei HookRunner.cs). Zuerst messen und als Nachtrag zu ADR-0001 in einfacher Sprache belegen (Claude-Code-Version, Befehl, Ergebnis): Felder des SubagentStop-Inputs; ob Hintergrund-Shells des Subagenten bei SubagentStop noch laufen und woran sie sich von Shells der Hauptsession und fremder Sitzungen unterscheiden; ob und über welches Feld eine Hook-Ausgabe die Hauptsession erreicht (Kandidaten: Ausgabe von SubagentStop, additionalContext im PostToolUse des Agent-Tools der Hauptsession). Unbelegtes bleibt als unbelegt markiert
   - Warden-Designrunde über den Nachtrag (eine Runde, höchstens eine Delta-Runde), danach TDD (vorher rot, danach grün)

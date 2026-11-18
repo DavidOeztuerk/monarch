@@ -3,7 +3,7 @@ id: Q-0165
 gate: G-0118
 kind: main
 rank: A
-state: in_progress
+state: in_review
 dod:
   - Abhängigkeit: startet erst nach Q-0164 (Nachtrag freigegeben, rote Tests auf dem Gate-Branch). Umsetzung genau nach dem Nachtrag, TDD: die roten Fälle aus Q-0164 werden grün, keine weitere Verhaltensänderung
   - Main unverändert: ohne Subagent-Kennung gibt jede Ask-Quelle weiter ask mit unverändertem Text; bestehende Tests grün und unverändert, u. a. HookTests.cs:79-90, :122-132, :146-151, :172-179, ToolCallPolicyTests.cs:274-284, ProtectBranchesTests.cs:183-228
@@ -18,5 +18,6 @@ scope:
   exclude: [".github/**", "bench/**", "plugin/**"]
 estimate: { session_pct: 25, weekly_pct: 6, gold_usd: 0 }
 boss: "dotnet test -c Release grün mit den Fällen aus Q-0164 (vorher rot), CI grün auf beiden Betriebssystemen inklusive Latenz-Gate, Warden-Schlussrunde approve am Head-SHA"
+board: { pr: 120 }
 ---
 # Rückfrage im Subagenten wird Deny mit Ausweg: Umsetzung nach dem Nachtrag zu ADR-0003
