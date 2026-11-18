@@ -3,7 +3,7 @@ id: Q-0164
 gate: G-0118
 kind: main
 rank: E
-state: in_review
+state: cleared
 dod:
   - Nachtrag zu ADR-0003 in einfacher Sprache (Kopf, Entscheidung 1-3 und Folgen bleiben stehen): Liste aller Ask-Quellen mit Fundstelle (ToolCallPolicy.cs:496 rank_s_approval; ProtectBranchesRule.cs:33, :142, :189; ProtectPathsRule.cs:545 Regel 5; HookRunner.cs:64, :263, :330 hook_error) und je Quelle: Main bleibt ask mit unverändertem Text, Subagent deny mit Ausweg-Satz (was der Subagent stattdessen tut, z. B. stoppen und der Hauptsession melden) oder begründet ask
   - Der Nachtrag beantwortet: Subagent-Kriterium agent_id (ADR-0001:28-29) oder agent_type, inklusive Main mit --agent (agent_type ohne agent_id, ADR-0001:22-23) und agent_id ohne agent_type; ob Hook-Fehler-Asks im Subagenten deny werden; unlesbarer Input ohne Identität (HookTests.cs:172-179) bleibt ask; Ort der Umwandlung (Policy oder HookRunner) und Verhalten bei mehreren Projekten (Combine ToolCallPolicy.cs:298-310, HookRunner.cs:188-197); Feldname und Werte in PolicyDecided (HookRunner.cs:207-215, :334-335), die eine umgewandelte Rückfrage kennzeichnen; Verhältnis zu ADR-0003 Entscheidung 1 (Zeilen 24-26, kein eigener Headless-Erkenner)
