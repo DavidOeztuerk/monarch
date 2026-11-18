@@ -147,8 +147,10 @@ nur Programmname, PID und Laufzeit.
   Tool Bash heißt und `tool_response.backgroundTaskId` ein nicht leerer String ist.
   Sonst nur eine Feldprüfung, kein Datei-IO.
 - Ablage unabhängig vom `cwd`, außerhalb jedes Repos:
-  `<Home>/.monarch/local/background-shells/<agent_id>/<task_id>.json`, eine
-  Datei je Task, atomar geschrieben. `agent_id` und `task_id` im Pfad nur aus
+  `<CliEnv.Home>/local/background-shells/<agent_id>/<task_id>.json`, eine
+  Datei je Task, atomar geschrieben. `CliEnv.Home` ist schon `~/.monarch`
+  (oder `MONARCH_HOME`, CliEnv.cs:9, :27-31), der Pfad ist also
+  `~/.monarch/local/…`, nie `~/.monarch/.monarch/…`. `agent_id` und `task_id` im Pfad nur aus
   `[A-Za-z0-9_-]`, sonst kein Eintrag. Inhalt: Programmname und Startzeit (UTC).
 - Kein Eintrag im getrackten Ledger. `ToolUsed` bleibt unverändert.
 
@@ -156,7 +158,8 @@ nur Programmname, PID und Laufzeit.
 
 - Zuerst wird das ganze erste Wort des Befehls geprüft: nur `[A-Za-z0-9._+/-]`,
   also kein `=`, kein `$`, keine Anführungszeichen. Erst danach zählt der
-  Dateiname nach dem letzten `/`, höchstens 32 Zeichen.
+  Dateiname nach dem letzten `/`. Ist er leer oder länger als 32 Zeichen, gilt
+  `unbekannt`; gekürzt wird nie.
 - Besteht das erste Wort die Prüfung nicht: `unbekannt`. Beispiel:
   `AWS_SECRET_ACCESS_KEY=wJal…/K7M…/bPxR… cmd` ergibt `unbekannt`, kein Teil des
   Werts.
@@ -200,11 +203,13 @@ nur Programmname, PID und Laufzeit.
   `plugin/hooks/hooks.json`, und in Lauf A endete die Shell ohnehin mit dem
   Agenten. Die Hauptsession prüft weiter selbst mit `ps` (#116).
 
-**Tests (Nähte):** Prozessliste, eigene PID und Uhr sind über `CliEnv`
-injizierbar. Fälle: keine Task-Datei, kaputte Task-Datei, kaputtes
+**Tests (Nähte):** Prozessliste, Elternprozess des Hooks und Uhr sind über
+`CliEnv` injizierbar. Ohne Injektion liest der Hook seinen Elternprozess aus der
+Prozessliste (Zeile mit `Environment.ProcessId`). Fälle: keine Task-Datei, kaputte Task-Datei, kaputtes
 `background_tasks`, kaputtes `tool_response`, Programmname mit `/` im Wert,
 null, ein und zwei PID-Treffer, zweites `SubagentStop` nach Wiederaufnahme.
-Integrationsfall: Der Test startet `/bin/sh -c "eval 'sleep 30'"` als Kind und
+Integrationsfall: Der Test startet `/bin/sh -c "eval 'sleep 30'; true"` als Kind
+(der Folgebefehl verhindert, dass `sh` sich per `exec` durch `sleep` ersetzt) und
 setzt die eigene PID als Elternprozess des Hooks ein. Danach läuft das Kind
 noch.
 
@@ -214,6 +219,8 @@ noch.
 - Befehle, die sich selbst ablösen (`nohup … &`, `setsid`), beenden die Hülle;
   sie werden nicht erkannt.
 - Endet die Hauptsession vor dem `SubagentStop`, gibt es kein Ereignis.
+- Das Aufräumen nach 24 h trifft auch Task-Dateien von Agenten, die länger
+  laufen; deren Shells meldet der Hook dann nicht.
 - Die Kodierung der Befehlszeile und die Hülle sind nur auf macOS gemessen,
   nicht dokumentiert. Ändert Claude Code sie, oder ist die Hülle unter Linux
   anders, fehlt nur die PID; Programmname und Laufzeit bleiben.
