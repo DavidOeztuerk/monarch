@@ -118,16 +118,33 @@ public class GateMergeTests
         }
     }
 
-    [Fact]
-    public void Refuses_when_a_gate_quest_is_still_proposed_or_in_progress()
+    [Theory]
+    [InlineData("proposed")]
+    [InlineData("accepted")]
+    [InlineData("in_progress")]
+    public void Refuses_when_a_gate_quest_is_before_in_review(string state)
     {
         // Issue 142: ein Gate mit einer Quest unter in_review wird nicht gemergt (G-0123 ist mit proposed-Quests gemergt worden).
         var (p, f) = Setup();
         using (p)
         {
             Seed.Gate(p, "G-0001", "[Q-0001, Q-0002]");
-            Seed.Quest(p, "Q-0002", "proposed");
+            Seed.Quest(p, "Q-0002", state);
             Refused(p, f, Merge(p), "in_review");
+        }
+    }
+
+    [Fact]
+    public void Abandoned_quests_do_not_block_gate_merge_by_the_new_rule()
+    {
+        // Abgebrochene Quests sind abgeschlossen und bleiben in der Gate-Liste; sie blockieren den Merge nicht.
+        var (p, f) = Setup();
+        using (p)
+        {
+            Seed.Gate(p, "G-0001", "[Q-0001, Q-0002]");
+            Seed.Quest(p, "Q-0002", "abandoned");
+            Approved(p);
+            Assert.Equal(0, Merge(p).Code);
         }
     }
 
