@@ -65,6 +65,22 @@ public class McpServerTests
     }
 
     [Fact]
+    public void Gate_plan_appends_follow_up_quests_to_the_gate_list_instead_of_replacing_it()
+    {
+        // Issue 92: ein zweiter gate_plan-Aufruf mit einer Folge-Quest hängt sie an; Q-0071 und Q-0072 bleiben in der Gate-Datei.
+        using var p = new TempProject();
+        Assert.False(Result(Rpc(p, Call(1, "gate_plan", Plan))[0]).IsError);
+        const string followUp = """{"gate":{"id":"G-0007","title":"Gate seven","rank":"C","kind":"standard"},"quests":[{"id":"Q-0073","title":"Folge","kind":"side","rank":"E","scope":{"include":["src/web/**"],"exclude":[]},"estimate":{"session_pct":1,"weekly_pct":0.5},"dod":["d"]}]}""";
+        Assert.False(Result(Rpc(p, Call(1, "gate_plan", followUp))[0]).IsError);
+        // Die Gate-Datei selbst muss alle drei Quests führen (gate show liest zusätzlich die Quest-Dateien).
+        var gateFile = Assert.Single(Directory.GetFiles(Path.Combine(p.Root, ".monarch", "gates"), "G-0007*"));
+        var gateText = File.ReadAllText(gateFile);
+        Assert.Contains("Q-0071", gateText, StringComparison.Ordinal);
+        Assert.Contains("Q-0072", gateText, StringComparison.Ordinal);
+        Assert.Contains("Q-0073", gateText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Gate_plan_stores_files_events_raises_rank_by_risk_tag_and_protects_started_quests()
     {
         using var p = new TempProject();

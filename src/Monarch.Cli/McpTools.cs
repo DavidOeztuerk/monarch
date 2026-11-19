@@ -321,7 +321,9 @@ internal static partial class GatePlan
         }
 
         var oldGate = board.ListGatesAsync().GetAwaiter().GetResult().FirstOrDefault(x => x.Id.Value == gateId);
-        board.UpsertGateAsync(new BoardGate(new GateId(gateId), gateTitle!, gateRank, oldGate?.State ?? "proposed", [.. planned.Select(p => p.Quest.Id)], null)).GetAwaiter().GetResult();
+        // Issue 92: Folge-Quests werden an die Liste angehängt, bestehende Quests bleiben in der Gate-Datei.
+        var gateQuests = (oldGate?.Quests ?? []).Concat(planned.Select(p => p.Quest.Id)).Distinct().ToList();
+        board.UpsertGateAsync(new BoardGate(new GateId(gateId), gateTitle!, gateRank, oldGate?.State ?? "proposed", gateQuests, null)).GetAwaiter().GetResult();
         var gateFile = Directory.EnumerateFiles(Path.Combine(paths.MonarchDir, "gates"), gateId + "-*.md").First();
         BoardFiles.Edit(gateFile, r => r.With("type", new YamlScalar(gateKind)));
 
