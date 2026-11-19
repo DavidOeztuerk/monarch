@@ -29,3 +29,11 @@ Monarch wird mit Monarchs Regeln gebaut: ein Gate = ein Branch `monarch/G-xxxx-<
 | Q-0104 | A3 CLI-Modi (hook, statusline, mcp, Commands) |
 | Q-0105 | A4 Plugin + lokaler Marketplace |
 | Q-0106 | A5 CI, AOT-Publish, Hook-Latenz-Gate, Ledger-Manipulationstest |
+
+## Nachtrag 19.11.2026 — Namensprüfung erledigt, Repo öffentlich (Q-0185, ADR-0019)
+
+Auftrag des Owners im Chat, 19.11.2026, wörtlich: „Die Tabelle kommt in ADR-0019 „Produktname Umbrarch“ mit dem Entscheid oben, dazu ein Nachtrag in ADR-0006 (Namensprüfung erledigt, Repo öffentlich).“
+
+- **Namensprüfung erledigt.** Der Produktname ist jetzt Umbrarch (ADR-0019). Owner im Chat, 19.11.2026, wörtlich: „Markencheck: TMview am 19.11.2026 ohne Treffer zu „UMBRARCH“ (ins ADR aufnehmen).“
+- **Repo öffentlich.** Das Repo heißt `DavidOeztuerk/umbrarch` und ist öffentlich (`gh repo view DavidOeztuerk/umbrarch --json visibility` am 19.11.2026: `PUBLIC`). Owner im Chat, 19.11.2026, wörtlich: „Das Repo bleibt öffentlich.“
+- Die Bedingung oben („privat, bis Name und Marke geprüft sind“) ist damit erfüllt. Der Text oben bleibt als Verlauf stehen.
