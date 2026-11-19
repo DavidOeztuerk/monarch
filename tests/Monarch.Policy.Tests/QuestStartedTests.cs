@@ -68,4 +68,55 @@ public sealed class QuestStartedTests : IDisposable
         WriteHead("develop");
         Assert.Equal(PolicyDecisionKind.Allow, Run(ToolCallPolicyTests.Edit("src/A.cs")).Kind);
     }
+
+    /// <summary>Eine zweite Worktree auf einem Gate-Branch, auf die die Datei zeigt (nicht das cwd-Projekt).</summary>
+    private string OtherGateWorktree(string head)
+    {
+        var other = Path.Combine(_root, "other-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(Path.Combine(other, ".git", "objects"));
+        File.WriteAllText(Path.Combine(other, ".git", "HEAD"), head);
+        return other;
+    }
+
+    [Fact]
+    public void Quest_in_progress_in_the_cwd_project_does_not_allow_an_edit_into_another_gate_worktree()
+    {
+        // Warden PR 150, major: Die Regel las nur den Branch des cwd-Projekts. Ein Ziel in einer anderen Gate-Worktree bleibt verweigert.
+        var other = OtherGateWorktree("ref: refs/heads/monarch/G-0001-x\n");
+        var q = new ActiveQuest(new QuestId("Q-0181"), Rank.A, new QuestScope(["**"], []), InProgress: true);
+        var d = Run(ToolCallPolicyTests.Edit(Path.Combine(other, "src", "x.cs")), q);
+        Assert.Equal(PolicyDecisionKind.Deny, d.Kind);
+        Assert.Equal(PolicyRules.QuestNotStarted, d.Rule);
+    }
+
+    [Fact]
+    public void Edit_from_a_develop_checkout_into_a_gate_worktree_is_denied()
+    {
+        WriteHead("develop");
+        var other = OtherGateWorktree("ref: refs/heads/monarch/G-0001-x\n");
+        var d = Run(ToolCallPolicyTests.Edit(Path.Combine(other, "src", "x.cs")));
+        Assert.Equal(PolicyDecisionKind.Deny, d.Kind);
+        Assert.Equal(PolicyRules.QuestNotStarted, d.Rule);
+    }
+
+    [Fact]
+    public void Unreadable_HEAD_on_the_target_path_is_denied_not_silently_allowed()
+    {
+        // Warden PR 150, minor: ein unlesbares HEAD galt als "kein Branch" und ließ still durch.
+        // cwd auf develop, damit nur das Ziel über das Ergebnis entscheidet.
+        WriteHead("develop");
+        var broken = Path.Combine(_root, "broken-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(Path.Combine(broken, ".git", "HEAD"));
+        var d = Run(ToolCallPolicyTests.Edit(Path.Combine(broken, "src", "x.cs")));
+        Assert.Equal(PolicyDecisionKind.Deny, d.Kind);
+        Assert.Equal(PolicyRules.QuestNotStarted, d.Rule);
+    }
+
+    [Fact]
+    public void Target_on_a_develop_checkout_is_not_affected_by_this_rule()
+    {
+        WriteHead("develop");
+        var other = OtherGateWorktree("ref: refs/heads/develop\n");
+        Assert.Equal(PolicyDecisionKind.Allow, Run(ToolCallPolicyTests.Edit(Path.Combine(other, "src", "x.cs"))).Kind);
+    }
 }
