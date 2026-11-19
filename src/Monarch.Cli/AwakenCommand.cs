@@ -87,13 +87,26 @@ internal static class AwakenCommand
     {
         var path = Path.Combine(root, ".gitignore");
         var text = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
-        if (text.Split('\n').Any(l => l.Trim() is ".monarch/local/" or ".monarch/local" or "/.monarch/local/"))
+        var lines = text.Split('\n');
+        // #100: Finder-Dateien nie mit committen; wie .monarch/local/ wird der Eintrag nur ergänzt, nie doppelt geschrieben.
+        var missing = new List<string>();
+        if (!lines.Any(l => l.Trim() is ".monarch/local/" or ".monarch/local" or "/.monarch/local/"))
+        {
+            missing.Add(".monarch/local/");
+        }
+
+        if (!lines.Any(l => l.Trim() is ".DS_Store" or "/.DS_Store" or "**/.DS_Store"))
+        {
+            missing.Add(".DS_Store");
+        }
+
+        if (missing.Count == 0)
         {
             return false;
         }
 
         var prefix = text.Length == 0 || text.EndsWith('\n') ? "" : "\n";
-        File.WriteAllText(path, text + prefix + ".monarch/local/\n", new UTF8Encoding(false));
+        File.WriteAllText(path, text + prefix + string.Join("\n", missing) + "\n", new UTF8Encoding(false));
         return true;
     }
 

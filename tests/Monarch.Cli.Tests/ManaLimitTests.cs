@@ -152,6 +152,25 @@ public class ManaLimitTests
         Assert.Contains("Mana does not fit", accept.Out + accept.Err, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Stale_sensor_after_its_reset_is_named_as_stale_and_the_way_out_is_given()
+    {
+        // #87: der Stand ist vor dem Reset gemessen und nach resets_at veraltet. Die Ablehnung bleibt (keine Lockerung),
+        // die Meldung nennt aber den Grund und den Weg statt nur PauseWithoutRecap.
+        using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90, clamp: [90, 97]", "work_until_pct: 90, clamp: [90, 97]"));
+        SeedLedger(p, 5);
+        Seed.Quest(p, "Q-0003");
+        var fiveReset = p.Clock.UtcNow.AddHours(-1).ToUnixTimeSeconds();
+        var sevenReset = p.Clock.UtcNow.AddDays(3).ToUnixTimeSeconds();
+        File.WriteAllText(Path.Combine(p.Home, "mana.json"), FormattableString.Invariant(
+            $$$"""{"schema":1,"written_at":"{{{ManaStore.Stamp(p.Clock.UtcNow)}}}","rate_limits_at":"{{{ManaStore.Stamp(p.Clock.UtcNow.AddHours(-2))}}}","rate_limits":{"five_hour":{"used_percentage":88,"resets_at":{{{fiveReset}}}},"seven_day":{"used_percentage":10,"resets_at":{{{sevenReset}}}}},"sessions":{}}"""));
+        var accept = p.Run(["quest", "accept", "Q-0003"]);
+        Assert.Equal(1, accept.Code);
+        var text = accept.Out + accept.Err;
+        Assert.Contains("veraltet", text, StringComparison.Ordinal);
+        Assert.Contains("interaktive Session", text, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(1, "98")] // adaptive 99 -> capped at w, not at the clamp maximum
     [InlineData(3, "97")] // adaptive 97 -> kept, not raised to w or lowered to the minimum

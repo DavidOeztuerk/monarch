@@ -45,6 +45,18 @@ public class AwakenTests
     }
 
     [Fact]
+    public void Awaken_adds_DS_Store_to_gitignore_once_so_finder_files_are_never_committed()
+    {
+        // #100: .DS_Store im Repo ignorieren. Sonst nimmt git add .monarch eine Finder-Datei in den Ledger-Ordner mit.
+        using var p = new TempProject(awakened: false);
+        File.WriteAllText(Path.Combine(p.Root, ".gitignore"), "bin/\n");
+        p.Run(["awaken"]);
+        p.Run(["awaken", "--force", "--plan", "max20"]);
+        var lines = File.ReadAllLines(Path.Combine(p.Root, ".gitignore"));
+        Assert.Equal(1, lines.Count(l => l.Trim() == ".DS_Store"));
+    }
+
+    [Fact]
     public void Warns_when_not_in_a_git_repository_and_merges_risk_tags()
     {
         using var p = new TempProject(awakened: false);
