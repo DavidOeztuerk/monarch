@@ -3,7 +3,7 @@ id: Q-0188
 gate: G-0128
 kind: main
 rank: C
-state: in_review
+state: cleared
 dod:
   - "ADR-0019: Status mit der Freigabe des Owners vom 19.11.2026 (wörtlich), Antwort zur Lücke in 'Nicht in diesem ADR', Beleg zu Zeile 105 korrigiert (wrapper-test.sh:43 allgemeiner Fail-open-Fall); sonst nichts am ADR"
   - "plugin.json: description ohne 'Monarch'; Test in VisibleLayerNameTests vorher rot, danach grün"
@@ -15,5 +15,6 @@ scope:
   exclude: []
 estimate: { session_pct: 8, weekly_pct: 2, gold_usd: 0 }
 boss: "dotnet test grün und gate check grün"
+board: { pr: 159 }
 ---
 # Feinschliff v0.1.1: ADR-0019 Freigabe, plugin.json ohne Monarch, Repo-URL, Testname
