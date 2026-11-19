@@ -157,3 +157,10 @@ Alle Tests laufen ohne Netz und ohne echtes `$HOME`: Temp-Verzeichnisse, `MONARC
 - **Timeout** der Roots-Antwort: Standard 3 s, injizierbar über `MONARCH_MCP_ROOTS_TIMEOUT_MS` (Tests). Bei Timeout, Fehler oder Ende der Eingabe ist die Roots-Liste leer, die Zeile `mcp: roots=[] (…)` geht auf stderr.
 - **Session** gilt auch für die Ereignisse, die `gate_plan` und `knowledge_write` selbst schreiben (`GateOpened`, `QuestProposed`, `KnowledgeWritten`). Ereignisse der delegierten CLI-Befehle (`quest_transition`, `evidence_sync`) behalten deren eigene Session-Ermittlung; sichtbar als MCP-Aufruf ist dort `McpProjectResolved`.
 - Ein `project: null`-Wert wird wie „nicht angegeben“ behandelt; ein Wert, der keine Zeichenkette ist, wird an Stufe `(absolute)` abgelehnt.
+
+## Nachtrag: Roots werden vor jedem tools/call neu gelesen (Q-0177, #128)
+
+- **Entscheidung:** Der Server fragt `roots/list` nach dem Handshake (`notifications/initialized`) vor jedem gültigen `tools/call` neu ab, wenn der Client Roots deklariert. Die Antwort auf die Anfrage dieses Aufrufs gilt für ihn.
+- **Begründung:** Ein Worktree-Wechsel ändert das Projekt, aber nicht zwingend die Roots des Clients. Ohne `list_changed` blieben die alten Roots gültig. Der Aufruf lief dann gegen die alte Worktree (#128). Die Neuabfrage schließt das für jeden Aufruf.
+- **Umfang:** Nichts wird erweitert. Fehlt die Antwort, gilt wie bisher die leere Roots-Liste, und das cwd ist die einzige Wurzel. Owner-Entscheid 19.11.2026, wörtlich: „1. #128: Roots bei jedem Aufruf neu lesen ist freigegeben (erweitert nichts).“
+- **Offen:** Ob nach einem Timeout beim Aufruf das cwd oder die zuletzt bestätigten Roots gelten sollen, entscheidet der Owner (#147).
