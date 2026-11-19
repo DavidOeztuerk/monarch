@@ -93,6 +93,18 @@ public sealed class LocalFileBoardTests : IDisposable
     }
 
     [Fact]
+    public async Task Dod_texts_with_hash_colon_and_backticks_roundtrip_fully()
+    {
+        // Issue 50: '#' am Anfang wurde leer, ' #' schnitt den Rest als YAML-Kommentar ab.
+        var board = new LocalFileBoard(_t.Path);
+        string[] dod = ["#28 als Glob bleibt ganz", "Text mit ` #Kommentar-Schein und Ende", "Doppelpunkt: mitten im Satz", "Ende, mit Komma"];
+        var quest = new BoardQuest(new QuestId("Q-0098"), new GateId("G-0001"), "Hash-Test", QuestKind.Side, Rank.C, QuestState.Accepted, dod, QuestScope.Empty);
+        await board.UpsertQuestAsync(quest, TestContext.Current.CancellationToken);
+        var read = Assert.Single(await board.ListQuestsAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(dod, read.DefinitionOfDone);
+    }
+
+    [Fact]
     public async Task Upsert_gate_creates_and_updates()
     {
         var board = new LocalFileBoard(_t.Path);

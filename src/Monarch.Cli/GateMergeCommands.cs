@@ -671,7 +671,13 @@ internal static partial class GateMergeCommands
         }
 
         var quests = board.ListQuestsAsync().GetAwaiter().GetResult().Where(q => q.Gate == gate.Id || gate.Quests.Contains(q.Id)).ToList();
-        var prs = quests.Select(q => board.FindQuestFile(q.Id.Value) is { } f ? BoardFiles.Link(f).Pr : null).Where(n => n is not null).Select(n => n!.Value).Distinct().Order().ToList();
+        // Issue 142: eine Quest, die noch nicht eingereicht ist, hat keine Prüfung hinter sich; das Gate geht dann nicht durch.
+        if (quests.FirstOrDefault(q => q.State is QuestState.Proposed or QuestState.Accepted or QuestState.InProgress) is { } open)
+        {
+            return $"quest {open.Id.Value} is {QuestCommands.StateName(open.State)}; gate merge needs every quest of gate {gateId} at least in_review (monarch quest submit {open.Id.Value}).";
+        }
+
+        var prs =quests.Select(q => board.FindQuestFile(q.Id.Value) is { } f ? BoardFiles.Link(f).Pr : null).Where(n => n is not null).Select(n => n!.Value).Distinct().Order().ToList();
         if (prs.Count == 0)
         {
             return $"no pull request linked to the quests of gate {gateId} (monarch quest pr <quest> <number>).";
