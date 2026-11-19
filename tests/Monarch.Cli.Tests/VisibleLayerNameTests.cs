@@ -88,6 +88,26 @@ public class VisibleLayerNameTests
     }
 
     [Fact]
+    public void Plugin_description_in_the_plugin_directory_does_not_name_monarch()
+    {
+        var desc = Json("plugin/.claude-plugin/plugin.json").GetProperty("description").GetString();
+        Assert.NotNull(desc);
+        Assert.DoesNotContain("Monarch", desc, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Readmes_start_the_installation_with_a_clone_of_the_repo_url()
+    {
+        const string url = "https://github.com/DavidOeztuerk/umbrarch";
+        foreach (var f in new[] { "README.md", Path.Combine("plugin", "README.md") })
+        {
+            var text = File.ReadAllText(Path.Combine(Root(), f));
+            Assert.Contains(url, text, StringComparison.Ordinal);
+            Assert.Contains("git clone " + url, text, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Readmes_use_the_repo_placeholder_not_a_personal_path()
     {
         var root = Root();

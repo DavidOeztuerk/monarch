@@ -11,4 +11,12 @@ dotnet publish src/Monarch.Cli -c Release -r osx-arm64 -o artifacts/osx-arm64
 ./artifacts/osx-arm64/monarch --version
 ```
 
-Plugin installation from a local checkout `<repo>`: see `plugin/README.md`.
+## Installation
+
+The first step is to clone the repository (https://github.com/DavidOeztuerk/umbrarch):
+
+```sh
+git clone https://github.com/DavidOeztuerk/umbrarch <repo>
+```
+
+Plugin installation from the local checkout `<repo>`: see `plugin/README.md`.

@@ -32,6 +32,15 @@ public class PluginNameConstantTests
     }
 
     [Fact]
-    public void The_constant_is_umbrarch_and_the_warden_types_derive_from_it() =>
+    public void The_constant_is_umbrarch() =>
         Assert.Equal("umbrarch", RuleTexts.PluginName);
+
+    [Fact]
+    public void The_warden_types_derive_from_the_constant()
+    {
+        var file = Path.Combine(RepoRoot(), "src", "Monarch.Cli", "GateMergeCommands.cs");
+        var line = File.ReadLines(file).Single(l => l.Contains("WardenTypes = ", StringComparison.Ordinal));
+        Assert.Contains("RuleTexts.PluginName + \":warden\"", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"umbrarch", line, StringComparison.Ordinal);
+    }
 }
