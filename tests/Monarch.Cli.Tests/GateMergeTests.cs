@@ -119,6 +119,19 @@ public class GateMergeTests
     }
 
     [Fact]
+    public void Refuses_when_a_gate_quest_is_still_proposed_or_in_progress()
+    {
+        // Issue 142: ein Gate mit einer Quest unter in_review wird nicht gemergt (G-0123 ist mit proposed-Quests gemergt worden).
+        var (p, f) = Setup();
+        using (p)
+        {
+            Seed.Gate(p, "G-0001", "[Q-0001, Q-0002]");
+            Seed.Quest(p, "Q-0002", "proposed");
+            Refused(p, f, Merge(p), "in_review");
+        }
+    }
+
+    [Fact]
     public void Refuses_when_the_gate_points_at_two_different_pull_requests()
     {
         var (p, f) = Setup();
