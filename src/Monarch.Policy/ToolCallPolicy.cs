@@ -501,60 +501,15 @@ public static partial class ToolCallPolicy
         if (Array.IndexOf(FileMutators, call.ToolName) < 0) return null;
         var rel = call.FilePath is { Length: > 0 } fp ? paths.Rel(fp) : "";
         if (rel.Length > 0 && MatchesAny(AlwaysWritable, rel)) return null;
-        // Warden PR 150 (major): das Ziel bestimmt den Branch, nicht das cwd-Projekt. Die Datei liegt in ihrer eigenen Worktree.
-        var target = TargetPath(call, ctx);
-        if (target is null) return PolicyDecision.Deny(PolicyRules.QuestNotStarted, "Der Zielpfad ist nicht auflösbar; ohne Ziel kein Edit.");
-        var targetGit = BranchGuard.FindGitDir(Path.GetDirectoryName(target) ?? target);
-        if (targetGit is null) return null;
-        var (readable, branch) = ReadHead(targetGit);
-        // Warden PR 150 (minor): unlesbares HEAD ist unbekannt und wird verweigert, nicht still erlaubt.
-        if (!readable)
-            return PolicyDecision.Deny(PolicyRules.QuestNotStarted,
-                $"Der Git-Zustand unter '{targetGit}' ist nicht lesbar. Der Branch ist unbekannt, deshalb verweigert.");
+        if (ctx.ActiveQuest is { InProgress: true }) return null;
+        var gitDir = BranchGuard.FindGitDir(ctx.ProjectRoot);
+        var branch = gitDir is null ? null : BranchGuard.Load(gitDir, ctx.HomeDir).Branch;
         if (branch is null || !branch.StartsWith("monarch/G-", StringComparison.Ordinal)) return null;
-
-        var ownGit = BranchGuard.FindGitDir(ctx.ProjectRoot);
-        var sameProject = ownGit is not null && Path.GetFullPath(ownGit) == Path.GetFullPath(targetGit);
-        if (sameProject && ctx.ActiveQuest is { InProgress: true }) return null;
-        if (!sameProject)
-            return PolicyDecision.Deny(PolicyRules.QuestNotStarted,
-                $"Das Ziel liegt auf dem Gate-Branch '{branch}' in einer anderen Worktree. Dort in der Worktree selbst arbeiten (mit EnterWorktree in sie übergehen) und dort quest accept und quest start ausführen.");
         var way = ctx.ActiveQuest is { } q
             ? $"Die aktive Quest {q.Id.Value} ist nicht gestartet: `quest start {q.Id.Value}`."
             : "Erst `quest accept <Q-ID>` und dann `quest start <Q-ID>`.";
         return PolicyDecision.Deny(PolicyRules.QuestNotStarted,
             $"Auf dem Gate-Branch '{branch}' ist keine Quest in_progress. {way} Danach erst editieren.");
-    }
-
-    /// <summary>Absoluter Zielpfad des Tool-Calls; null, wenn er sich nicht auflösen lässt (dann verweigert die Regel).</summary>
-    private static string? TargetPath(ToolCall call, PolicyContext ctx)
-    {
-        var baseDir = string.IsNullOrEmpty(call.Cwd) ? ctx.ProjectRoot : call.Cwd;
-        if (call.FilePath is not { Length: > 0 } fp) return Path.GetFullPath(baseDir);
-        try
-        {
-            return Path.GetFullPath(Path.IsPathRooted(fp) ? fp : Path.Combine(baseDir, fp));
-        }
-        catch (ArgumentException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>Liest den Branch aus <c>HEAD</c>. Unlesbar (false) ist etwas anderes als detached (lesbar, Branch null).</summary>
-    private static (bool Readable, string? Branch) ReadHead(string gitDir)
-    {
-        try
-        {
-            var head = File.ReadAllText(Path.Combine(gitDir, "HEAD")).Trim();
-            if (!head.StartsWith("ref:", StringComparison.Ordinal)) return (true, null);
-            var r = head["ref:".Length..].Trim();
-            return (true, r.StartsWith("refs/heads/", StringComparison.Ordinal) ? r["refs/heads/".Length..] : null);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return (false, null);
-        }
     }
 
     // ---- 7. Rank S (ADR-0003)

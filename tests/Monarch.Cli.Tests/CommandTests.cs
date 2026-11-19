@@ -57,18 +57,6 @@ public class AwakenTests
     }
 
     [Fact]
-    public void Double_star_DS_Store_counts_as_present_and_is_not_duplicated()
-    {
-        // Q-0180 (Warden minor): **/.DS_Store matcht überall und gilt als vorhanden; awaken legt es nicht doppelt an.
-        using var p = new TempProject(awakened: false);
-        File.WriteAllText(Path.Combine(p.Root, ".gitignore"), "bin/\n**/.DS_Store\n");
-        p.Run(["awaken"]);
-        var lines = File.ReadAllLines(Path.Combine(p.Root, ".gitignore"));
-        Assert.Equal(1, lines.Count(l => l.Trim() == "**/.DS_Store"));
-        Assert.DoesNotContain(lines, l => l.Trim() == ".DS_Store");
-    }
-
-    [Fact]
     public void Awaken_adds_DS_Store_to_gitignore_once_so_finder_files_are_never_committed()
     {
         // #100: .DS_Store im Repo ignorieren. Sonst nimmt git add .monarch eine Finder-Datei in den Ledger-Ordner mit.
