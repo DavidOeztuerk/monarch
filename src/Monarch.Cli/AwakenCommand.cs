@@ -95,7 +95,8 @@ internal static class AwakenCommand
             missing.Add(".monarch/local/");
         }
 
-        if (!lines.Any(l => l.Trim() is ".DS_Store" or "/.DS_Store" or "**/.DS_Store"))
+        // #148: "/.DS_Store" matcht nur im Repo-Root und zählt daher nicht als vorhanden.
+        if (!lines.Any(l => l.Trim() is ".DS_Store" or "**/.DS_Store"))
         {
             missing.Add(".DS_Store");
         }
