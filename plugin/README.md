@@ -6,9 +6,10 @@ Hinweis zum Namen: Das Produkt heisst Umbrarch (ADR-0019). Intern bleibt bis v0.
 
 ## Installation (lokal)
 
-`<repo>` ist der lokale Ordner dieses Repos (GitHub: `DavidOeztuerk/umbrarch`).
+`<repo>` ist der lokale Ordner dieses Repos. Erster Schritt ist der Klon von https://github.com/DavidOeztuerk/umbrarch:
 
 ```sh
+git clone https://github.com/DavidOeztuerk/umbrarch <repo>
 cd <repo>
 scripts/install-local.sh
 ```

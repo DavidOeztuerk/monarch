@@ -1,10 +1,10 @@
 # RECAP
 
 ## Stand
-- Zeitpunkt: 2026-11-19T13:05:24Z
+- Zeitpunkt: 2026-11-19T17:42:33Z
 - Plan: Pro
-- Mana 5h: 85% (Limit 90%, Reset 2026-11-19T14:40:00Z)
-- Mana 7d: 44% (Limit 96%, Reset 2026-11-25T11:00:00Z)
+- Mana 5h: 80% (Limit 90%, Reset 2026-11-19T19:40:00Z)
+- Mana 7d: 56% (Limit 96%, Reset 2026-11-25T11:00:00Z)
 - Limits: 5h 90%, 7d 96% (adaptive)
 
 ## Aktiv
@@ -33,7 +33,7 @@
 - Q-0150: Heikle Quest nach Standardregel 3: Warden-Runde über das Design vor dem Code, kein src-Code, kein anderer Test und keine andere Schwelle aufgeweicht, Schlussrunde des Wardens mit Verdict am Head-SHA
 
 ## Nächster konkreter Schritt
-G-0127 (PR 154, Worktree .claude/worktrees/G-0127, Head 84b6a10): Warden-Designrunde 1 = REQUEST_CHANGES (PR-Kommentar 7009959115). 1) ADR-0019 überarbeiten: major 1 = Übergang um Zustände alte Registrierung auf aktualisiertem Checkout und beide Plugins aktiv ergänzen (nicht belegt, fail-open möglich), Reihenfolge der Owner-Befehle fest: alle Sessions beenden; claude plugin uninstall monarch@monarch-local; claude plugin marketplace remove monarch-local; git -C <repo> pull --ff-only origin develop; scripts/install-local.sh; claude plugin marketplace add <repo>; claude plugin install umbrarch@umbrarch-local; claude plugin list (nur umbrarch); Neustart, Briefing nennt umbrarch:regeln; Hook-Prüfung im Temp-Projekt (umbrarch:scout Edit -> deny shadow_read_only). minor 2,5,6,7,8 im ADR mit beheben (offene Owner-Fragen in einem Abschnitt), 9: settings.json nur :53/:92, keine Regel. 2) gate_plan erneut mit allen drei Quests: DoD Q-0186 um Fälle umbrarch:warden, umbrarch:scout, a:b:warden, monarch:scribe schützt umbrarch:scribe und scribe, umbrarch:knight schreibt, warden: nicht read-only, Repo-Test genau eine Zeile umbrarch in src. 3) Kritiker, Commit docs(adr) (Q-0185), Push mit Refspec, Delta-Runde Warden (Opus) nur auf die Änderung, dann gate verdict. 4) Q-0186 TDD, Q-0187, Schlussrunde Warden, gate merge mit altem Binary, gate check, evidence sync je Quest, PR 152 Titel Release v0.1.0 (Umbrarch), Aufräumen, Owner-Befehle.
+G-0128 (Worktree .claude/worktrees/G-0128, Branch monarch/G-0128-umbrarch-v011-feinschliff, Q-0188 geplant, accept wegen Mana verweigert; ab 5h-Reset 2026-11-19T19:40Z). Teil 1 bestanden (Punkt 3 per Owner-Befehl, Punkt 4 per Owner-Hook-Aufruf: Deny 'Shadow scout ist read-only'). Dann: quest accept/start Q-0188; Test in VisibleLayerNameTests (plugin.json description ohne Monarch) rot, dann gruen; ADR-0019 (Status mit Freigabe woertlich, Antwort Luecke, Beleg Zeile 105 -> wrapper-test.sh:43); README.md und plugin/README.md Repo-URL + git clone; PluginNameConstantTests umbenennen/ergaenzen; Issue v0.2 Wrapper fail-open (--body-file); Issue v0.2 Fehlalarm readlink unter ~/.monarch (Deny-Text als Beleg); #155 abhaken; Kommentar #105 (Tag archiv/G-0115, Head e47fbb8, Lauf 44564909722); Kritiker; PR; Warden; gate merge; PR 152 Text ergaenzen, Titel bleibt, nicht mergen.
 
 ## Offene Entscheidungen
 - Owner: historische docs (ADR-0001..0018, lessons, evidence) bleiben? Default ja (Vorschlag)
