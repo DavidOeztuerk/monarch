@@ -102,7 +102,7 @@ Owner-Prompt, wörtlich: „b) Warden-Nachweis für gate verdict (GateMergeComma
 
 **Versionssprung (Owner-Antwort 3):** Mit G-0127 steigt die Version von 0.1.0 auf **0.1.1**: `plugin/.claude-plugin/plugin.json:3`, `MONARCH_VERSION` in `plugin/scripts/monarch:4` und `ServerVersion` in `src/Monarch.Cli/McpTools.cs:17` (Vorschlag der Session: dieselbe Zahl im MCP-Handshake). `scripts/install-local.sh` liest die Version aus `plugin.json` (`:9`), installiert unter `~/.monarch/bin/0.1.1/` (`:25`), setzt den Symlink `~/.monarch/bin/monarch` neu (`ln -sfn`) und lässt `~/.monarch/bin/0.1.0/` unberührt. `plugin/tests/wrapper-test.sh` liest die Version aus dem Wrapper (`:6`) und nennt keine feste Zahl. Das Release heißt v0.1.1.
 
-Der Wrapper startet `~/.monarch/bin/<version>/monarch` (`plugin/scripts/monarch:65-67`). Findet er dieses Binary nicht, ruft er `fail()` (`:43-57`). Fail-closed ist das nur in einem Fall: Hook `pre-tool-use` in einem erweckten Projekt, dann fragt der Wrapper nach (`:46-48`). Alle anderen Hooks und die Statuszeile bleiben fail-open (`:50-51`), MCP-Server und CLI enden mit Exit 1 (`:52-55`).
+Der Wrapper startet `~/.monarch/bin/<version>/monarch` (`plugin/scripts/monarch:65-67`). Findet er dieses Binary nicht, ruft er `fail()` (`:43-57`). Fail-closed ist das nur in einem Fall: Hook `pre-tool-use`, und die cwd aus der Hook-Eingabe oder `$PWD` liegt in einem erweckten Projekt (`awakened()`, `:19-33`); dann fragt der Wrapper nach (`:46-48`). **Lücke:** Ein Aufruf aus einem nicht erweckten Ordner, der ein erwecktes Projekt über Zielpfad oder absolute Pfad-Token erreicht, endet mit Exit 0 ohne jede Regel (`:50-51`; als fail-open festgehalten in `plugin/tests/wrapper-test.sh:58-59`). Das Binary 0.1.0 hätte diese Aufrufe mit protect_paths und protect_secrets geprüft (`src/Monarch.Cli/HookRunner.cs:83-104`, `:188-189`, `:224-235`, Beleg des Wardens). Der Versionssprung macht also den Fall „cwd im erweckten Projekt“ strenger, den Fall „von außen hinein“ aber **lockerer**, solange Wrapper und Binary nicht zusammenpassen. Das ist eine bewusst benannte Folge der Owner-Antwort 3 und wird dem Owner im Schlussbericht als Frage vorgelegt. Alle anderen Hooks und die Statuszeile bleiben fail-open (`:50-51`), MCP-Server und CLI enden mit Exit 1 (`:52-55`).
 
 ### Zustände
 
@@ -112,14 +112,16 @@ Der Wrapper startet `~/.monarch/bin/<version>/monarch` (`plugin/scripts/monarch:
 | 2 | 0.1.1 | `monarch@monarch-local`, Registrierung zeigt auf einen **noch alten** Checkout | Hooks: der alte Wrapper sucht 0.1.0 und findet es (die Installation lässt es stehen); sie laufen mit dem alten Code, `monarch:*` bleibt dort read-only wie bisher | `gate merge` läuft über den Symlink `~/.monarch/bin/monarch` (`plugin/skills/quest/SKILL.md:21`, `scripts/install-local.sh:38`) mit 0.1.1: `monarch:warden` zählt nicht, `gate merge` verweigert (5b) | Gemischter Stand: Hooks alt, `gate merge` neu. Das Briefing nennt `monarch:regeln` und passt zum geladenen Plugin. |
 | 3 | 0.1.1 | `monarch@monarch-local`, Registrierung zeigt auf den **aktualisierten** Checkout | unbekannt | unbekannt | **Nicht belegt.** Das Manifest im Checkout heißt jetzt `umbrarch`, die Registrierung `monarch@monarch-local`. Ob Claude Code das Plugin dann lädt, hat die Session nicht geprüft. Lädt es kein Plugin, läuft **kein Hook**, und keine Regel greift (fail-open). Der Code kann das nicht abfangen. Darum die feste Reihenfolge unten und die Prüfung nach dem Neustart. |
 | 4 | 0.1.1 | beide Plugins aktiv | je nach Hook | je nach Hook | **Nicht belegt.** Zwei Hook-Sätze riefen denselben Wrapper doppelt auf. Ob das eintritt, zeigt `claude plugin list` nach dem Neustart. Vermeiden: erst deinstallieren, dann installieren. |
-| 5 | 0.1.0 | `umbrarch@umbrarch-local` | **greift nicht**: das alte Binary kürzt nur `monarch:` | `umbrarch:warden` zählt nicht, `gate merge` verweigert | Der Wrapper aus dem neuen Checkout sucht `~/.monarch/bin/0.1.1/monarch`, findet es nicht und fragt bei `pre-tool-use` im erweckten Projekt nach (fail-closed). Andere Hooks laufen nicht (fail-open, `session-start` ohne Ausgabe: **kein Briefing**), der MCP-Server endet mit Exit 1. Ein Test sichert das ab (Q-0187). |
+| 5 | 0.1.0 | `umbrarch@umbrarch-local` | nicht ausgewertet: die Hooks erreichen das Binary 0.1.0 nicht; der Wrapper fragt nach (cwd oder `$PWD` erweckt), sonst **ohne Regel** | `gate merge` über den Symlink nutzt das Binary, das dort liegt (siehe Zustand 2 und Vorbedingung unten) | Der Wrapper aus dem neuen Checkout sucht `~/.monarch/bin/0.1.1/monarch`, findet es nicht und fragt bei `pre-tool-use` nach, wenn cwd oder `$PWD` in einem erweckten Projekt liegt (fail-closed). Aufrufe von außen in ein erwecktes Projekt laufen ohne Regel (Lücke, siehe oben). Andere Hooks laufen nicht (fail-open, `session-start` ohne Ausgabe: **kein Briefing**), der MCP-Server endet mit Exit 1. Ein Test sichert das ab (Q-0187). |
 | 6 | beliebig | kein Plugin geladen | – | – | Kein Hook, keine Regel. Der Wrapper wird nie aufgerufen, auch die Version 0.1.1 hilft nicht. Nur die Reihenfolge der Owner-Befehle und die Prüfung nach dem Neustart schützen davor. |
 
-Mit der Version 0.1.1 ist die frühere Mischform „altes Binary, neues Plugin“ (Zeile 5) fail-closed, soweit ein Hook läuft. Zeile 3, 4 und 6 sind durch den Code nicht abgedeckt; dort gilt die feste Reihenfolge.
+Mit der Version 0.1.1 ist die frühere Mischform „altes Binary, neues Plugin“ (Zeile 5) fail-closed **nur für Aufrufe, deren cwd oder `$PWD` in einem erweckten Projekt liegt**; für Aufrufe von außen hinein entsteht die Lücke (Abschnitt oben). Zeile 3, 4 und 6 sind durch den Code nicht abgedeckt; dort gilt die feste Reihenfolge.
 
 Das Briefing kommt vom SessionStart-Hook des geladenen Plugins (`plugin/hooks/hooks.json:8`, `src/Monarch.Cli/HookRunner.cs:327`, `:461`) und läuft mit dem Binary, das dessen Wrapper findet. In Zustand 2 nennt es `monarch:regeln` (passt zum alten Plugin). In Zustand 5 kommt gar kein Briefing. Ein fehlendes Briefing ist also ein Warnzeichen, aber kein Schutz.
 
-**Betrifft alle Einträge:** Das alte Binary lässt jeden Listeneintrag in `read_only_shadows` (Datei `system.yaml`) mit anderem Präfix wirkungslos, nicht nur Warden und Scout.
+**Betrifft alle Einträge:** Sieht ein altes Binary neue Agent-Typen (`MONARCH_BIN` auf das alte Binary, oder Zustand 4 mit altem Checkout), lässt es jeden Listeneintrag in `read_only_shadows` (Datei `system.yaml`) mit anderem Präfix wirkungslos, nicht nur Warden und Scout.
+
+**Vorbedingung:** Das Plugin wird aus dem Haupt-Checkout gelesen. Bis Schritt 5 unten wird der Haupt-Checkout nicht aktualisiert (kein `git pull` im Haupt-Checkout nach dem Merge), und vor dem Merge von G-0127 läuft kein `install-local.sh` aus der Worktree: Sonst entstehen Zustand 5 (laufende Sessions) bzw. Zustand 2 (`gate merge` verweigert den eigenen Merge). Jede Session, die vor Schritt 2 startet, ist in Zustand 3.
 
 **Aufgezeichnete Warden-Läufe:** Ein im Ledger stehender `SubagentStop` von `monarch:warden` zählt mit dem neuen Binary nicht mehr (5b). G-0127 selbst wird mit dem **alten** Binary gemergt; sein Warden-Lauf heißt `monarch:warden` und zählt dort. Alle späteren Gates brauchen einen Lauf von `umbrarch:warden` oder `warden`.
 
@@ -127,10 +129,10 @@ Das Briefing kommt vom SessionStart-Hook des geladenen Plugins (`plugin/hooks/ho
 
 Die Reihenfolge ist Pflicht (Zeile 3, 4 und 6). `<repo>` ist der lokale Ordner des Repos. Die Unterbefehle sind mit `claude plugin --help`, `claude plugin uninstall --help` und `claude plugin marketplace --help` am 19.11.2026 belegt.
 
-1. Alle Claude-Code-Sessions beenden. Alle Worktrees sind aufgeräumt: `git worktree list` zeigt nur den Haupt-Checkout (auch ein liegengebliebener Worktree wie `.claude/worktrees/G-0115` muss vorher weg, sonst zeigen seine Verweise nach dem Umbenennen ins Leere).
+1. Alle Claude-Code-Sessions beenden. Für Schritt 4 sind alle Worktrees aufgeräumt: `git worktree list` zeigt nur den Haupt-Checkout (auch ein liegengebliebener Worktree wie `.claude/worktrees/G-0115` muss dann weg, sonst zeigen seine Verweise nach dem Umbenennen ins Leere).
 2. `claude plugin uninstall monarch@monarch-local`
 3. `claude plugin marketplace remove monarch-local`
-4. Ordner umbenennen: `mv ~/Projects/monarch ~/Projects/umbrarch`, dann `git -C ~/Projects/umbrarch worktree prune`. Ab hier ist `<repo>` gleich `~/Projects/umbrarch`. Hinweis: Der Auto-Memory von Claude Code liegt unter einem Pfad, der vom Ordnernamen abhängt (`~/.claude/projects/-Users-davidozturk-Projects-monarch/`); nach dem Umbenennen beginnt eine Session unter dem neuen Namen ohne ihn, bis der Ordner dort umbenannt wird.
+4. Ordner umbenennen (auf Anweisung des Owners in der Fortsetzungs-Prompt vom 19.11.2026; für den Übergang selbst nicht nötig): `mv ~/Projects/monarch ~/Projects/umbrarch`, dann `git -C ~/Projects/umbrarch worktree prune`. Ab hier ist `<repo>` gleich `~/Projects/umbrarch`. Hinweis: Der Auto-Memory von Claude Code liegt unter einem Pfad, der vom Ordnernamen abhängt (`~/.claude/projects/-Users-davidozturk-Projects-monarch/`); nach dem Umbenennen beginnt eine Session unter dem neuen Namen ohne ihn, bis der Ordner dort umbenannt wird.
 5. `git -C <repo> pull --ff-only origin develop`
 6. `<repo>/scripts/install-local.sh`
 7. `claude plugin marketplace add <repo>`
@@ -138,13 +140,15 @@ Die Reihenfolge ist Pflicht (Zeile 3, 4 und 6). `<repo>` ist der lokale Ordner d
 9. `claude plugin list` zeigt nur `umbrarch@umbrarch-local`.
 10. Claude Code neu starten.
 
+Bricht ein Schritt ab, besonders Schritt 6 (`install-local.sh`), nicht mit den folgenden weitermachen und keine Session in einem Ordner außerhalb eines erweckten Projekts starten, bevor die Prüfung nach dem Neustart bestanden ist (Lücke oben).
+
 Zwischen diesen Schritten keine Claude-Code-Session starten: Der lokale Marketplace liest das Plugin aus dem Checkout (`claude plugin list` am 19.11.2026: `monarch@monarch-local`, „Read from: /Users/davidozturk/Projects/monarch/plugin“).
 
 ### Prüfung nach dem Neustart
 
 - `claude plugin list` nennt nur `umbrarch@umbrarch-local`, kein `monarch@monarch-local`.
 - Das Briefing beim SessionStart nennt `umbrarch:regeln`.
-- Hook-Prüfung in einem erweckten Temp-Projekt: Ein Edit des Agenten `umbrarch:scout` wird mit `shadow_read_only` verweigert. Kommt weder ein Deny noch (Zustand 5) eine Nachfrage des Wrappers, läuft kein Hook (Zeile 3, 4 oder 6); fehlt das Briefing, ist es Zustand 5: nicht weiterarbeiten.
+- Hook-Prüfung in einem erweckten Temp-Projekt: Der Agent `umbrarch:scout` hat kein Edit (`plugin/agents/scout.md:5`: `tools: Read, Grep, Glob, Bash`). Er führt darum per Bash `git commit --allow-empty -m probe` aus; das wird mit `shadow_read_only` verweigert (`src/Monarch.Policy/ToolCallPolicy.cs:460-462`). Kommt weder ein Deny noch (Zustand 5) eine Nachfrage des Wrappers, läuft kein Hook (Zeile 3 oder 6); fehlt das Briefing, ist es Zustand 5: nicht weiterarbeiten. Zustand 4 zeigt schon der erste Punkt.
 
 ### Berechtigungsregeln in den Einstellungen
 
