@@ -170,7 +170,7 @@ public class LedgerHistoryCliTests
         {
             using var s = new Scenario(p);
             p.Clock.UtcNow = p.Clock.UtcNow.AddMinutes(1);
-            Assert.Equal(0, p.Hook("subagent-stop", """{"session_id":"sess1","hook_event_name":"SubagentStop","agent_id":"a1","agent_type":"monarch:warden"}""").Code);
+            Assert.Equal(0, p.Hook("subagent-stop", """{"session_id":"sess1","hook_event_name":"SubagentStop","agent_id":"a1","agent_type":"umbrarch:warden"}""").Code);
             p.Clock.UtcNow = p.Clock.UtcNow.AddMinutes(1);
             Assert.Equal(0, p.Run(["gate", "verdict", "G-0001", "--verdict", "approve", "--source", Review]).Code);
             s.Forge();

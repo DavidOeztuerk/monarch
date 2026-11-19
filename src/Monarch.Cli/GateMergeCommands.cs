@@ -15,7 +15,8 @@ namespace Monarch.Cli;
 /// </summary>
 internal static partial class GateMergeCommands
 {
-    private static readonly string[] WardenTypes = ["monarch:warden", "warden"];
+    // ADR-0019 5b: exactly these two names, compared exactly; no old name, no wildcard.
+    private static readonly string[] WardenTypes = [RuleTexts.PluginName + ":warden", "warden"];
     private static readonly string[] ClosedGateStates = ["cleared", "closed", "done", "failed", "abandoned"];
 
     private sealed record Target(ProjectPaths Paths, BoardGate Gate, ForgeRef Forge, int Pr, Rank Rank, IReadOnlyList<BoardQuest> Quests);
@@ -610,7 +611,7 @@ internal static partial class GateMergeCommands
     }
 
     /// <summary>
-    /// Latest verdict of the gate must be 'approve' for this head. A warden run (SubagentStop, agent_type exactly <c>monarch:warden</c> or <c>warden</c>) must lie
+    /// Latest verdict of the gate must be 'approve' for this head. A warden run (SubagentStop, agent_type exactly <c>{plugin}:warden</c> (<see cref="RuleTexts.PluginName"/>) or <c>warden</c>) must lie
     /// between the previous verdict and this one and after the commit time of the head; so one run covers exactly one verdict (ADR-0007 T1).
     /// </summary>
     private static string? CheckVerdict(List<LedgerRow> rows, string gateId, string head, DateTimeOffset commitTime)
@@ -638,7 +639,7 @@ internal static partial class GateMergeCommands
             .Where(i => rows[i].Type == "ShadowRunCompleted" && Array.IndexOf(WardenTypes, rows[i].Str("agent_type")) >= 0).ToList();
         if (runs.Count == 0)
         {
-            return "no warden run (SubagentStop of monarch:warden or warden) between the previous verdict and this one; a run covers exactly one verdict.";
+            return $"no warden run (SubagentStop of {WardenTypes[0]} or {WardenTypes[1]}) between the previous verdict and this one; a run covers exactly one verdict.";
         }
 
         if (runs.All(i => rows[i].At <= commitTime))

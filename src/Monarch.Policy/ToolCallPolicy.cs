@@ -450,17 +450,24 @@ public static partial class ToolCallPolicy
     // ---- 4. Shadow read-only classes (ADR-0005)
     private static PolicyDecision? ShadowReadOnly(ToolCall call, PolicyContext ctx, List<BashAnalysis.Segment> segments)
     {
-        // Plugin-Agents kommen als "monarch:<name>" (agent_type im Hook); die Liste kennt die nackten Namen.
+        // Plugin-Agents kommen als "<plugin>:<name>" (agent_type im Hook). ADR-0019 5a: Das Präfix bis zum letzten ":" zählt nie,
+        // egal welcher Plugin-Name (alt, neu, fremd); dasselbe gilt für jeden Listeneintrag. Vergleich zeichengenau.
         if (call.AgentType is not { Length: > 0 } raw) return null;
-        var agent = raw.StartsWith("monarch:", StringComparison.Ordinal) ? raw["monarch:".Length..] : raw;
-        // Die Liste darf beide Schreibweisen enthalten (nackt oder mit Präfix, wie im Ledger); beide zählen.
-        if (!ctx.Options.ReadOnlyShadowTypes.Contains(raw) && !ctx.Options.ReadOnlyShadowTypes.Contains(agent)) return null;
+        var agent = AgentName(raw);
+        if (!ctx.Options.ReadOnlyShadowTypes.Any(e => string.Equals(AgentName(e), agent, StringComparison.Ordinal))) return null;
         if (Array.IndexOf(FileMutators, call.ToolName) >= 0)
             return PolicyDecision.Deny(PolicyRules.ShadowReadOnly, $"Shadow '{agent}' ist read-only und darf keine Dateien ändern.");
         foreach (var seg in segments)
             if (BashAnalysis.GitSubcommand(seg.Tokens, out _) is "commit" or "push" or "merge")
                 return PolicyDecision.Deny(PolicyRules.ShadowReadOnly, $"Shadow '{agent}' ist read-only und darf nicht committen, pushen oder mergen.");
         return null;
+    }
+
+    /// <summary>The part after the last ':' (the whole value without one).</summary>
+    private static string AgentName(string type)
+    {
+        var i = type.LastIndexOf(':');
+        return i < 0 ? type : type[(i + 1)..];
     }
 
     // ---- 5. refuse_high_rank_in_bypass_mode (ADR-0002)
