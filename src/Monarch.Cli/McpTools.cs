@@ -14,7 +14,7 @@ namespace Monarch.Cli;
 /// <summary><c>monarch mcp</c>: the stdio MCP server with exactly six phase-0 tools. There is deliberately no verify, clear, promote or permit tool.</summary>
 internal static class McpTools
 {
-    private const string ServerVersion = "0.1.0";
+    private const string ServerVersion = "0.1.1";
     private const int MaxKnowledgeBytes = 1_000_000;
 
     /// <summary>Serves MCP on the environment's streams.</summary>
@@ -23,7 +23,7 @@ internal static class McpTools
         TimeSpan? timeout = int.TryParse(env.GetVar("MONARCH_MCP_ROOTS_TIMEOUT_MS"), System.Globalization.NumberStyles.None, CultureInfo.InvariantCulture, out var ms) && ms > 0
             ? TimeSpan.FromMilliseconds(ms) : null;
         var options = new McpServerOptions(env.Err, env.GetVar("MONARCH_MCP_ROOTS_LOG"), timeout);
-        return new McpServer(Build(env), "monarch", ServerVersion, options).Run(env.In, env.Out);
+        return new McpServer(Build(env), RuleTexts.PluginName, ServerVersion, options).Run(env.In, env.Out);
     }
 
     private const string ProjectProperty = "\"project\":{\"type\":\"string\",\"description\":\"Absolute path of an awakened project root at or below the client roots. Without it the project is resolved from the roots, then the start directory.\"}";

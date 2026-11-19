@@ -186,6 +186,8 @@ public class ToolCallPolicyTests
     // ---- shadow read-only
     [Theory]
     [InlineData("warden"), InlineData("scout"), InlineData("monarch:warden"), InlineData("monarch:scout")]
+    // ADR-0019 Entscheidung 5a: das Präfix bis zum letzten ":" zählt nie (Q-0186). Neu rot: umbrarch:*, x:scout, a:b:warden.
+    [InlineData("umbrarch:warden"), InlineData("umbrarch:scout"), InlineData("x:scout"), InlineData("a:b:warden")]
     public void Read_only_shadows_cannot_write(string agent)
     {
         foreach (var tool in new[] { "Edit", "Write", "MultiEdit", "NotebookEdit" })
@@ -206,6 +208,22 @@ public class ToolCallPolicyTests
         Allowed(Edit("src/a.cs", agent: "monarch:knight"));
         // Config mit Präfix in der Liste (so schreibt man es aus dem Ledger ab) muss weiter schützen.
         Denied(Edit("src/a.cs", agent: "monarch:scribe"), PolicyRules.ShadowReadOnly, Ctx(o: new PolicyOptions { ReadOnlyShadowTypes = ["monarch:scribe"] }));
+    }
+
+    // ADR-0019 Entscheidung 5a (Q-0186)
+    [Fact]
+    public void Shadow_read_only_ignores_the_plugin_prefix_in_agent_type_and_list_entries()
+    {
+        // Standardliste warden, scout: ein Knight unter neuem Namen schreibt weiter; ein leerer Name nach dem Doppelpunkt ist nicht read-only.
+        Allowed(Edit("src/a.cs", agent: "umbrarch:knight"));
+        Allowed(Edit("src/a.cs", agent: "warden:"));
+        // Listeneintrag mit Präfix (so schreibt man es aus dem Ledger ab) schützt jeden Präfix und die nackte Form.
+        var list = Ctx(o: new PolicyOptions { ReadOnlyShadowTypes = ["monarch:scribe"] });
+        foreach (var agent in new[] { "monarch:scribe", "umbrarch:scribe", "scribe", "x:y:scribe" })
+            Denied(Edit("src/a.cs", agent: agent), PolicyRules.ShadowReadOnly, list);
+        Allowed(Edit("src/a.cs", agent: "umbrarch:knight"), list);
+        // Vergleich zeichengenau: andere Schreibweise ist ein anderer Name.
+        Allowed(Edit("src/a.cs", agent: "umbrarch:Warden"));
     }
 
     // ---- refuse_high_rank_in_bypass_mode

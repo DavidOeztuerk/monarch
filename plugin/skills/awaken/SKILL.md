@@ -1,6 +1,6 @@
 ---
 name: awaken
-description: Richtet Monarch im aktuellen Repository ein (Repo-Identitaet, Plan, Risk-Tags). Verwenden bei /awaken, 'Monarch einrichten', 'Repo initialisieren' oder wenn .monarch/ fehlt.
+description: Richtet Umbrarch im aktuellen Repository ein (Repo-Identitaet, Plan, Risk-Tags). Verwenden bei /awaken, 'Umbrarch einrichten', 'Repo initialisieren' oder wenn .monarch/ fehlt.
 ---
 
 # Awaken

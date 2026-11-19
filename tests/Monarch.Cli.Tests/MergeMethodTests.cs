@@ -62,7 +62,7 @@ public class MergeMethodTests
     private static RunResult MergeApproved(TempProject p)
     {
         Tick(p);
-        Assert.Equal(0, p.Hook("subagent-stop", """{"session_id":"sess1","hook_event_name":"SubagentStop","agent_id":"a1","agent_type":"monarch:warden"}""").Code);
+        Assert.Equal(0, p.Hook("subagent-stop", """{"session_id":"sess1","hook_event_name":"SubagentStop","agent_id":"a1","agent_type":"umbrarch:warden"}""").Code);
         Tick(p);
         Assert.Equal(0, p.Run(["gate", "verdict", "G-0001", "--verdict", "approve", "--source", Review]).Code);
         Tick(p);
@@ -211,7 +211,7 @@ public class MergeMethodTests
     private static RunResult MergeApprovedWith(TempProject p, Dictionary<string, string?> extra, Stopwatch? timer = null)
     {
         Tick(p);
-        Assert.Equal(0, p.Hook("subagent-stop", """{"session_id":"sess1","hook_event_name":"SubagentStop","agent_id":"a1","agent_type":"monarch:warden"}""").Code);
+        Assert.Equal(0, p.Hook("subagent-stop", """{"session_id":"sess1","hook_event_name":"SubagentStop","agent_id":"a1","agent_type":"umbrarch:warden"}""").Code);
         Tick(p);
         Assert.Equal(0, p.Run(["gate", "verdict", "G-0001", "--verdict", "approve", "--source", Review]).Code);
         Tick(p);

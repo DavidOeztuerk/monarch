@@ -24,7 +24,7 @@ public class GateMergeTests
 
     private static void Tick(TempProject p) => p.Clock.UtcNow = p.Clock.UtcNow.AddMinutes(1);
 
-    private static void Warden(TempProject p, string agentType = "monarch:warden")
+    private static void Warden(TempProject p, string agentType = "umbrarch:warden")
     {
         Tick(p);
         var r = p.Hook("subagent-stop", $$"""{"session_id":"sess1","hook_event_name":"SubagentStop","agent_id":"a1","agent_type":"{{agentType}}"}""");
@@ -57,10 +57,10 @@ public class GateMergeTests
 
     // ---- success path
     [Theory]
-    [InlineData("E", "E", "monarch:warden")]
+    [InlineData("E", "E", "umbrarch:warden")]
     [InlineData("C", "C", "warden")]
-    [InlineData("B", "B", "monarch:warden")]
-    [InlineData("A", "A", "monarch:warden")]
+    [InlineData("B", "B", "umbrarch:warden")]
+    [InlineData("A", "A", "umbrarch:warden")]
     public void Merge_squashes_into_the_integration_branch_with_the_checked_head(string gateRank, string questRank, string agent)
     {
         var (p, f) = Setup(gateRank, questRank);
@@ -333,6 +333,12 @@ public class GateMergeTests
     [InlineData("monarch:knight")]
     [InlineData("monarch:warden-extra")]
     [InlineData("Warden2")]
+    // ADR-0019 Entscheidung 5b (Q-0186): nur umbrarch:warden und warden; kein alter Name, kein fremder Präfix, keine Wildcard.
+    [InlineData("monarch:warden")]
+    [InlineData("x:warden")]
+    [InlineData("umbrarch:warden-extra")]
+    [InlineData("Umbrarch:warden")]
+    [InlineData("umbrarch:*")]
     public void Only_a_warden_run_counts(string agentType)
     {
         var (p, f) = Setup();

@@ -2,7 +2,7 @@
 name: strategist
 description: Zerlegt ein Gate in Quests, schaetzt Mana und definiert den Boss-Test. Nur aus verifizierten Scout-Funden. Nutzen fuer Planung ab Gate-Import.
 model: opus
-tools: Read, Grep, Glob, Bash, mcp__plugin_monarch_monarch__gate_plan, mcp__plugin_monarch_monarch__mana_forecast
+tools: Read, Grep, Glob, Bash, mcp__plugin_umbrarch_umbrarch__gate_plan, mcp__plugin_umbrarch_umbrarch__mana_forecast
 skills:
   - status
   - gate
