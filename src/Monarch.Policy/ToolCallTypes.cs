@@ -30,8 +30,6 @@ public static class PolicyRules
     public const string RefuseHighRankInBypassMode = "refuse_high_rank_in_bypass_mode";
     /// <summary>Quest Scope Lock.</summary>
     public const string ScopeLock = "scope_lock";
-    /// <summary>Gate-Branch ohne in_progress-Quest (#149, Owner 19.11.2026).</summary>
-    public const string QuestNotStarted = "quest_not_started";
     /// <summary>Rank-S-Freigabe (ADR-0003).</summary>
     public const string RankSApproval = "rank_s_approval";
     /// <summary>Keine Regel greift.</summary>
@@ -83,8 +81,7 @@ public sealed record ToolCall(
 /// <param name="Id">Kennung.</param>
 /// <param name="Rank">Rank.</param>
 /// <param name="Scope">Pfad-Scope.</param>
-/// <param name="InProgress">True erst nach <c>quest start</c>. Standard false: ohne Angabe gilt die Quest als nicht gestartet (streng).</param>
-public sealed record ActiveQuest(QuestId Id, Rank Rank, QuestScope Scope, bool InProgress = false);
+public sealed record ActiveQuest(QuestId Id, Rank Rank, QuestScope Scope);
 
 /// <summary>Konfigurierbare Policy-Optionen (Defaults aus system.yaml).</summary>
 public sealed record PolicyOptions

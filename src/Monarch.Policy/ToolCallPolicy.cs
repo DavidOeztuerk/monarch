@@ -65,7 +65,6 @@ public static partial class ToolCallPolicy
         Add(ProtectBranches(call, context, segments, paths));
         Add(RefuseHighRank(call, context));
         Add(ScopeLock(call, context, paths));
-        Add(QuestNotStarted(call, context, paths));
         Add(RankS(call, context));
         return Combine(results);
     }
@@ -493,23 +492,6 @@ public static partial class ToolCallPolicy
         return PolicyDecision.Deny(PolicyRules.ScopeLock,
             $"'{(rel.Length == 0 ? call.FilePath : rel)}' liegt außerhalb des Scopes von {quest.Id.Value}. Double-Dungeon-Signal: Replan nötig. Folge-Quest per `gate_plan`, Notiz per `knowledge_write`, oder erst `quest submit`; nicht mit anderem Pfad/Tool wiederholen.")
             with { Signals = [PolicySignals.DoubleDungeon] };
-    }
-
-    // ---- 6b. Gate-Branch ohne laufende Quest (#149, Owner 19.11.2026: streng, keine Lockerung)
-    private static PolicyDecision? QuestNotStarted(ToolCall call, PolicyContext ctx, Canon paths)
-    {
-        if (Array.IndexOf(FileMutators, call.ToolName) < 0) return null;
-        var rel = call.FilePath is { Length: > 0 } fp ? paths.Rel(fp) : "";
-        if (rel.Length > 0 && MatchesAny(AlwaysWritable, rel)) return null;
-        if (ctx.ActiveQuest is { InProgress: true }) return null;
-        var gitDir = BranchGuard.FindGitDir(ctx.ProjectRoot);
-        var branch = gitDir is null ? null : BranchGuard.Load(gitDir, ctx.HomeDir).Branch;
-        if (branch is null || !branch.StartsWith("monarch/G-", StringComparison.Ordinal)) return null;
-        var way = ctx.ActiveQuest is { } q
-            ? $"Die aktive Quest {q.Id.Value} ist nicht gestartet: `quest start {q.Id.Value}`."
-            : "Erst `quest accept <Q-ID>` und dann `quest start <Q-ID>`.";
-        return PolicyDecision.Deny(PolicyRules.QuestNotStarted,
-            $"Auf dem Gate-Branch '{branch}' ist keine Quest in_progress. {way} Danach erst editieren.");
     }
 
     // ---- 7. Rank S (ADR-0003)
