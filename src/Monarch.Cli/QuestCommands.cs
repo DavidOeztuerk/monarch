@@ -77,8 +77,12 @@ internal static class QuestCommands
                 var decision = ManaGuard.Decide(snapshot, scaled.SessionPct, scaled.WeeklyPct, RecapReservePct, limits, env.Clock.UtcNow);
                 if (decision != ManaDecision.Proceed)
                 {
+                    // #87: nach dem Reset ist ein alter Stand veraltet. Die Ablehnung bleibt; die Meldung nennt den Grund und den Weg.
+                    var stale = snapshot.IsStale && snapshot.FiveHourResetsAt <= env.Clock.UtcNow
+                        ? FormattableString.Invariant($" Der Stand ist veraltet: das 5h-Fenster ist seit {ManaSupport.Iso(snapshot.FiveHourResetsAt)} zurückgesetzt, der Wert stammt von davor. Eine interaktive Session öffnen, damit die Statusline den Stand auffrischt, dann erneut annehmen.")
+                        : string.Empty;
                     return Refuse(env, FormattableString.Invariant(
-                        $"Mana does not fit ({decision}): 5h {snapshot.Effective5h:0}% + step {scaled.SessionPct:0.#}% + recap {RecapReservePct:0}% exceeds limit {ManaSupport.Num(limits.FiveHourPct)}% (or 7d {snapshot.Effective7d:0}% + {scaled.WeeklyPct:0.#}% vs {ManaSupport.Num(limits.SevenDayPct)}%). {pairLine}"));
+                        $"Mana does not fit ({decision}): 5h {snapshot.Effective5h:0}% + step {scaled.SessionPct:0.#}% + recap {RecapReservePct:0}% exceeds limit {ManaSupport.Num(limits.FiveHourPct)}% (or 7d {snapshot.Effective7d:0}% + {scaled.WeeklyPct:0.#}% vs {ManaSupport.Num(limits.SevenDayPct)}%).{stale} {pairLine}"));
                 }
             }
 
