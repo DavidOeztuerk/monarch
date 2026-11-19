@@ -109,6 +109,32 @@ public class McpServerTests
     }
 
     [Fact]
+    public void Gate_plan_never_lowers_an_existing_gate_rank()
+    {
+        // #145: ein Folge-Aufruf mit niedrigerem Gate-Rang darf einen Gate mit Rang S nicht auf C senken.
+        using var p = new TempProject();
+        const string strict = """{"gate":{"id":"G-0007","title":"Gate seven","rank":"S","kind":"standard"},"quests":[{"id":"Q-0071","title":"Plain","kind":"main","rank":"D","scope":{"include":["src/web/**"],"exclude":[]},"estimate":{"session_pct":5,"weekly_pct":1},"dod":["a"],"boss":"boss one"}]}""";
+        const string lower = """{"gate":{"id":"G-0007","title":"Gate seven","rank":"C","kind":"standard"},"quests":[{"id":"Q-0073","title":"Folge","kind":"side","rank":"E","scope":{"include":["src/web/**"],"exclude":[]},"estimate":{"session_pct":1,"weekly_pct":0.5},"dod":["d"]}]}""";
+        Assert.False(Result(Rpc(p, Call(1, "gate_plan", strict))[0]).IsError);
+        Assert.False(Result(Rpc(p, Call(1, "gate_plan", lower))[0]).IsError);
+        var list = p.Run(["gate", "list"]).Out;
+        Assert.Contains("G-0007  [S]", list, StringComparison.Ordinal);
+        Assert.DoesNotContain("G-0007  [C]", list, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Gate_with_a_numeric_rank_in_its_file_is_read_as_E_not_as_an_invalid_rank()
+    {
+        // #145 Härtung: Enum.TryParse nimmt "99" als Rang an. Ein ungültiger Rang fällt auf E zurück.
+        using var p = new TempProject();
+        Assert.False(Result(Rpc(p, Call(1, "gate_plan", Plan))[0]).IsError);
+        var file = Directory.GetFiles(Path.Combine(p.Root, ".monarch", "gates"), "G-0007*").Single();
+        File.WriteAllText(file, File.ReadAllText(file).Replace("rank: C", "rank: 99", StringComparison.Ordinal));
+        var list = p.Run(["gate", "list"]).Out;
+        Assert.Contains("G-0007  [E]", list, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Quest_transition_allows_only_accept_start_submit()
     {
         using var p = new TempProject();

@@ -321,6 +321,12 @@ internal static partial class GatePlan
         }
 
         var oldGate = board.ListGatesAsync().GetAwaiter().GetResult().FirstOrDefault(x => x.Id.Value == gateId);
+        // #145: ein Folge-Aufruf senkt den Gate-Rang nie. Der höhere Rang bleibt stehen.
+        if (oldGate is not null && oldGate.Rank > gateRank)
+        {
+            gateRank = oldGate.Rank;
+        }
+
         // Issue 92: Folge-Quests werden an die Liste angehängt, bestehende Quests bleiben in der Gate-Datei.
         var gateQuests = (oldGate?.Quests ?? []).Concat(planned.Select(p => p.Quest.Id)).Distinct().ToList();
         board.UpsertGateAsync(new BoardGate(new GateId(gateId), gateTitle!, gateRank, oldGate?.State ?? "proposed", gateQuests, null)).GetAwaiter().GetResult();
