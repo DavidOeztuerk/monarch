@@ -1,14 +1,14 @@
 # RECAP
 
 ## Stand
-- Zeitpunkt: 2026-11-15T12:04:37Z
+- Zeitpunkt: 2026-11-15T18:09:12Z
 - Plan: Pro
-- Mana 5h: 17% (Limit 90%, Reset 2026-11-15T16:40:00Z)
-- Mana 7d: 92% (Limit 96%, Reset 2026-11-18T11:00:00Z)
+- Mana 5h: 74% (Limit 90%, Reset 2026-11-15T21:50:00Z)
+- Mana 7d: 72% (Limit 96%, Reset 2026-11-18T11:00:00Z)
 - Limits: 5h 90%, 7d 96% (adaptive)
 
 ## Aktiv
-- Gate G-0115 · Quest Q-0160 [A] · Phase in_progress
+- keine aktive Quest
 
 ## Erledigt
 - Q-0113 [A] cleared: Merge-Policy nach Zielbranch - https://github.com/DavidOeztuerk/monarch/pull/15 - Evidence: https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122946762702, https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122946762600, https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122943422084, https://github.com/DavidOeztuerk/monarch/actions/runs/40721744761/job/122943425111, https://github.com/DavidOeztuerk/monarch/actions/runs/40721758194/job/122934234801, https://github.com/DavidOeztuerk/monarch/pull/15
@@ -31,15 +31,11 @@
 - Q-0150: bench/test-gate.sh erweitert, vorher rot, danach grün, deterministisch über BENCH_RESULTS_DIR: knapp unter den C1-Schwellen grün, knapp darüber rot je Klasse; Schwellen nicht über die Umgebung anhebbar; auf einem anderen Betriebssystem Exit 2; alle bestehenden Prüfungen unverändert grün
 - Q-0150: Verweise: der Kommentar zu C1 in .github/workflows/ci.yml nennt die Bedingung ruhige Maschine und den Nachtrag; docs/lessons.md bekommt einen kurzen Nachtrag; die CI-Schritte selbst ändern sich nicht
 - Q-0150: Heikle Quest nach Standardregel 3: Warden-Runde über das Design vor dem Code, kein src-Code, kein anderer Test und keine andere Schwelle aufgeweicht, Schlussrunde des Wardens mit Verdict am Head-SHA
-- Q-0160: Issue 105 nachgestellt als rote Tests in tests/Monarch.Policy.Tests/GitDirOutsideProjectTests.cs: git -C mit literalem absolutem Ordner ausserhalb des Projekts, Regel 2 (Operand .monarch/ledger/...) und Regel 5 (checkout -f) melden heute deny bzw. ask
-- Q-0160: Gegenproben gruen: git -C auf die Projekt-Root oder einen Unterordner, git -C mit Variable, Tilde oder Glob, zusaetzliche --git-dir/--work-tree/GIT_*-Angaben, git -C ueber einen Symlink ins Projekt bleiben deny bzw. ask
-- Q-0160: ADR-0019 in einfacher Sprache: was als Nennung gilt, warum keine Schutzregel faellt (Massstab ADR-0011/0014), Grenzen, Tests
-- Q-0160: Warden-Designrunde mit hoechstens einer Delta-Runde
 
 ## Nächster konkreter Schritt
-G-0115 fortsetzen (Worktree .claude/worktrees/G-0115, Branch nur lokal, Q-0160 in_progress): nach Owner-Entscheid zu Regel 5 ADR-0019 nach den Befunden der Warden-Designrunde ueberarbeiten (Kommentar an Issue 105 vom 15.11.), Gegenproben ergaenzen, dann einzige Delta-Runde. Erst nach dem Wochen-Reset am 18.11. 11:00 UTC.
+Gate B (G-0118) von origin/develop d8cf1fc anlegen: Rueckfrage im Subagenten wird ein Deny mit genanntem Ausweg (Variante b), heikel nach Standardregel 3 mit ADR-0003-Nachtrag, Warden-Designrunde, TDD, Code-Runde. Scout, dann Strategist mit gate_plan; den subagent-stop-Check aus Issue 116 nur aufnehmen, wenn gate_plan denselben Rank ergibt, sonst eigenes Gate. Erst nach dem 5h-Reset am 15.11. 21:50 UTC. Gate A (G-0117, PR 118, Squash d8cf1fc) ist gemergt, Q-0163 cleared, Worktree entfernt. G-0115-Worktree bleibt, Q-0160 und Q-0161 abandoned, Branch nur lokal (5c30116).
 
 ## Offene Entscheidungen
-- Regel 5 (ADR-0011, pfadlose Arbeitsbaum-Mutation -> ask): darf sie fuer git -C mit nachweislich fremdem Arbeitsbaum ausserhalb des Projekts entfallen? Wortlaut heute ohne Bedingung.
-- ask in Hintergrund-Agenten: bleibt ask, wird fuer Subagenten zu deny mit Ausweg, oder nur Hinweis im Agent-Prompt?
-- Issue 104 (python-Inline mit .claude): ADR-0014 Entscheidung 2 haelt die Teilstring-Suche bewusst; Skriptdatei laut Deny-Text als genannter Weg, oder Regel aendern (Lockerung)?
+- Regel 1 und Test-Repos: Knights duerfen laut knight.md Klone ausserhalb des Scopes erst nach quest submit anlegen. Soll es fuer Test-Repos eine Ausnahme von Regel 1 geben (Lockerung, Owner-Entscheid)?
+- Regel 6: Beispiel Skriptdatei im Scratchpad weggelassen, weil Regel 1 den Scope auch auf das Scratchpad bezieht. So lassen oder Regel 1 anpassen?
+- git clone mit Ziel direkt im Monarch-Ordner des Projekts (kein Schutzpfad) ist laut Knight heute allow, nicht nachgeprueft (Issue 119). Gewollt?
