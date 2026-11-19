@@ -5,9 +5,11 @@ kind: main
 rank: A
 state: proposed
 dod:
-  - "ShadowReadOnly schneidet das Präfix bis zum letzten Doppelpunkt ab, bei Agent-Typ und Listeneintrag; monarch:warden und x:scout bleiben read-only (Test vorher rot)"
-  - "Warden-Nachweis für gate merge nur umbrarch:warden und warden; monarch:warden, x:warden und Wildcards werden verweigert (Test vorher rot)"
-  - "Plugin-Name steht im Code genau an einer Stelle (Konstante in RuleTexts.cs), WardenTypes leitet sich davon ab"
+  - "ShadowReadOnly schneidet das Präfix bis zum letzten Doppelpunkt ab, bei Agent-Typ und Listeneintrag (Test je Fall vorher rot, wo er heute nicht schon grün ist; monarch:warden ist schon heute read-only und gilt als Regressionsfall)"
+  - "Fälle mit Standardliste warden, scout: umbrarch:warden, umbrarch:scout, x:scout, a:b:warden read-only (die neuen davon vorher rot); umbrarch:knight schreibt; warden: ist nicht read-only"
+  - "Fälle mit Eintrag monarch:scribe: schützt umbrarch:scribe und scribe (vorher rot) und weiter monarch:scribe"
+  - "Warden-Nachweis für gate merge nur umbrarch:warden und warden; monarch:warden, x:warden, umbrarch:warden-extra, Umbrarch:warden und Wildcards werden verweigert (Test vorher rot)"
+  - "Plugin-Name steht im Code genau an einer Stelle (Konstante RuleTexts.PluginName), WardenTypes leitet sich davon ab; Repo-Test: in src/**/*.cs nennt genau eine Zeile umbrarch (vorher rot)"
   - "Übergang neues Binary, altes Plugin als Test: alte Präfixe bleiben read-only und zählen nicht als Warden"
   - "Keine bestehende Schutzprüfung gelockert; volle Suite grün"
 scope:

@@ -1,6 +1,6 @@
 # ADR-0019 — Produktname Umbrarch
 
-**Datum:** 19.11.2026 · **Status:** angenommen. Freigabe laut Owner-Prompt vom 19.11.2026, wörtlich: „Hält sich das ADR an Entscheid und Umfang dieser Prompt, gilt es als freigegeben. Nur bei Abweichungen fragst du.“ · **Quest:** Q-0185 (G-0127) · **Folge-Gate v0.2:** #153 · **Löst ab:** ADR-0007, Zeile 81 (Warden-Typen), siehe Entscheidung 5b
+**Datum:** 19.11.2026 · **Status:** angenommen. Freigabe laut Owner-Prompt vom 19.11.2026, wörtlich: „Hält sich das ADR an Entscheid und Umfang dieser Prompt, gilt es als freigegeben. Nur bei Abweichungen fragst du.“ · **Überarbeitet** am 19.11.2026 nach Warden-Designrunde 1 (PR-Kommentar 7009959115) und den Owner-Antworten unten; **Freigabe des überarbeiteten Stands: offen** (CLAUDE.md Regel 3 verlangt nach jeder Änderung an einem freigegebenen ADR eine neue Freigabe des Owners; die Überarbeitung geschah im Auftrag des Owners, ersetzt aber diese Freigabe nicht) · **Quest:** Q-0185 (G-0127) · **Folge-Gate v0.2:** #153 · **Löst ab:** ADR-0007, Zeile 81 (Warden-Typen), siehe Entscheidung 5b
 
 ## Kurz in einfacher Sprache
 
@@ -10,12 +10,24 @@
 - Die Regel für read-only Shadows wird **strenger, nicht lockerer**: Ein Shadow, der read-only ist, bleibt read-only, egal welcher Plugin-Name vor dem Doppelpunkt steht.
 - Für `gate merge` zählt nur noch ein Warden-Lauf von `umbrarch:warden` oder `warden`. Der alte Name `monarch:warden` zählt nicht mehr. Das ist ein Austausch eines Namens gegen einen anderen, ohne Wildcard.
 - Der Plugin-Name steht im Code an genau einer Stelle.
+- Die Version steigt auf 0.1.1. Dann findet ein neuer Wrapper ein altes Binary nicht und fragt nach, statt still weniger zu schützen. Das Release heißt v0.1.1.
+- Der Owner muss die Befehle zum Wechsel in fester Reihenfolge ausführen und danach prüfen, dass nur `umbrarch` aktiv ist (Abschnitt „Übergang“).
 
 ## Owner-Entscheid (wörtlich)
 
 Owner im Chat, 19.11.2026:
 
 > „Neuer Produktname: Umbrarch. ‚Monarch‘ kollidiert im Claude-Plugin-Verzeichnis mit dem Plugin von Monarch Money. Jetzt nur die sichtbare Schicht; interne Namen folgen in v0.2 mit Migration. Das Repo bleibt öffentlich.“
+
+## Owner-Antworten auf die offenen Fragen (wörtlich)
+
+Der erste Stand dieses ADR (Head 84b6a10) hatte drei Fragen offen. Antworten des Owners, 19.11.2026, wörtlich aus der Fortsetzungs-Prompt:
+
+1. „Alte Dokumente bleiben, wie sie sind: ADR-0001 bis 0018, docs/lessons.md und docs/evidence/ behalten den Namen Monarch.“
+2. „Skill-Beschreibungen bekommen den Namen Umbrarch jetzt, weil sie im Plugin sichtbar sind. Briefing-Kopf und CLAUDE.md-Titel erst in v0.2.“
+3. „Ja, Versionssprung auf 0.1.1. Fail-closed geht vor dem Release-Namen. Das Release heißt v0.1.1.“
+
+Damit sind keine Fragen mehr offen. Ableitungen der Session aus diesen Antworten (keine Owner-Zitate): Die Skill-Beschreibungen (`description` in `plugin/skills/*/SKILL.md`, je Zeile 3) nennen künftig Umbrarch; Briefing-Kopf und Titelzeile von `CLAUDE.md` bleiben bis v0.2 (so sagt es die Antwort selbst). Auf andere Texte im Binary dehnt die Session die Antwort nicht aus. Der Versionssprung betrifft die Stellen im Abschnitt „Übergang“.
 
 ## Markencheck
 
@@ -34,7 +46,9 @@ Jetzt (sichtbare Schicht):
 3. Verweise `monarch:<name>` werden `umbrarch:<name>`: in Skills, Agents, `CLAUDE.md`, `RuleTexts.StandardRulesLine`, Hook-Texten und Slash-Befehlen (`/umbrarch:awaken` …).
 4. Der Plugin-Name steht im Code an genau einer Stelle (eine Konstante).
 5. Schutzregeln fail-closed, mit Tests, auch für den Übergang „neues Binary, altes Plugin“ (Entscheidung 5a und 5b unten).
-6. `README.md`, `docs/`, `plugin/README.md`: Produktname Umbrarch, Repo-URL `github.com/DavidOeztuerk/umbrarch`, neue Installationsbefehle und der Hinweis zum Codenamen.
+6. `README.md`, `docs/`, `plugin/README.md`: Produktname Umbrarch, Repo-URL `github.com/DavidOeztuerk/umbrarch`, neue Installationsbefehle und der Hinweis zum Codenamen. Pfade zum lokalen Ordner stehen als Platzhalter `<repo>`. Von `docs/` ändert sich nur, was die Owner-Antwort 1 nicht ausnimmt (ADR-0001 bis 0018, `docs/lessons.md` und `docs/evidence/` bleiben).
+7. Die `description` der Skills (`plugin/skills/*/SKILL.md`) nennt Umbrarch (Owner-Antwort 2).
+8. Version 0.1.1 (Owner-Antwort 3, Abschnitt „Übergang“).
 
 Bleibt bis v0.2, wörtlich aus der Owner-Prompt (eigenes Gate mit Migration, #153):
 
@@ -66,7 +80,7 @@ Owner-Prompt, wörtlich: „a) ShadowReadOnly (ToolCallPolicy.cs): das Präfix b
 
 Beispiele mit der Standardliste `warden, scout`: `warden`, `monarch:warden`, `umbrarch:warden`, `x:scout` und `a:b:warden` sind read-only. `umbrarch:knight` darf schreiben.
 
-**Warum auch die Einträge:** Ein Eintrag `monarch:scribe` (so steht es im Ledger, Test `ToolCallPolicyTests.cs:207-208`) schützt heute den Shadow `monarch:scribe`. Nach dem Wechsel heißt er `umbrarch:scribe`. Würde nur der Agent-Typ gekürzt, fiele dieser Schutz weg.
+**Warum auch die Einträge:** Ein Eintrag `monarch:scribe` (so ein Eintrag steht im Test `ToolCallPolicyTests.cs:207-208`, dessen Kommentar lautet „so schreibt man es aus dem Ledger ab“) schützt heute den Shadow `monarch:scribe`. Nach dem Wechsel heißt er `umbrarch:scribe`. Würde nur der Agent-Typ gekürzt, fiele dieser Schutz weg.
 
 **Strenger, nie lockerer (Beweis):** Heute ist ein Shadow read-only, wenn der rohe Typ `t` in der Liste steht oder `t` ohne `monarch:` darin steht. In beiden Fällen ist der Name von `t` gleich dem Namen dieses Eintrags, denn ein vorne entferntes `monarch:` ändert nichts an dem, was nach dem letzten `:` steht. Jeder Fall, der heute read-only ist, bleibt es also. Neu read-only werden nur:
 
@@ -78,7 +92,7 @@ Unverändert bleiben: welche Werkzeuge und Git-Befehle verweigert werden (`:458-
 
 ## Entscheidung 5b — Warden-Nachweis nur umbrarch:warden und warden
 
-Owner-Prompt, wörtlich: „b) Warden-Nachweis für gate verdict (GateMergeCommands.WardenTypes): nur „umbrarch:warden“ und „warden“. Kein alter Name, keine Wildcard. Ein alter Präfix führt zur Verweigerung.“
+Owner-Prompt, wörtlich: „b) Warden-Nachweis für gate verdict (GateMergeCommands.WardenTypes): nur „umbrarch:warden“ und „warden“. Kein alter Name, keine Wildcard. Ein alter Präfix führt zur Verweigerung.“ Anmerkung der Session: Geprüft wird der Nachweis in `gate merge` (`GateMergeCommands.cs:470`, `:616-650`), nicht in `gate verdict`; `WardenTypes` ist dieselbe Konstante.
 
 **Heute** (`src/Monarch.Cli/GateMergeCommands.cs:18`): `["monarch:warden", "warden"]`, geprüft per exaktem Vergleich (`:638`). Das legt auch ADR-0007, Zeile 81 fest.
 
@@ -86,21 +100,59 @@ Owner-Prompt, wörtlich: „b) Warden-Nachweis für gate verdict (GateMergeComma
 
 ## Übergang zwischen altem und neuem Stand
 
-Der Wrapper startet `~/.monarch/bin/<version>/monarch` mit der Version aus `plugin/scripts/monarch:4` (`MONARCH_VERSION=0.1.0`, Pfad `:65-67`). `scripts/install-local.sh` installiert unter der Version aus `plugin/.claude-plugin/plugin.json:3` (`0.1.0`; Skript `:9`, `:25`). G-0127 ändert keine der beiden Versionsangaben. Altes und neues Binary liegen also unter demselben Pfad, und beide Mischformen sind möglich.
+**Versionssprung (Owner-Antwort 3):** Mit G-0127 steigt die Version von 0.1.0 auf **0.1.1**: `plugin/.claude-plugin/plugin.json:3`, `MONARCH_VERSION` in `plugin/scripts/monarch:4` und `ServerVersion` in `src/Monarch.Cli/McpTools.cs:17` (Vorschlag der Session: dieselbe Zahl im MCP-Handshake). `scripts/install-local.sh` liest die Version aus `plugin.json` (`:9`), installiert unter `~/.monarch/bin/0.1.1/` (`:25`), setzt den Symlink `~/.monarch/bin/monarch` neu (`ln -sfn`) und lässt `~/.monarch/bin/0.1.0/` unberührt. `plugin/tests/wrapper-test.sh` liest die Version aus dem Wrapper (`:6`) und nennt keine feste Zahl. Das Release heißt v0.1.1.
 
-| Binary | Plugin | Agent-Typen | ShadowReadOnly | Warden-Nachweis |
-|---|---|---|---|---|
-| neu | alt (`monarch@monarch-local`) | `monarch:*` | read-only bleibt (5a) | `monarch:warden` zählt nicht, `gate merge` verweigert (5b) |
-| neu | neu (`umbrarch@umbrarch-local`) | `umbrarch:*` | read-only (5a) | `umbrarch:warden` zählt |
-| alt | neu | `umbrarch:*` | **read-only greift nicht**: das alte Binary kürzt nur `monarch:` | `umbrarch:warden` zählt nicht, `gate merge` verweigert |
+Der Wrapper startet `~/.monarch/bin/<version>/monarch` (`plugin/scripts/monarch:65-67`). Findet er dieses Binary nicht, ruft er `fail()` (`:43-57`). Fail-closed ist das nur in einem Fall: Hook `pre-tool-use` in einem erweckten Projekt, dann fragt der Wrapper nach (`:46-48`). Alle anderen Hooks und die Statuszeile bleiben fail-open (`:50-51`), MCP-Server und CLI enden mit Exit 1 (`:52-55`).
 
-**Risiko in der dritten Zeile:** Ein altes Binary mit dem neuen Plugin lässt Warden und Scout schreiben. Dieses ADR schließt das nicht im Code; das alte Binary lässt sich nicht nachträglich ändern. Abhilfe ist die Reihenfolge beim Owner: erst den Checkout aktualisieren und `scripts/install-local.sh` ausführen (neues Binary), dann das Plugin wechseln, dann Claude Code neu starten. Zwischen diesen Schritten keine Claude-Code-Session neu starten: Der lokale Marketplace liest das Plugin aus dem Checkout (`claude plugin list` am 19.11.2026: `monarch@monarch-local`, „Read from: /Users/davidozturk/Projects/monarch/plugin“).
+### Zustände
 
-Eine neue Versionsnummer würde die dritte Zeile fail-closed machen: Der neue Wrapper fände kein Binary und fragt in einem erweckten Projekt nach (`plugin/scripts/monarch:46-48`, `:67`). Die Owner-Prompt nennt das Release aber „v0.1.0“. Darum ist das hier nur ein Vorschlag und eine Frage an den Owner, keine Entscheidung.
+| # | Binary | Plugin geladen | ShadowReadOnly | Warden-Nachweis | Beleg und Folge |
+|---|---|---|---|---|---|
+| 1 | 0.1.1 | `umbrarch@umbrarch-local` | read-only (5a) | `umbrarch:warden` zählt | Sollzustand. |
+| 2 | 0.1.1 | `monarch@monarch-local`, Registrierung zeigt auf einen **noch alten** Checkout | Hooks: der alte Wrapper sucht 0.1.0 und findet es (die Installation lässt es stehen); sie laufen mit dem alten Code, `monarch:*` bleibt dort read-only wie bisher | `gate merge` läuft über den Symlink `~/.monarch/bin/monarch` (`plugin/skills/quest/SKILL.md:21`, `scripts/install-local.sh:38`) mit 0.1.1: `monarch:warden` zählt nicht, `gate merge` verweigert (5b) | Gemischter Stand: Hooks alt, `gate merge` neu. Das Briefing nennt `monarch:regeln` und passt zum geladenen Plugin. |
+| 3 | 0.1.1 | `monarch@monarch-local`, Registrierung zeigt auf den **aktualisierten** Checkout | unbekannt | unbekannt | **Nicht belegt.** Das Manifest im Checkout heißt jetzt `umbrarch`, die Registrierung `monarch@monarch-local`. Ob Claude Code das Plugin dann lädt, hat die Session nicht geprüft. Lädt es kein Plugin, läuft **kein Hook**, und keine Regel greift (fail-open). Der Code kann das nicht abfangen. Darum die feste Reihenfolge unten und die Prüfung nach dem Neustart. |
+| 4 | 0.1.1 | beide Plugins aktiv | je nach Hook | je nach Hook | **Nicht belegt.** Zwei Hook-Sätze riefen denselben Wrapper doppelt auf. Ob das eintritt, zeigt `claude plugin list` nach dem Neustart. Vermeiden: erst deinstallieren, dann installieren. |
+| 5 | 0.1.0 | `umbrarch@umbrarch-local` | **greift nicht**: das alte Binary kürzt nur `monarch:` | `umbrarch:warden` zählt nicht, `gate merge` verweigert | Der Wrapper aus dem neuen Checkout sucht `~/.monarch/bin/0.1.1/monarch`, findet es nicht und fragt bei `pre-tool-use` im erweckten Projekt nach (fail-closed). Andere Hooks laufen nicht (fail-open, `session-start` ohne Ausgabe: **kein Briefing**), der MCP-Server endet mit Exit 1. Ein Test sichert das ab (Q-0187). |
+| 6 | beliebig | kein Plugin geladen | – | – | Kein Hook, keine Regel. Der Wrapper wird nie aufgerufen, auch die Version 0.1.1 hilft nicht. Nur die Reihenfolge der Owner-Befehle und die Prüfung nach dem Neustart schützen davor. |
+
+Mit der Version 0.1.1 ist die frühere Mischform „altes Binary, neues Plugin“ (Zeile 5) fail-closed, soweit ein Hook läuft. Zeile 3, 4 und 6 sind durch den Code nicht abgedeckt; dort gilt die feste Reihenfolge.
+
+Das Briefing kommt vom SessionStart-Hook des geladenen Plugins (`plugin/hooks/hooks.json:8`, `src/Monarch.Cli/HookRunner.cs:327`, `:461`) und läuft mit dem Binary, das dessen Wrapper findet. In Zustand 2 nennt es `monarch:regeln` (passt zum alten Plugin). In Zustand 5 kommt gar kein Briefing. Ein fehlendes Briefing ist also ein Warnzeichen, aber kein Schutz.
+
+**Betrifft alle Einträge:** Das alte Binary lässt jeden Listeneintrag in `read_only_shadows` (Datei `system.yaml`) mit anderem Präfix wirkungslos, nicht nur Warden und Scout.
+
+**Aufgezeichnete Warden-Läufe:** Ein im Ledger stehender `SubagentStop` von `monarch:warden` zählt mit dem neuen Binary nicht mehr (5b). G-0127 selbst wird mit dem **alten** Binary gemergt; sein Warden-Lauf heißt `monarch:warden` und zählt dort. Alle späteren Gates brauchen einen Lauf von `umbrarch:warden` oder `warden`.
+
+### Owner-Befehle in fester Reihenfolge
+
+Die Reihenfolge ist Pflicht (Zeile 3, 4 und 6). `<repo>` ist der lokale Ordner des Repos. Die Unterbefehle sind mit `claude plugin --help`, `claude plugin uninstall --help` und `claude plugin marketplace --help` am 19.11.2026 belegt.
+
+1. Alle Claude-Code-Sessions beenden. Alle Worktrees sind aufgeräumt: `git worktree list` zeigt nur den Haupt-Checkout (auch ein liegengebliebener Worktree wie `.claude/worktrees/G-0115` muss vorher weg, sonst zeigen seine Verweise nach dem Umbenennen ins Leere).
+2. `claude plugin uninstall monarch@monarch-local`
+3. `claude plugin marketplace remove monarch-local`
+4. Ordner umbenennen: `mv ~/Projects/monarch ~/Projects/umbrarch`, dann `git -C ~/Projects/umbrarch worktree prune`. Ab hier ist `<repo>` gleich `~/Projects/umbrarch`. Hinweis: Der Auto-Memory von Claude Code liegt unter einem Pfad, der vom Ordnernamen abhängt (`~/.claude/projects/-Users-davidozturk-Projects-monarch/`); nach dem Umbenennen beginnt eine Session unter dem neuen Namen ohne ihn, bis der Ordner dort umbenannt wird.
+5. `git -C <repo> pull --ff-only origin develop`
+6. `<repo>/scripts/install-local.sh`
+7. `claude plugin marketplace add <repo>`
+8. `claude plugin install umbrarch@umbrarch-local`
+9. `claude plugin list` zeigt nur `umbrarch@umbrarch-local`.
+10. Claude Code neu starten.
+
+Zwischen diesen Schritten keine Claude-Code-Session starten: Der lokale Marketplace liest das Plugin aus dem Checkout (`claude plugin list` am 19.11.2026: `monarch@monarch-local`, „Read from: /Users/davidozturk/Projects/monarch/plugin“).
+
+### Prüfung nach dem Neustart
+
+- `claude plugin list` nennt nur `umbrarch@umbrarch-local`, kein `monarch@monarch-local`.
+- Das Briefing beim SessionStart nennt `umbrarch:regeln`.
+- Hook-Prüfung in einem erweckten Temp-Projekt: Ein Edit des Agenten `umbrarch:scout` wird mit `shadow_read_only` verweigert. Kommt weder ein Deny noch (Zustand 5) eine Nachfrage des Wrappers, läuft kein Hook (Zeile 3, 4 oder 6); fehlt das Briefing, ist es Zustand 5: nicht weiterarbeiten.
+
+### Berechtigungsregeln in den Einstellungen
+
+Berechtigungsregeln mit dem alten Namen würden still nicht mehr greifen. Prüfung am 19.11.2026: `grep -n -o` nach `mcp__plugin_monarch`, `monarch:<agent>`, `monarch@monarch-local` und `monarch-local` in `~/.claude/settings.json` findet nur `:53` (`monarch@monarch-local`) und `:92` (`monarch-local`); beides sind Plugin- und Marketplace-Einträge, keine Berechtigungsregel. `~/.claude/settings.local.json` und Projekt-Einstellungen gibt es nicht.
 
 ## Bestandsaufnahme
 
-Befehl: `git grep -n -i monarch -- . ':!.monarch/ledger'` auf `dc8ec9c` (develop vor G-0127), 2319 Zeilen. Ein Treffer gehört zu „jetzt“, wenn er unter Punkt 1 bis 6 fällt, sonst zu „v0.2“. Einträge, die die Owner-Prompt nicht ausdrücklich nennt, sind mit „Vorschlag“ markiert.
+Befehl: `git grep -n -i monarch -- . ':!.monarch/ledger'` auf `dc8ec9c` (develop vor G-0127), 2319 Zeilen. Ein Treffer gehört zu „jetzt“, wenn er unter Punkt 1 bis 8 fällt, sonst zu „v0.2“. Einträge, die die Owner-Prompt nicht ausdrücklich nennt, sind mit „Vorschlag“ markiert.
 
 | Datei | Fundstelle | jetzt oder v0.2 | Inhalt |
 |---|---|---|---|
@@ -113,7 +165,9 @@ Befehl: `git grep -n -i monarch -- . ':!.monarch/ledger'` auf `dc8ec9c` (develop
 | `plugin/skills/gate/SKILL.md` | :14 | jetzt | `umbrarch:strategist` (Punkt 3) |
 | `plugin/skills/quest/SKILL.md` | :14 | jetzt | `umbrarch:knight`, `umbrarch:warden` (Punkt 3) |
 | `plugin/skills/regeln/SKILL.md` | :55 | jetzt | `umbrarch:kritiker` (Punkt 3) |
-| `plugin/skills/*/SKILL.md` | übrige der 73 Zeilen in 8 Dateien | v0.2 | Binary `~/.monarch/bin/monarch`, Branch-Präfix, `.monarch`; Produktname in Beschreibungen (Vorschlag) |
+| `plugin/skills/*/SKILL.md` | je :3 (`description`, 8 Dateien; `awaken`, `regeln` und `status` nennen „Monarch“) | jetzt | Produktname Umbrarch in der Beschreibung (Owner-Antwort 2) |
+| `plugin/skills/*/SKILL.md` | übrige der 73 Zeilen in 8 Dateien | v0.2 | Binary `~/.monarch/bin/monarch`, Branch-Präfix, `.monarch` |
+| `plugin/.claude-plugin/plugin.json`, `plugin/scripts/monarch`, `src/Monarch.Cli/McpTools.cs` | :3; :4; :17 | jetzt | Version 0.1.1 (Owner-Antwort 3). `plugin.json:3` und `McpTools.cs:17` sind keine Treffer des Befehls (Zahl, nicht Name); `scripts/monarch:4` steht zugleich in den Wrapper-Zeilen unten. `ServerVersion` in `McpTools.cs:17` ist ein Vorschlag der Session; `install-local.sh` und `wrapper-test.sh` lesen die Version nur |
 | `plugin/README.md` | :1, :3, :8, :17, :18, :21, :25, :50, :66, :125 | jetzt | Name, Installation, `/umbrarch:awaken`, MCP-Tools, Produktname im Fließtext (Punkt 2, 3, 6) |
 | `plugin/README.md` | übrige der 31 Zeilen, dazu in :25 und :66 die Pfade und Befehle | v0.2 | Binary, Wrapper, `~/.monarch`, `.monarch` |
 | `README.md` | :1, :3 | jetzt | Produktname (Punkt 6) |
@@ -124,18 +178,18 @@ Befehl: `git grep -n -i monarch -- . ':!.monarch/ledger'` auf `dc8ec9c` (develop
 | `src/Monarch.Cli/GateMergeCommands.cs` | :18, :613, :641 | jetzt | Warden-Nachweis (5b) |
 | `src/Monarch.Policy/ToolCallPolicy.cs` | :453, :455 | jetzt | ShadowReadOnly (5a) |
 | `src/Monarch.Cli/McpTools.cs` | :26 | jetzt | Name des MCP-Servers aus der Konstante (Punkt 2 und 4) |
-| `src/**` | übrige der 528 Zeilen in 114 Dateien | v0.2 | Namespaces `Monarch.*`, Pfade `.monarch/` und `~/.monarch`, Binary, `MONARCH_*`, Issue-Marker und Label `monarch` (`GitHubIssuesBoard.cs:12`, `:35`, `:67`, `:139`, `:143`, `:184`, `:224`, `:288`); Vorschlag: Texte im Binary (Briefing-Kopf, Deny-Texte), `CompositionRoot.cs:21` (`Repo = "monarch"`; produktiv liest der CLI owner/repo aus `origin` oder `boards.github`, `Support.cs:145-160`) |
+| `src/**` | übrige der 528 Zeilen in 114 Dateien | v0.2 | Namespaces `Monarch.*`, Pfade `.monarch/` und `~/.monarch`, Binary, `MONARCH_*`, Issue-Marker und Label `monarch` (`GitHubIssuesBoard.cs:12`, `:35`, `:67`, `:139`, `:143`, `:184`, `:224`, `:288`); Briefing-Kopf (Owner-Antwort 2); Vorschlag: übrige Texte im Binary, `CompositionRoot.cs:21` (`Repo = "monarch"`; produktiv liest der CLI owner/repo aus `origin` oder `boards.github`, `Support.cs:145-160`) |
 | `tests/Monarch.Cli.Tests/GateMergeTests.cs` | :27, :60, :62, :63 | jetzt | Warden-Lauf als `umbrarch:warden` (5b) |
 | `tests/Monarch.Cli.Tests/LedgerHistoryCliTests.cs`, `MergeMethodTests.cs` | :173; :65, :214 | jetzt | dito |
 | `tests/Monarch.Cli.Tests/RulesAtPlaceTests.cs`, `KritikerShadowTests.cs` | :69, :91; :65 | jetzt | Briefing und Regel 11 (Punkt 3) |
 | `tests/Monarch.Policy.Tests/ToolCallPolicyTests.cs` | :188, :205-208 | jetzt | ShadowReadOnly (5a) |
 | `tests/**` (alte Präfixe als Testdaten) | `GateMergeTests.cs:333`, `:334`, `:460`, `:1145`, `:1156`; `WakeTests.cs:123`; `ProtectBranchesTests.cs:276`, `:277`, `:292`, `:293` | v0.2 | `monarch:knight` und Ähnliches; bleiben gültige Übergangsfälle |
 | `tests/**` | übrige der 1071 Zeilen in 79 Dateien | v0.2 | Namespaces, Pfade, Binary |
-| `CLAUDE.md` | :1 | v0.2 (Vorschlag) | Titel; die Datei enthält keinen Verweis `monarch:<name>` |
+| `CLAUDE.md` | :1 | v0.2 (Owner-Antwort 2) | Titel; die Datei enthält keinen Verweis `monarch:<name>` |
 | `docs/adr/0006-lizenz-und-id-bereiche.md` | :9 | jetzt | Nachtrag: Namensprüfung erledigt, Repo öffentlich; der alte Text bleibt als Verlauf |
 | `docs/adr/0019-produktname-umbrarch.md` | neu | jetzt | dieses ADR |
-| `docs/adr/0001` bis `0018` | übrige der 254 Zeilen in 16 Dateien | v0.2 (Vorschlag, Frage an den Owner) | historische Entscheide; Änderung nur mit neuer Owner-Freigabe (CLAUDE.md Regel 3). Ausnahme ist der beauftragte Nachtrag in ADR-0006 |
-| `docs/lessons.md`, `docs/evidence/**` | 3 Zeilen; 13 Zeilen in 8 Dateien | v0.2 (Vorschlag, Frage an den Owner) | datierter Bericht (Stand 06.11.2026) und aufgezeichnete Belege. Punkt 6 nennt `docs/`; die Session ändert hier trotzdem nichts, weil ein umbenannter Beleg nicht mehr zeigt, was damals lief |
+| `docs/adr/0001` bis `0018` | übrige der 254 Zeilen in 16 Dateien | bleibt (Owner-Antwort 1) | historische Entscheide; Änderung nur mit neuer Owner-Freigabe (CLAUDE.md Regel 3). Ausnahme ist der beauftragte Nachtrag in ADR-0006 |
+| `docs/lessons.md`, `docs/evidence/**` | 3 Zeilen; 13 Zeilen in 8 Dateien | bleibt (Owner-Antwort 1) | datierter Bericht (Stand 06.11.2026) und aufgezeichnete Belege. Punkt 6 nimmt sie wegen Owner-Antwort 1 aus; ein umbenannter Beleg zeigte auch nicht mehr, was damals lief |
 | `monarch.slnx` | 14 Zeilen | v0.2 | Projekte `Monarch.*` |
 | `.github/workflows/ci.yml` | 9 Zeilen | v0.2 | Binary, Artefaktname |
 | `plugin/scripts/monarch`, `plugin/hooks/hooks.json`, `plugin/tests/wrapper-test.sh` | 16, 7, 20 Zeilen | v0.2 | Wrapper |
@@ -148,4 +202,4 @@ Befehl: `git grep -n -i monarch -- . ':!.monarch/ledger'` auf `dc8ec9c` (develop
 ## Nicht in diesem ADR
 
 - Alles unter „v0.2“: eigenes Gate mit Migration (#153).
-- Ein Schutz gegen „altes Binary, neues Plugin“ im Code (siehe Übergang).
+- Ein Schutz im Code gegen die Zustände „kein Plugin geladen“ und „beide Plugins aktiv“ (Zeile 3, 4 und 6 im Abschnitt „Übergang“). Dort schützt nur die feste Reihenfolge der Owner-Befehle und die Prüfung nach dem Neustart.

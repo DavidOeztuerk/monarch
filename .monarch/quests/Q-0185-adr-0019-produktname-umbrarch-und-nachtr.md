@@ -15,5 +15,6 @@ scope:
   exclude: []
 estimate: { session_pct: 4, weekly_pct: 1, gold_usd: 0 }
 boss: "Kritiker findet keine unbelegte Behauptung; Warden approve zum Design"
+board: { pr: 154 }
 ---
 # ADR-0019 Produktname Umbrarch und Nachtrag ADR-0006
