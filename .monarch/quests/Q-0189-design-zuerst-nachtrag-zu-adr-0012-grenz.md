@@ -12,5 +12,6 @@ scope:
   exclude: []
 estimate: { session_pct: 7, weekly_pct: 2, gold_usd: 0 }
 boss: "Warden-Designrunde approve"
+board: { pr: 160 }
 ---
 # Design zuerst: Nachtrag zu ADR-0012 (Grenze = Arbeitsgrenze, je Plan, Modell und Fenster)
