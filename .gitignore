@@ -7,3 +7,4 @@ publish/
 .vs/
 .idea/
 TestResults/
+.DS_Store
