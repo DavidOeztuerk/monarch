@@ -62,7 +62,7 @@ public class KritikerShadowTests
         Assert.True(idx >= 0, "Regel 11 fehlt");
         var end = text.IndexOf('\n', idx + 1);
         var rule = end < 0 ? text[idx..] : text[idx..end];
-        Assert.Contains("`monarch:kritiker`", rule, StringComparison.Ordinal);
+        Assert.Contains($"`{RuleTexts.PluginName}:kritiker`", rule, StringComparison.Ordinal);
     }
 
     [Fact]

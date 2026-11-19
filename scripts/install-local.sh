@@ -45,7 +45,7 @@ Symlink:   $HOME/.monarch/bin/monarch
 
 Next steps:
   1. In Claude Code:  /plugin marketplace add $repo
-                      /plugin install monarch@monarch-local
+                      /plugin install umbrarch@umbrarch-local
   2. In your project: ~/.monarch/bin/monarch awaken
   3. Restart Claude Code (hooks and statusline load at startup).
 EOT

@@ -2,7 +2,7 @@
 name: knight
 description: Implementiert genau eine Quest im Quest-Scope per TDD und committet mit Quest-ID. Nutzen nach quest start.
 model: sonnet
-tools: Read, Grep, Glob, Edit, Write, MultiEdit, Bash, mcp__plugin_monarch_monarch__quest_transition, mcp__plugin_monarch_monarch__evidence_sync, mcp__plugin_monarch_monarch__knowledge_write
+tools: Read, Grep, Glob, Edit, Write, MultiEdit, Bash, mcp__plugin_umbrarch_umbrarch__quest_transition, mcp__plugin_umbrarch_umbrarch__evidence_sync, mcp__plugin_umbrarch_umbrarch__knowledge_write
 skills:
   - quest
   - mana

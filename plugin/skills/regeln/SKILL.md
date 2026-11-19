@@ -1,6 +1,6 @@
 ---
 name: regeln
-description: Standardregeln für jede Session in einem Monarch-Projekt. Lesen vor der Arbeit und bei 'Regeln', 'wie arbeiten wir'.
+description: Standardregeln für jede Session in einem Umbrarch-Projekt. Lesen vor der Arbeit und bei 'Regeln', 'wie arbeiten wir'.
 ---
 
 # Standardregeln (gelten für jede Session)
@@ -52,7 +52,7 @@ description: Standardregeln für jede Session in einem Monarch-Projekt. Lesen vo
     - welche Owner-Aktionen nötig sind (zum Beispiel Plugin-Installation oder Release);
     - welche Denys es gab (Regel 6), mit Befehl und Grund;
     - gebündelte Fragen, je mit Empfehlung und Default. Ein Default ist kein Owner-Entscheid und steht in Dokumenten als „Vorschlag“. Mit einem Default weiterarbeiten darf die Session nur, wenn er umkehrbar ist. Rank S und „Immer einzeln fragen“ gehen vor jedem Default.
-11. **Kritiker:** Vor jedem Commit mit Behauptungen (Commit-Nachricht, Doku, PR-Text) und vor dem Kurzbericht ruft die Session den Agenten `monarch:kritiker` auf. Er prüft jede Behauptung gegen die fertige Datei und liest nur. Seine Befunde behebt die Session selbst; sie gehen nicht an den User. Kein Hook erzwingt das (Owner 18.11.2026).
+11. **Kritiker:** Vor jedem Commit mit Behauptungen (Commit-Nachricht, Doku, PR-Text) und vor dem Kurzbericht ruft die Session den Agenten `umbrarch:kritiker` auf. Er prüft jede Behauptung gegen die fertige Datei und liest nur. Seine Befunde behebt die Session selbst; sie gehen nicht an den User. Kein Hook erzwingt das (Owner 18.11.2026).
 
 ## Reihenfolge je Gate (Checkliste)
 

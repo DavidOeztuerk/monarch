@@ -3,7 +3,7 @@ id: Q-0187
 gate: G-0127
 kind: main
 rank: A
-state: proposed
+state: in_review
 dod:
   - "plugin.json name umbrarch und Version 0.1.1; marketplace umbrarch-local mit Plugin umbrarch; Beschreibungen angepasst"
   - "MONARCH_VERSION im Wrapper und ServerVersion in McpTools.cs auf 0.1.1; jede weitere Stelle mit 0.1.0, die Wrapper oder install-local.sh lesen, ist angepasst (git grep belegt)"

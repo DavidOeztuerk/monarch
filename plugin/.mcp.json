@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "monarch": {
+    "umbrarch": {
       "command": "${CLAUDE_PLUGIN_ROOT}/scripts/monarch",
       "args": ["mcp"]
     }

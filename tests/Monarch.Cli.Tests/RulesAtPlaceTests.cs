@@ -66,7 +66,7 @@ public class RulesAtPlaceTests
         foreach (var text in new[] { Briefing(none), Briefing(active) })
         {
             Assert.Contains(StandardRulesLine, text, StringComparison.Ordinal);
-            Assert.Contains("Skill `monarch:regeln` vor der Arbeit lesen", text, StringComparison.Ordinal);
+            Assert.Contains("Skill `umbrarch:regeln` vor der Arbeit lesen", text, StringComparison.Ordinal);
         }
     }
 
@@ -88,7 +88,7 @@ public class RulesAtPlaceTests
         }
     }
 
-    internal const string StandardRulesLine = "Standardregeln: eine Worktree je Gate, Prüfung nach Risiko, Merge nur per `monarch gate merge`, kein `[skip ci]` vor dem Merge, Issue-Texte per `--body-file`, Aufräumen nach dem Merge; Skill `monarch:regeln` vor der Arbeit lesen.";
+    internal const string StandardRulesLine = "Standardregeln: eine Worktree je Gate, Prüfung nach Risiko, Merge nur per `monarch gate merge`, kein `[skip ci]` vor dem Merge, Issue-Texte per `--body-file`, Aufräumen nach dem Merge; Skill `umbrarch:regeln` vor der Arbeit lesen.";
 
     [Fact]
     public void Hook_deny_for_a_write_outside_the_scope_names_the_way_forward()

@@ -1,6 +1,6 @@
 ---
 name: status
-description: Zeigt den Monarch-Zustand (Level, aktive Quest, Gates, Mana, Ledger). Verwenden bei /status, 'wo stehen wir', 'was ist offen'.
+description: Zeigt den Umbrarch-Zustand (Level, aktive Quest, Gates, Mana, Ledger). Verwenden bei /status, 'wo stehen wir', 'was ist offen'.
 ---
 
 # Status

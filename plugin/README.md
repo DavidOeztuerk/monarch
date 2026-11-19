@@ -1,11 +1,15 @@
-# Monarch Plugin
+# Umbrarch Plugin
 
-Claude Code Plugin fuer Monarch (Gates, Quests, Shadows, Mana). Lizenz: Apache-2.0.
+Claude Code Plugin fuer Umbrarch (Gates, Quests, Shadows, Mana). Lizenz: Apache-2.0.
+
+Hinweis zum Namen: Das Produkt heisst Umbrarch (ADR-0019). Intern bleibt bis v0.2 der Codename Monarch: Binary und Wrapper `monarch`, Ordner `.monarch/` und `~/.monarch`. Die Abschnitte unten nennen diese inneren Namen weiter.
 
 ## Installation (lokal)
 
+`<repo>` ist der lokale Ordner dieses Repos (GitHub: `DavidOeztuerk/umbrarch`).
+
 ```sh
-cd /Users/davidozturk/Projects/monarch
+cd <repo>
 scripts/install-local.sh
 ```
 
@@ -14,15 +18,17 @@ Das Skript baut das CLI (`dotnet publish`, aktuelle Plattform), installiert es n
 Danach in Claude Code:
 
 ```
-/plugin marketplace add /Users/davidozturk/Projects/monarch
-/plugin install monarch@monarch-local
+/plugin marketplace add <repo>
+/plugin install umbrarch@umbrarch-local
 ```
 
-Anschliessend Claude Code **neu starten** (Hooks, MCP-Server und Statusline werden beim Start geladen). Im Projekt dann `/monarch:awaken`.
+Anschliessend Claude Code **neu starten** (Hooks, MCP-Server und Statusline werden beim Start geladen). Im Projekt dann `/umbrarch:awaken`.
+
+Wechsel vom alten Plugin (Version 0.1.0, Name vor dem Umbenennen): feste Reihenfolge der Befehle und Pruefung nach dem Neustart stehen in ADR-0019, Abschnitt „Übergang“. Nicht erst das neue Plugin installieren und das alte stehen lassen.
 
 ## Statusline
 
-Eine vorhandene Statusline wird gewrappt. Ihr Kommando gehoert nach `~/.monarch/statusline.json`, danach zeigt `statusLine` in `~/.claude/settings.json` auf Monarch:
+Eine vorhandene Statusline wird gewrappt. Ihr Kommando gehoert nach `~/.monarch/statusline.json`, danach zeigt `statusLine` in `~/.claude/settings.json` auf Umbrarch (Binary `monarch`):
 
 ```json
 {
@@ -47,7 +53,7 @@ Aufloesung: `$MONARCH_BIN` (Entwickler-Override, ohne Pruefsumme) -> `~/.monarch
 ## Inhalt
 
 - `hooks/hooks.json`: 7 Events, PreToolUse inkl. `Read`/`Grep` (Secret-Schutz), Timeouts 5 s (Pre/Post) bzw. 10 s.
-- `.mcp.json`: Server `monarch`. Tools heissen in Claude Code `mcp__plugin_monarch_monarch__<tool>` (system_status, gate_plan, quest_transition, evidence_sync, mana_forecast, knowledge_write).
+- `.mcp.json`: Server `umbrarch`. Tools heissen in Claude Code `mcp__plugin_umbrarch_umbrarch__<tool>` (system_status, gate_plan, quest_transition, evidence_sync, mana_forecast, knowledge_write).
 - `skills/`: awaken, status, gate, quest, recap, mana, rest, regeln (Standardregeln fuer jede Session, vor der Arbeit zu lesen).
 - `agents/`: scout, strategist, knight, warden, kritiker. Plugin-Agents ignorieren `hooks`, `mcpServers`, `permissionMode` (ADR-0005); Rechte setzt allein der PreToolUse-Hook.
 
@@ -63,7 +69,7 @@ Grundlage ist ADR-0011 (Bedrohungsmodell Phase 0). Der Hook ist eine **Leitplank
 
 ### Secret-Scan-Hinweis (Q-0139)
 
-`monarch awaken` und `monarch status` (Text, `--json`, MCP `system_status`) melden, ob im Repo ein gitleaks-pre-commit-Hook aktiv ist, mit Zustand und Pfad: `aktiv`, `pre-commit-Hook ohne erkennbaren gitleaks-Aufruf`, `pre-commit-Hook nicht ausfuehrbar`, `kein pre-commit-Hook` oder `unbekannt` (kein git bzw. kein Repo). Monarch installiert den Hook nicht, schreibt nie in Hook-Verzeichnisse und ruft gitleaks nicht selbst auf.
+`monarch awaken` und `monarch status` (Text, `--json`, MCP `system_status`) melden, ob im Repo ein gitleaks-pre-commit-Hook aktiv ist, mit Zustand und Pfad: `aktiv`, `pre-commit-Hook ohne erkennbaren gitleaks-Aufruf`, `pre-commit-Hook nicht ausfuehrbar`, `kein pre-commit-Hook` oder `unbekannt` (kein git bzw. kein Repo). Umbrarch installiert den Hook nicht, schreibt nie in Hook-Verzeichnisse und ruft gitleaks nicht selbst auf.
 
 Grenze: Geprueft wird nur die Datei `pre-commit` (`core.hooksPath`, sonst `<git-common-dir>/hooks`), ihre ersten 64 KiB auf den Text `gitleaks`. Hook-Manager wie pre-commit oder lefthook werden nicht aufgeloest; ein Aufruf in einer von dort geladenen Konfiguration bleibt unsichtbar. `aktiv` heisst, `gitleaks` kommt im Hook vor, nicht dass der Hook wirksam ist.
 
@@ -122,7 +128,7 @@ Grenze: Geprueft wird nur die Datei `pre-commit` (`core.hooksPath`, sonst `<git-
 
 Die Policy prueft Bash heuristisch und lieber zu streng. Quotes, `\`-Escapes, Brace-Expansion, `$'...'`, `~`, `$HOME`, `$PWD` und Shell-Schluesselwoerter werden bereinigt, Globs gegen Schutzpfade geprueft, Ziele, die einen Schutzpfad enthalten, verweigert. Nicht erkennbar sind Interpreter-Skriptdateien, zur Laufzeit entstehende Pfade und Netzwerkzugriffe. Der Schutz ist eine Leitplanke, keine Sandbox.
 
-- **Homoglyphen:** Monarch faltet selbst (ASCII-Lowercase plus Tabelle aus Unicode `CaseFolding.txt`, Status C und F, nur rein ASCII-Ergebnisse, z. B. `ſ`, Kelvin-Zeichen, `ß`, Ligaturen). Homoglyphen ausserhalb dieser Tabelle (z. B. Fullwidth `ｓ`) werden nicht gefaltet; auf APFS sind sie auch nicht dieselbe Datei, ein Treffer ist also nur ueber andere Wege denkbar.
+- **Homoglyphen:** Umbrarch faltet selbst (ASCII-Lowercase plus Tabelle aus Unicode `CaseFolding.txt`, Status C und F, nur rein ASCII-Ergebnisse, z. B. `ſ`, Kelvin-Zeichen, `ß`, Ligaturen). Homoglyphen ausserhalb dieser Tabelle (z. B. Fullwidth `ｓ`) werden nicht gefaltet; auf APFS sind sie auch nicht dieselbe Datei, ein Treffer ist also nur ueber andere Wege denkbar.
 - **Interpreter-Skripte und zur Laufzeit gebaute Pfade:** Steht ein Schutzpfad nur in einer Skriptdatei (`python x.py`, `sh x.sh`, `make`) oder entsteht er erst durch Kodierung, String-Arithmetik oder Umgebungsvariablen zur Laufzeit, sieht der Hook ihn nicht. Folge fuer G3: Aenderungen am Ledger bleiben ueber Anker, Git und Forge erkennbar.
 - **Shell-Code aus einer Pipe:** Heredocs und Here-Strings an eine Shell werden als Code analysiert, `echo "..." | bash` oder `printf ... | sh` dagegen nicht (Klasse 2 nach ADR-0011). Der Hook sieht ausserdem keine Dateiinhalte.
 - **Fail-closed bei Nennung (Regel 2):** Jedes Kommando, das `.monarch` oder einen anderen Schutzpfad nennt und nicht als lesend bekannt ist, wird verweigert, auch wenn es harmlos waere (z. B. `cp .monarch/system.yaml /tmp/x`). Ein Pfad in der eigenen `.monarch` des Projekts, der kein Schutzpfad ist, ist erlaubt: `python3 tool.py .monarch/x`, `rm .monarch/x` und `touch .monarch/x` werden nicht verweigert, weil die `.monarch`-Komponenten-Regel nur fuer eine fremde `.monarch` unterhalb der Root greift (hermetisch mit dem CLI geprueft nach Q-0125); `.monarch/ledger/`, `local/`, `system.yaml` usw. bleiben Schutzpfade. Ausnahmen: das Monarch-Binary ueber seinen kanonischen Pfad (ein nacktes `monarch` nur, wenn PATH auf das installierte Binary unter `~/.monarch/bin` aufloest), `git add`/`commit`/`push` ohne Force, Commit-/PR-Texte (`-m`, `-F`, `--body`) und Heredocs, die nicht an eine Shell gehen. `install-local.sh` ist nur zum Ausfuehren gesperrt; `git add`/`diff`/`cat` darauf bleiben erlaubt. `awk`, `sed`, `uniq`, `sort -o` und `git diff/log/show --output` gelten nicht pauschal als lesend; `<>` und `>|` sind Schreib-Umleitungen.
