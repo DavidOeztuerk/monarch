@@ -48,7 +48,7 @@ internal static class ActiveStore
         Enum.TryParse<Rank>(a.Rank, true, out var r) ? r : throw new FormatException($"active.json: unknown rank '{a.Rank}'.");
 
     /// <summary>Maps to the policy's view of the quest.</summary>
-    public static ActiveQuest ToPolicy(ActiveFile a) => new(new QuestId(a.QuestId), RankOf(a), new QuestScope(a.Scope.Include, a.Scope.Exclude));
+    public static ActiveQuest ToPolicy(ActiveFile a) => new(new QuestId(a.QuestId), RankOf(a), new QuestScope(a.Scope.Include, a.Scope.Exclude), string.Equals(a.State, "in_progress", StringComparison.Ordinal));
 }
 
 /// <summary>Reads and writes the account-global mana snapshot.</summary>
