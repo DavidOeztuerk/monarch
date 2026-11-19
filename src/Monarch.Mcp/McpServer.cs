@@ -19,6 +19,7 @@ public sealed class McpServer
     private readonly Queue<string> _deferred = new();
     private TextWriter? _output;
     private bool _rootsDeclared;
+    private bool _initialized;
     private bool _eof;
     private IReadOnlyList<string> _roots = [];
     private string? _pendingId;
@@ -174,6 +175,11 @@ public sealed class McpServer
 
     private void OnNotification(string method)
     {
+        if (method == "notifications/initialized")
+        {
+            _initialized = true;
+        }
+
         if (!_rootsDeclared)
         {
             return;
@@ -181,10 +187,16 @@ public sealed class McpServer
 
         if (method is "notifications/initialized" or "notifications/roots/list_changed")
         {
-            _pendingId = "roots-" + (++_rootsSeq).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            _pendingSince = System.Diagnostics.Stopwatch.GetTimestamp();
-            Send($$"""{"jsonrpc":"2.0","id":"{{_pendingId}}","method":"roots/list"}""");
+            RequestRoots();
         }
+    }
+
+    /// <summary>Asks the client for its roots now (#128: read again before every tool call, so a worktree switch without list_changed is seen).</summary>
+    private void RequestRoots()
+    {
+        _pendingId = "roots-" + (++_rootsSeq).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        _pendingSince = System.Diagnostics.Stopwatch.GetTimestamp();
+        Send($$"""{"jsonrpc":"2.0","id":"{{_pendingId}}","method":"roots/list"}""");
     }
 
     private void OnResponse(JsonElement id, JsonElement root)
@@ -328,6 +340,11 @@ public sealed class McpServer
         }
 
         var arguments = args.TryGetProperty("arguments", out var a) && a.ValueKind == JsonValueKind.Object ? a : JsonDocument.Parse("{}").RootElement;
+        if (_rootsDeclared && _initialized)
+        {
+            RequestRoots();
+        }
+
         AwaitRoots(queue);
         McpToolResult result;
         try

@@ -129,6 +129,12 @@ internal sealed class McpWorld : IDisposable
         }
 
         lines.Add(Call(10, tool, args));
+        if (roots is not null)
+        {
+            // #128: jeder tools/call fragt die Roots neu an; die Antwort auf diese Anfrage folgt dem Aufruf.
+            lines.Add(RootsReply("roots-2", [.. roots.Select(FileUri)]));
+        }
+
         var (msgs, err) = Rpc(cwd, lines, vars);
         var r = ById(msgs, 10);
         return (r["result"]!["isError"]?.GetValue<bool>() ?? false, r["result"]!["content"]![0]!["text"]!.GetValue<string>(), err);
@@ -369,20 +375,20 @@ public class McpProjectTests
     // ---- roots events and protocol ----------------------------------------------------------------------------------------------------
 
     [Fact]
-    public void Roots_are_requested_only_after_initialized_with_deterministic_ids_and_list_changed_replaces_the_list()
+    public void Roots_are_requested_on_initialized_list_changed_and_before_every_call_with_deterministic_ids()
     {
         using var w = new McpWorld();
         var p1 = w.Proj("p1");
         var p2 = w.Proj("p2");
         var (msgs, err) = w.Rpc(w.Elsewhere,
         [
-            McpWorld.Init(true), McpWorld.Initialized, McpWorld.RootsReply("roots-1", McpWorld.FileUri(p1)), McpWorld.Call(10, "system_status", "{}"),
-            McpWorld.ListChanged, McpWorld.RootsReply("roots-2", McpWorld.FileUri(p2)), McpWorld.Call(11, "system_status", "{}"),
+            McpWorld.Init(true), McpWorld.Initialized, McpWorld.RootsReply("roots-1", McpWorld.FileUri(p1)), McpWorld.Call(10, "system_status", "{}"), McpWorld.RootsReply("roots-2", McpWorld.FileUri(p1)),
+            McpWorld.ListChanged, McpWorld.RootsReply("roots-3", McpWorld.FileUri(p2)), McpWorld.Call(11, "system_status", "{}"), McpWorld.RootsReply("roots-4", McpWorld.FileUri(p2)),
         ]);
         Assert.StartsWith(Hdr(p1, "roots"), McpWorld.ById(msgs, 10)["result"]!["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.StartsWith(Hdr(p2, "roots"), McpWorld.ById(msgs, 11)["result"]!["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
         var requests = msgs.Where(m => m["method"]?.GetValue<string>() == "roots/list").Select(m => m["id"]!.GetValue<string>()).ToArray();
-        Assert.Equal(["roots-1", "roots-2"], requests);
+        Assert.Equal(["roots-1", "roots-2", "roots-3", "roots-4"], requests);
         Assert.Equal(1, msgs.FindIndex(m => m["method"]?.GetValue<string>() == "roots/list"));
         Assert.Contains($"mcp: roots=[{p1}]", err, StringComparison.Ordinal);
         Assert.Contains($"mcp: roots=[{p2}]", err, StringComparison.Ordinal);
@@ -405,8 +411,24 @@ public class McpProjectTests
     {
         using var w = new McpWorld();
         var p1 = w.Proj("p1");
-        var (msgs, _) = w.Rpc(w.Elsewhere, [McpWorld.Init(true), McpWorld.Initialized, McpWorld.Call(10, "system_status", "{}"), McpWorld.RootsReply("roots-1", McpWorld.FileUri(p1))]);
+        var (msgs, _) = w.Rpc(w.Elsewhere, [McpWorld.Init(true), McpWorld.Initialized, McpWorld.RootsReply("roots-1", McpWorld.FileUri(p1)), McpWorld.Call(10, "system_status", "{}"), McpWorld.RootsReply("roots-2", McpWorld.FileUri(p1))]);
         Assert.StartsWith(Hdr(p1, "roots"), McpWorld.ById(msgs, 10)["result"]!["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_worktree_switch_without_list_changed_is_seen_on_the_next_call()
+    {
+        // #128: der Client meldet bei einem Worktree-Wechsel kein list_changed. Der nächste Aufruf liest die Roots neu.
+        using var w = new McpWorld();
+        var p1 = w.Proj("p1");
+        var p2 = w.Proj("p2");
+        var (msgs, _) = w.Rpc(w.Elsewhere,
+        [
+            McpWorld.Init(true), McpWorld.Initialized, McpWorld.RootsReply("roots-1", McpWorld.FileUri(p1)), McpWorld.Call(10, "system_status", "{}"), McpWorld.RootsReply("roots-2", McpWorld.FileUri(p1)),
+            McpWorld.Call(11, "system_status", "{}"), McpWorld.RootsReply("roots-3", McpWorld.FileUri(p2)),
+        ]);
+        Assert.StartsWith(Hdr(p1, "roots"), McpWorld.ById(msgs, 10)["result"]!["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.StartsWith(Hdr(p2, "roots"), McpWorld.ById(msgs, 11)["result"]!["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -453,12 +475,12 @@ public class McpProjectTests
         var empty = w.One(p1, [], "system_status", "{}");
         Assert.StartsWith(Hdr(p1, "cwd"), empty.Text, StringComparison.Ordinal);
 
-        var (msgs, err) = w.Rpc(p1, [McpWorld.Init(true), McpWorld.Initialized, """{"jsonrpc":"2.0","id":"roots-1","error":{"code":-32603,"message":"nope"}}""", McpWorld.Call(10, "system_status", "{}")]);
+        var (msgs, err) = w.Rpc(p1, [McpWorld.Init(true), McpWorld.Initialized, """{"jsonrpc":"2.0","id":"roots-1","error":{"code":-32603,"message":"nope"}}""", McpWorld.Call(10, "system_status", "{}"), """{"jsonrpc":"2.0","id":"roots-2","error":{"code":-32603,"message":"nope"}}"""]);
         Assert.StartsWith(Hdr(p1, "cwd"), McpWorld.ById(msgs, 10)["result"]!["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.Contains("mcp: roots=[]", err, StringComparison.Ordinal);
 
         var other = w.Proj("other");
-        var mixed = w.Rpc(w.Elsewhere, [McpWorld.Init(true), McpWorld.Initialized, McpWorld.RootsReply("roots-1", "https://example.org/x", "file://evil-host" + other, McpWorld.FileUri(p1)), McpWorld.Call(10, "system_status", "{}")]);
+        var mixed = w.Rpc(w.Elsewhere, [McpWorld.Init(true), McpWorld.Initialized, McpWorld.RootsReply("roots-1", "https://example.org/x", "file://evil-host" + other, McpWorld.FileUri(p1)), McpWorld.Call(10, "system_status", "{}"), McpWorld.RootsReply("roots-2", "https://example.org/x", "file://evil-host" + other, McpWorld.FileUri(p1))]);
         Assert.StartsWith(Hdr(p1, "roots"), McpWorld.ById(mixed.Out, 10)["result"]!["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
     }
 
@@ -485,10 +507,12 @@ public class McpProjectTests
         using var w = new McpWorld();
         var spaced = w.Awaken(Path.Combine(w.Work, "my proj"));
         var log = Path.Combine(w.Base, "roots.log");
-        var lines = new[] { McpWorld.Init(true), McpWorld.Initialized, McpWorld.RootsReply("roots-1", "file://localhost" + w.Work + "/my%20proj"), McpWorld.Call(10, "system_status", "{}") };
+        var uri = "file://localhost" + w.Work + "/my%20proj";
+        var lines = new[] { McpWorld.Init(true), McpWorld.Initialized, McpWorld.RootsReply("roots-1", uri), McpWorld.Call(10, "system_status", "{}"), McpWorld.RootsReply("roots-2", uri) };
         var (msgs, _) = w.Rpc(w.Elsewhere, lines, new Dictionary<string, string?> { ["MONARCH_MCP_ROOTS_LOG"] = log });
         Assert.StartsWith(Hdr(spaced, "roots"), McpWorld.ById(msgs, 10)["result"]!["content"]![0]!["text"]!.GetValue<string>(), StringComparison.Ordinal);
-        Assert.Equal($"mcp: roots=[{spaced}]\n", File.ReadAllText(log));
+        // Jede Roots-Antwort (Handshake und je Aufruf) schreibt eine Messzeile.
+        Assert.Equal($"mcp: roots=[{spaced}]\nmcp: roots=[{spaced}]\n", File.ReadAllText(log));
     }
 
     // ---- no client roots (T1) ---------------------------------------------------------------------------------------------------------
