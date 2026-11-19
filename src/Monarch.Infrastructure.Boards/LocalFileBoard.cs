@@ -155,7 +155,8 @@ public sealed class LocalFileBoard : IQuestBoard
 
         if (existing is null || !existing.DefinitionOfDone.SequenceEqual(quest.DefinitionOfDone))
         {
-            root = root.With("dod", new YamlList([.. quest.DefinitionOfDone.Select(d => (YamlNode)new YamlScalar(d))], false));
+            // Issue 50: DoD-Texte immer doppelt quoten, sonst schneidet '#' (YAML-Kommentar) den Satz ab.
+            root = root.With("dod", new YamlList([.. quest.DefinitionOfDone.Select(d => (YamlNode)new YamlScalar(d, YamlQuote.Double))], false));
         }
 
         if ((existing is null && (quest.Scope.Include.Count > 0 || quest.Scope.Exclude.Count > 0))
