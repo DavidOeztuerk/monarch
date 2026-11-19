@@ -3,7 +3,7 @@ id: Q-0187
 gate: G-0127
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - "plugin.json name umbrarch und Version 0.1.1; marketplace umbrarch-local mit Plugin umbrarch; Beschreibungen angepasst"
   - "MONARCH_VERSION im Wrapper und ServerVersion in McpTools.cs auf 0.1.1; jede weitere Stelle mit 0.1.0, die Wrapper oder install-local.sh lesen, ist angepasst (git grep belegt)"
@@ -20,5 +20,6 @@ scope:
   exclude: []
 estimate: { session_pct: 7, weekly_pct: 1.8, gold_usd: 0 }
 boss: "dotnet test grün; wrapper-test.sh grün; claude plugin validate ohne Fehler"
+board: { pr: 154 }
 ---
 # Sichtbare Schicht: Plugin, Marketplace, MCP-Server, Verweise und READMEs auf Umbrarch

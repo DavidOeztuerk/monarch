@@ -3,7 +3,7 @@ id: Q-0185
 gate: G-0127
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - "ADR-0019 enthält den Owner-Entscheid vom 19.11.2026 wörtlich und den Markencheck (TMview 19.11.2026 ohne Treffer zu UMBRARCH)"
   - "Bestandsaufnahme als Tabelle (Datei, Fundstelle, jetzt oder v0.2) aus git grep -n -i monarch ohne .monarch/ledger, mit Befehl und Commit"
