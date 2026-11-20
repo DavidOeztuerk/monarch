@@ -3,7 +3,7 @@ id: Q-0190
 gate: G-0129
 kind: main
 rank: A
-state: in_review
+state: cleared
 dod:
   - "Ein Schritt läuft, wenn aktuell + Schritt <= Grenze im 5h- und 7d-Fenster; kein Recap-Abzug in quest accept, mana, rest, status und MCP (der Fall vom 19.11.: 80 + 8 bei Grenze 90 ergibt Proceed)"
   - "Tabelle je Plan, Modell und Fenster wie im Owner-Entscheid; Fable wie Opus, unbekanntes Modell Opus, unbekannter Plan Pro; Fable-Session prüft seven_day; Plan-Aliase max5 = Max, max20 = Ultra"
@@ -17,5 +17,6 @@ scope:
   exclude: []
 estimate: { session_pct: 12, weekly_pct: 3, gold_usd: 0 }
 boss: "dotnet test grün, gate check grün"
+board: { pr: 160 }
 ---
 # Umsetzung: Grenze je (Plan, Modell, Fenster), kein doppelter Abzug, Plan-Aliase, Ultra ohne 5h

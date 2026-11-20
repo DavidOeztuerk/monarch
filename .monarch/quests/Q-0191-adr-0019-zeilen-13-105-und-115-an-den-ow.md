@@ -3,7 +3,7 @@ id: Q-0191
 gate: G-0129
 kind: side
 rank: C
-state: in_review
+state: cleared
 dod:
   - "Zeilen 13, 105 und 115 nennen die Lücke im Mischzustand 5 als hingenommen (Owner-Entscheid 19.11.2026, Issue 158) und stellen sie nicht mehr als offene Frage dar; Beleg zu :58-59 an :43 angeglichen; sonst nichts am ADR"
 scope:
