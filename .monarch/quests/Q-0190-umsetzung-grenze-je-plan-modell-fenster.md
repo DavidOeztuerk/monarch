@@ -3,7 +3,7 @@ id: Q-0190
 gate: G-0129
 kind: main
 rank: A
-state: proposed
+state: in_review
 dod:
   - "Ein Schritt läuft, wenn aktuell + Schritt <= Grenze im 5h- und 7d-Fenster; kein Recap-Abzug in quest accept, mana, rest, status und MCP (der Fall vom 19.11.: 80 + 8 bei Grenze 90 ergibt Proceed)"
   - "Tabelle je Plan, Modell und Fenster wie im Owner-Entscheid; Fable wie Opus, unbekanntes Modell Opus, unbekannter Plan Pro; Fable-Session prüft seven_day; Plan-Aliase max5 = Max, max20 = Ultra"

@@ -324,7 +324,7 @@ internal static class HookRunner
             Files.WriteAtomic(paths.CurrentSession, ProjectLedger.Sanitize(input.SessionId.Trim()));
         }
 
-        Emit(env, new HookSpecificOutput { HookEventName = "SessionStart", AdditionalContext = Briefing.Build(paths, env) });
+        Emit(env, new HookSpecificOutput { HookEventName = "SessionStart", AdditionalContext = Briefing.Build(paths, env, input.SessionId) });
     }
 
     private static void PreCompact(HookInput input, ProjectPaths paths, ProjectLedger ledger)
@@ -361,9 +361,9 @@ internal static class HookRunner
         var session = ledger.SessionId(input.SessionId);
         ledger.Append(session, "hook", "SessionEnded", ("quest", ActiveId(paths)));
         var mana = ManaStore.Read(env.Home);
-        if (ManaStore.ToSnapshot(mana, env.Clock.UtcNow) is { } s)
+        if (ManaStore.ToSnapshot(mana, env.Clock.UtcNow, SystemConfigReader.Load(paths.Root).Plan) is { } s)
         {
-            ledger.Append(session, "hook", "ManaSnapshotTaken", ("five_hour_used_pct", s.FiveHourUsedPct), ("five_hour_resets_at", ManaStore.Stamp(s.FiveHourResetsAt)),
+            ledger.Append(session, "hook", "ManaSnapshotTaken", ("five_hour_used_pct", s.HasFiveHour ? s.FiveHourUsedPct : null), ("five_hour_resets_at", s.HasFiveHour ? ManaStore.Stamp(s.FiveHourResetsAt) : null),
                 ("seven_day_used_pct", s.SevenDayUsedPct), ("seven_day_resets_at", ManaStore.Stamp(s.SevenDayResetsAt)), ("stale", s.IsStale),
                 ("context_used_pct", ManaStore.ContextOf(mana, input.SessionId)));
         }
@@ -420,7 +420,7 @@ internal static class HookRunner
 internal static class Briefing
 {
     /// <summary>Builds the briefing text.</summary>
-    public static string Build(ProjectPaths paths, CliEnv env)
+    public static string Build(ProjectPaths paths, CliEnv env, string? sessionId = null)
     {
         var config = SystemConfigReader.Load(paths.Root);
         var sb = new StringBuilder();
@@ -430,11 +430,15 @@ internal static class Briefing
             ? "- Quest: keine aktive Quest (quest accept <id>)."
             : $"- Quest: {active.QuestId} [{active.Rank}] Gate {active.GateId}, Status {active.State ?? "aktiv"}; Scope {string.Join(", ", active.Scope.Include)}.");
         var mana = ManaStore.Read(env.Home);
-        if (ManaStore.ToSnapshot(mana, env.Clock.UtcNow) is { } s)
+        if (ManaStore.ToSnapshot(mana, env.Clock.UtcNow, config.Plan) is { } s)
         {
-            var limits = ManaSupport.Resolve(paths.Root, config).Limits;
+            var (modelClass, known) = ManaSupport.LimitClass(env, mana, sessionId);
+            var limits = ManaSupport.Resolve(config, modelClass).Limits;
+            var five = s.HasFiveHour
+                ? FormattableString.Invariant($"Mana 5h: {s.FiveHourUsedPct:0}% (Limit {ManaSupport.Num(limits.FiveHourPct)}%, Reset {s.FiveHourResetsAt:HH:mm} UTC)")
+                : "Mana 5h: nicht vorhanden";
             sb.AppendLine(FormattableString.Invariant(
-                $"- Mana 5h: {s.FiveHourUsedPct:0}% (Limit {ManaSupport.Num(limits.FiveHourPct)}%, Reset {s.FiveHourResetsAt:HH:mm} UTC); 7d: {s.SevenDayUsedPct:0}% (Limit {ManaSupport.Num(limits.SevenDayPct)}%){(s.IsStale ? " [veraltet]" : "")}."));
+                $"- {five}; 7d: {s.SevenDayUsedPct:0}% (Limit {ManaSupport.Num(limits.SevenDayPct)}%){(s.IsStale ? " [veraltet]" : "")}.{(known ? string.Empty : " Modell unbekannt, Opus-Grenze.")}"));
         }
         else
         {

@@ -42,7 +42,7 @@ internal static class MonarchApp
         statusline.SetAction(_ => Statusline.Run(env));
         root.Subcommands.Add(statusline);
 
-        var plan = new Option<string?>("--plan") { Description = "pro | max5 | max20 | api-key" };
+        var plan = new Option<string?>("--plan") { Description = "pro | max | ultra | api-key (max5 counts as max, max20 as ultra)" };
         var force = new Option<bool>("--force") { Description = "Rewrite system.yaml even if present." };
         var riskTags = new Option<string?>("--risk-tags") { Description = "YAML file with risk_tags to merge into system.yaml." };
         var awaken = new Command("awaken", "Initialize Monarch in this repository.");

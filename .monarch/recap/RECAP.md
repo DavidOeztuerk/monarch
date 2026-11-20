@@ -1,10 +1,10 @@
 # RECAP
 
 ## Stand
-- Zeitpunkt: 2026-11-19T21:13:04Z
+- Zeitpunkt: 2026-11-19T21:34:47Z
 - Plan: Pro
-- Mana 5h: 63% (Limit 90%, Reset 2026-11-20T00:40:00Z)
-- Mana 7d: 66% (Limit 96%, Reset 2026-11-25T11:00:00Z)
+- Mana 5h: 84% (Limit 90%, Reset 2026-11-20T00:40:00Z)
+- Mana 7d: 69% (Limit 96%, Reset 2026-11-25T11:00:00Z)
 - Limits: 5h 90%, 7d 96% (adaptive)
 
 ## Aktiv
@@ -33,7 +33,7 @@
 - Q-0150: Heikle Quest nach Standardregel 3: Warden-Runde über das Design vor dem Code, kein src-Code, kein anderer Test und keine andere Schwelle aufgeweicht, Schlussrunde des Wardens mit Verdict am Head-SHA
 
 ## Nächster konkreter Schritt
-G-0129 (Worktree .claude/worktrees/G-0129, PR 160, Head 0fa0855): ADR-0012-Nachtrag Q-0189 submitted, Warden-Designrunde 1, Delta-Runde und schmale Pruefung ohne approve (Rest behoben, ADR-Status benennt es). Frage an den Owner: Q-0190 (Code) ohne approve starten? Danach: gate_plan Q-0190 mit Scope +ManaCalibrationStore.cs (+LedgerEvents.cs), quest accept, TDD, Schlussrunde Warden, gate merge, gate check, evidence sync, Aufraeumen; PR 152 Satz zu G-0129.
+G-0129 (Worktree .claude/worktrees/G-0129, PR 160, Branch monarch/G-0129-mana-grenze-arbeitsgrenze, Head 21004fe). Owner-Antworten 19.11. (verkleinerter Umfang) stehen woertlich im ADR-0012-Nachtrag; Messung als Issue 161 (v0.2); Q-0191 (ADR-0019 Zeilen 13/105/115) submitted und gepusht (Kritiker ok). Als Naechstes Q-0190 (gate_plan schon erfolgt, Scope inkl. ManaCalibrationStore.cs, McpTools.cs, plugin.json, Wrapper, wrapper-test.sh): quest accept/start, TDD gemaess ADR-0012-Nachtrag (Guard ohne Recap-Abzug in accept/mana/rest/status/MCP, Tabelle je Plan/Modell/Fenster, Plan-Aliase, Ultra ohne 5h: ToSnapshot mit Plan, last_seen, Begin/Finish, rest/Briefing ohne Epoch 0, AdaptiveLimit und Resolved.Recaps entfernt, system.yaml work_until_pct fuer alle Modelle, Eintraege je Modell, Gueltigkeit 0..100, awaken ohne work_until_pct und clamp, Version 0.1.2), alle alten Tests mit altem/neuem Wert und Grund im PR, Kritiker, Commit, PR-Text, Warden-Schlussrunde (Design und Code, Opus), gate verdict, gate merge, gate check, evidence sync je Quest (Q-0189, Q-0190, Q-0191), Aufraeumen. PR 152 nicht anfassen. Schlussbericht mit Owner-Befehlen: pull, install-local, Neustart, system.yaml Zeilen 8-9 (work_until_pct entfernen), Fable-Lesart bei Pro (Opus-Wert) als Frage.
 
 ## Offene Entscheidungen
 - Owner: historische docs (ADR-0001..0018, lessons, evidence) bleiben? Default ja (Vorschlag)

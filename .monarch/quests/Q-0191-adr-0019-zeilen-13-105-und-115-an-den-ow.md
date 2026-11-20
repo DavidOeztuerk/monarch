@@ -11,5 +11,6 @@ scope:
   exclude: []
 estimate: { session_pct: 2, weekly_pct: 1, gold_usd: 0 }
 boss: "Kritiker prüft gegen die fertige Datei"
+board: { pr: 160 }
 ---
 # ADR-0019 Zeilen 13, 105 und 115 an den Owner-Entscheid vom 19.11.2026 angleichen

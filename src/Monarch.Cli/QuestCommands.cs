@@ -9,9 +9,6 @@ namespace Monarch.Cli;
 /// <summary><c>monarch quest ...</c> (accept, start, submit, abandon, fail, list, show).</summary>
 internal static class QuestCommands
 {
-    /// <summary>Default recap reserve in percentage points used by the Mana-Guard.</summary>
-    public const double RecapReservePct = 5;
-
     /// <summary>Applies a lifecycle transition.</summary>
     public static int Transition(CliEnv env, string action, string id)
     {
@@ -67,22 +64,27 @@ internal static class QuestCommands
                 return Refuse(env, "Penalty Zone is active; only Penalty, Emergency and Daily quests can be accepted.");
             }
 
-            var snapshot = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
+            var manaFile = ManaStore.Read(env.Home);
+            var snapshot = ManaStore.ToSnapshot(manaFile, env.Clock.UtcNow, config.Plan);
             var (pair, factor) = ManaCalibration.Current(env, paths);
             var scaled = new ManaCost(estimate.SessionPct * factor.Factor, estimate.WeeklyPct * factor.Factor, estimate.GoldUsd);
             pairLine = ManaCalibrator.Display(pair, factor);
             if (snapshot is not null)
             {
-                var limits = ManaSupport.Resolve(paths.Root, config).Limits;
-                var decision = ManaGuard.Decide(snapshot, scaled.SessionPct, scaled.WeeklyPct, RecapReservePct, limits, env.Clock.UtcNow);
+                var limits = ManaSupport.Resolve(config, ManaSupport.LimitClass(env, manaFile).Class).Limits;
+                var decision = ManaGuard.Decide(snapshot, scaled.SessionPct, scaled.WeeklyPct, limits, env.Clock.UtcNow);
                 if (decision != ManaDecision.Proceed)
                 {
                     // #87: nach dem Reset ist ein alter Stand veraltet. Die Ablehnung bleibt; die Meldung nennt den Grund und den Weg.
-                    var stale = snapshot.IsStale && snapshot.FiveHourResetsAt <= env.Clock.UtcNow
-                        ? FormattableString.Invariant($" Der Stand ist veraltet: das 5h-Fenster ist seit {ManaSupport.Iso(snapshot.FiveHourResetsAt)} zurückgesetzt, der Wert stammt von davor. Eine interaktive Session öffnen, damit die Statusline den Stand auffrischt, dann erneut annehmen.")
+                    var windowReset = snapshot.HasFiveHour ? snapshot.FiveHourResetsAt : snapshot.SevenDayResetsAt;
+                    var stale = snapshot.IsStale && windowReset <= env.Clock.UtcNow
+                        ? FormattableString.Invariant($" Der Stand ist veraltet: das {(snapshot.HasFiveHour ? "5h" : "Wochen")}-Fenster ist seit {ManaSupport.Iso(windowReset)} zurückgesetzt, der Wert stammt von davor. Eine interaktive Session öffnen, damit die Statusline den Stand auffrischt, dann erneut annehmen.")
                         : string.Empty;
+                    var fiveHour = snapshot.HasFiveHour
+                        ? FormattableString.Invariant($"5h {snapshot.Effective5h:0}% + step {scaled.SessionPct:0.#}% exceeds limit {ManaSupport.Num(limits.FiveHourPct)}% (or ")
+                        : "5h: nicht vorhanden (";
                     return Refuse(env, FormattableString.Invariant(
-                        $"Mana does not fit ({decision}): 5h {snapshot.Effective5h:0}% + step {scaled.SessionPct:0.#}% + recap {RecapReservePct:0}% exceeds limit {ManaSupport.Num(limits.FiveHourPct)}% (or 7d {snapshot.Effective7d:0}% + {scaled.WeeklyPct:0.#}% vs {ManaSupport.Num(limits.SevenDayPct)}%).{stale} {pairLine}"));
+                        $"Mana does not fit ({decision}): {fiveHour}7d {snapshot.Effective7d:0}% + {scaled.WeeklyPct:0.#}% vs {ManaSupport.Num(limits.SevenDayPct)}%).{stale} {pairLine}"));
                 }
             }
 

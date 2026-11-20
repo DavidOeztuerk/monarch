@@ -31,7 +31,7 @@ public class ConfigTests
     {
         var c = SystemConfigReader.Parse(Sample);
         Assert.Equal("neutral", c.Theme);
-        Assert.Equal(PlanKind.Max5, c.Plan);
+        Assert.Equal(PlanKind.Max, c.Plan);
         Assert.Equal(new ManaLimits(91, 95), c.Limits);
         Assert.Equal(PenaltyMode.Warn, c.PenaltyZone);
         Assert.False(c.ScopeLock);

@@ -344,21 +344,24 @@ public class ManaCommandsTests
     }
 
     [Fact]
-    public void Mana_shows_plan_limits_then_adaptive_after_three_recaps_and_judges_estimates()
+    public void Mana_shows_plan_limits_also_after_three_recaps_and_judges_estimates()
     {
+        // Q-0190: 60 + 30 passt jetzt gegen 90 (kein Recap-Abzug); Schätzung 31 (60 + 31 > 90) stoppt weiter. Es gibt keine adaptive Senkung.
         using var p = new TempProject();
         Seed.Mana(p, 60, 20);
-        var first = p.Run(["mana", "--estimate", "30"]);
+        var first = p.Run(["mana", "--estimate", "31"]);
         Assert.Equal(0, first.Code);
         Assert.Contains("plan default", first.Out, StringComparison.Ordinal);
         Assert.Contains("RecapAndStop", first.Out, StringComparison.Ordinal);
+        Assert.Contains("Proceed", p.Run(["mana", "--estimate", "30"]).Out, StringComparison.Ordinal);
         for (var i = 0; i < 3; i++)
         {
             p.Run(["recap"]);
         }
 
         var later = p.Run(["mana", "--estimate", "5"]);
-        Assert.Contains("adaptive", later.Out, StringComparison.Ordinal);
+        Assert.Contains("plan default", later.Out, StringComparison.Ordinal);
+        Assert.DoesNotContain("adaptive", later.Out, StringComparison.Ordinal);
         Assert.Contains("Proceed", later.Out, StringComparison.Ordinal);
     }
 

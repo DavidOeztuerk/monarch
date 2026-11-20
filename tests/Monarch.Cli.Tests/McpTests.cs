@@ -37,6 +37,10 @@ public class McpServerTests
             """{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"verify","arguments":{}}}""");
         Assert.Equal(6, r.Count);
         Assert.Equal("2025-06-18", r[0]["result"]!["protocolVersion"]!.GetValue<string>());
+        Assert.Equal("0.1.2", r[0]["result"]!["serverInfo"]!["version"]!.GetValue<string>());
+        var forecast = r[2]["result"]!["tools"]!.AsArray().Single(t => t!["name"]!.GetValue<string>() == "mana_forecast")!["description"]!.GetValue<string>();
+        Assert.DoesNotContain("adaptive", forecast, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("recap", forecast, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(r[0]["result"]!["capabilities"]!["tools"]);
         Assert.NotNull(r[1]["result"]);
         var names = r[2]["result"]!["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).Order().ToArray();
@@ -60,7 +64,8 @@ public class McpServerTests
         Assert.Equal("plan default", big["limitSource"]!.GetValue<string>());
         var small = JsonNode.Parse(Json(Result(r[2]).Text))!;
         Assert.Equal("Proceed", small["decision"]!.GetValue<string>());
-        Assert.Equal(90 - 40 - 5 - 5, small["headroom"]!["fiveHourPct"]!.GetValue<double>(), 3);
+        Assert.Equal(45, small["headroom"]!["fiveHourPct"]!.GetValue<double>(), 3); // alt 90 - 40 - 5 - 5; Q-0190: kein Recap-Abzug, 90 - 40 - 5
+        Assert.Null(small["recapReservePct"]);
         Assert.True(Result(r[3]).IsError);
     }
 

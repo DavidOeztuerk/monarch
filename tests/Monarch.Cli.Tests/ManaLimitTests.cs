@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Monarch.Cli.Tests;
 
-/// <summary>ADR-0012 Nachtrag Q-0142: the limit never falls below the lower <c>clamp</c> value, and every command names the same value.</summary>
+/// <summary>ADR-0012 Nachtrag Q-0189 (Q-0190): without a measurement the set value always applies (<c>clamp</c> is not read), and every command names the same value.</summary>
 public class ManaLimitTests
 {
     private static string Yaml(string five, string seven) =>
@@ -42,15 +42,15 @@ public class ManaLimitTests
     }
 
     [Fact]
-    public void Failure_of_30_10_clamp_96_99_five_free_recaps_and_step_8_keeps_7d_at_96()
+    public void Failure_of_30_10_five_free_recaps_and_step_8_keep_the_set_values()
     {
         using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90, clamp: [90, 97]", "work_until_pct: 96, clamp: [96, 99]"));
         SeedLedger(p, 5);
-        Assert.Equal("Limits in use (adaptive): 5h 90%, 7d 96%; recaps measured 5 (adaptive from 3)", LimitsInUse(p));
+        Assert.Equal("Limits in use (plan default): 5h 90%, 7d 96%", LimitsInUse(p));
     }
 
     [Fact]
-    public void High_recap_costs_still_give_96()
+    public void High_recap_costs_still_give_the_set_96()
     {
         using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90, clamp: [90, 97]", "work_until_pct: 96, clamp: [96, 99]"));
         SeedLedger(p, 5, recapCost7d: 10);
@@ -58,22 +58,22 @@ public class ManaLimitTests
     }
 
     [Fact]
-    public void Five_hour_clamp_90_97_never_falls_below_90()
+    public void Five_hour_set_value_94_applies_whatever_the_ledger_and_clamp_say()
     {
         using var p = new TempProject(systemYaml: Yaml("work_until_pct: 94, clamp: [90, 97]", "work_until_pct: 96, clamp: [96, 99]"));
-        SeedLedger(p, 5); // adaptive 5h = 100 - 20 = 80
-        Assert.Contains("5h 90%", LimitsInUse(p), StringComparison.Ordinal);
+        SeedLedger(p, 5); // the old adaptive 5h was 100 - 20 = 80 -> clamp minimum 90; now the set value 94 (clamp is not read)
+        Assert.Contains("5h 94%", LimitsInUse(p), StringComparison.Ordinal);
     }
 
     [Theory]
     [InlineData(0)]
     [InlineData(2)]
     [InlineData(5)]
-    public void Work_until_below_the_clamp_minimum_gives_the_clamp_minimum(int recaps)
+    public void Work_until_below_the_old_clamp_minimum_gives_the_set_value(int recaps)
     {
         using var p = new TempProject(systemYaml: Yaml("work_until_pct: 85, clamp: [90, 97]", "work_until_pct: 92, clamp: [96, 99]"));
         SeedLedger(p, recaps);
-        Assert.Contains("5h 90%, 7d 96%", LimitsInUse(p), StringComparison.Ordinal);
+        Assert.Contains("5h 85%, 7d 92%", LimitsInUse(p), StringComparison.Ordinal); // old: 90 and 96 (clamp minimum); clamp is not read
     }
 
     [Fact]
@@ -99,11 +99,11 @@ public class ManaLimitTests
     }
 
     [Fact]
-    public void Block_list_clamp_is_valid()
+    public void Block_list_clamp_is_not_read_and_the_set_98_applies()
     {
         using var p = new TempProject(systemYaml: "mana:\n  plan: pro\n  limits:\n    seven_day:\n      work_until_pct: 98\n      clamp:\n        - 96\n        - 99\n");
         SeedLedger(p, 5);
-        Assert.Contains("7d 96%", LimitsInUse(p), StringComparison.Ordinal); // adaptive 92 -> clamp minimum, not w
+        Assert.Contains("7d 98%", LimitsInUse(p), StringComparison.Ordinal); // old: 96 (adaptive 92 -> clamp minimum); now the set value
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class ManaLimitTests
     }
 
     [Theory]
-    [InlineData("work_until_pct: 98, clamp: [96, 99]", "96")]
+    [InlineData("work_until_pct: 98, clamp: [96, 99]", "98")] // old expectation 96 came from the clamp minimum
     [InlineData("work_until_pct: 96.8, clamp: [96.8, 99]", "96.8")]
     public void Every_command_names_the_same_limit_in_the_same_state(string seven, string value)
     {
@@ -143,13 +143,24 @@ public class ManaLimitTests
     [Fact]
     public void Accept_guard_uses_the_resolved_limit()
     {
-        using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90, clamp: [90, 97]", "work_until_pct: 98, clamp: [96, 99]"));
+        // Old seed w 98 / clamp [96, 99] resolved to 96; clamp is not read now, so the rejection case uses w 96 and a w 98 case accepts.
+        using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90, clamp: [90, 97]", "work_until_pct: 96, clamp: [96, 99]"));
         SeedLedger(p, 5);
         Seed.Quest(p, "Q-0003");
-        Seed.Mana(p, 10, 96.5); // 96.5 + 1 > 96 (resolved) but <= 98 (raw)
+        Seed.Mana(p, 10, 96.5); // 96.5 + 1 > 96
         var accept = p.Run(["quest", "accept", "Q-0003"]);
         Assert.Equal(1, accept.Code);
         Assert.Contains("Mana does not fit", accept.Out + accept.Err, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accept_guard_accepts_within_the_set_98()
+    {
+        using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90, clamp: [90, 97]", "work_until_pct: 98, clamp: [96, 99]"));
+        SeedLedger(p, 5);
+        Seed.Quest(p, "Q-0003");
+        Seed.Mana(p, 10, 96.5); // 96.5 + 1 <= 98
+        Assert.Equal(0, p.Run(["quest", "accept", "Q-0003"]).Code);
     }
 
     [Fact]
@@ -172,10 +183,10 @@ public class ManaLimitTests
     }
 
     [Theory]
-    [InlineData(1, "98")] // adaptive 99 -> capped at w, not at the clamp maximum
-    [InlineData(3, "97")] // adaptive 97 -> kept, not raised to w or lowered to the minimum
-    [InlineData(8, "96")] // adaptive 92 -> clamp minimum
-    public void Adaptive_value_is_capped_at_w_and_floored_at_the_clamp_minimum(int step7, string expected)
+    [InlineData(1, "98")] // old adaptive 99 -> capped at w
+    [InlineData(3, "98")] // old adaptive 97 -> 97; now the set value
+    [InlineData(8, "98")] // old adaptive 92 -> clamp minimum 96; now the set value
+    public void Steps_in_the_ledger_never_change_the_set_value(int step7, string expected)
     {
         using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90, clamp: [90, 97]", "work_until_pct: 98, clamp: [96, 99]"));
         SeedLedger(p, 5, step7: step7);
@@ -188,15 +199,15 @@ public class ManaLimitTests
     public void Nested_list_in_clamp_is_invalid(string clamp)
     {
         using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90", "work_until_pct: 98, clamp: " + clamp));
-        SeedLedger(p, 5, step7: 3); // adaptive 97
-        Assert.Contains("7d 98%", LimitsInUse(p), StringComparison.Ordinal); // invalid -> min = w = 98
+        SeedLedger(p, 5, step7: 3); // ledger steps never change the set value
+        Assert.Contains("7d 98%", LimitsInUse(p), StringComparison.Ordinal); // clamp is not read: the set 98 applies
     }
 
     [Theory]
     [InlineData("""{"seq":9,"type":"QuestCleared","payl""")] // truncated: JsonException
     [InlineData("""["QuestCleared"]""")] // non-object: InvalidOperationException
     [InlineData("42")]
-    public void Defective_ledger_line_does_not_abort_status_briefing_accept_or_recap_and_gives_max_of_w_and_min(string bad)
+    public void Defective_ledger_line_does_not_abort_status_briefing_accept_or_recap_and_gives_the_set_value(string bad)
     {
         using var p = new TempProject(systemYaml: Yaml("work_until_pct: 90, clamp: [90, 97]", "work_until_pct: 98, clamp: [96, 99]"));
         SeedLedger(p, 5, extraLines: [bad]);

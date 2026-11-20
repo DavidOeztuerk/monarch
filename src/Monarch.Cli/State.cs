@@ -109,6 +109,10 @@ internal static class ManaStore
         return f.SessionId == sessionId ? f.ContextWindow?.UsedPercentage : null;
     }
 
+    /// <summary>The model id of a session from its entry in the mana file; null when the session or its entry is missing.</summary>
+    public static string? SessionModel(ManaFile? mana, string? sessionId) =>
+        !string.IsNullOrEmpty(sessionId) && mana?.Sessions is { } s && s.TryGetValue(sessionId, out var e) ? e.Model : null;
+
     /// <summary>Formats a time stamp the way the file stores it.</summary>
     public static string Stamp(DateTimeOffset t) => t.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
@@ -116,19 +120,36 @@ internal static class ManaStore
     public static DateTimeOffset? ParseStamp(string? s) =>
         DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var t) ? t : null;
 
-    /// <summary>Converts to the domain snapshot; null when no rate limits are known.</summary>
-    public static ManaSnapshot? ToSnapshot(ManaFile? f, DateTimeOffset now)
+    /// <summary>
+    /// Converts to the domain snapshot; null when no rate limits are known. With <see cref="PlanKind.Ultra"/> a missing five_hour window (or one whose
+    /// <c>resets_at</c> has passed) gives <c>HasFiveHour = false</c> and freshness comes from the age of the last week sighting, not from the file flag
+    /// (ADR-0012 Nachtrag Q-0189): the sensor does not know the plan and marks a file without five_hour always as stale.
+    /// </summary>
+    public static ManaSnapshot? ToSnapshot(ManaFile? f, DateTimeOffset now, PlanKind plan)
     {
-        if (f?.RateLimits is not { FiveHour.UsedPercentage: { } five, SevenDay.UsedPercentage: { } seven } rl)
+        if (f?.RateLimits is not { SevenDay.UsedPercentage: { } seven } rl)
+        {
+            return null;
+        }
+
+        var sevenReset = DateTimeOffset.FromUnixTimeSeconds(rl.SevenDay.ResetsAt ?? 0);
+        var five = rl.FiveHour?.UsedPercentage;
+        var ultraNoFive = plan == PlanKind.Ultra && (five is null || (rl.FiveHour!.ResetsAt ?? 0) <= now.ToUnixTimeSeconds());
+        if (ultraNoFive)
+        {
+            var seen = ParseStamp(rl.SevenDay.LastSeen?.ObservedAt) ?? ParseStamp(rl.SevenDay.ObservedAt)
+                ?? ParseStamp(f.RateLimitsAt) ?? ParseStamp(f.WrittenAt) ?? now;
+            return new ManaSnapshot(0, default, seven, sevenReset, now - seen > StaleAfter, HasFiveHour: false);
+        }
+
+        if (five is not { } fiveUsed)
         {
             return null;
         }
 
         var at = ParseStamp(f.RateLimitsAt) ?? ParseStamp(f.WrittenAt) ?? now;
         var stale = f.RateLimitsStale || now - at > StaleAfter;
-        return new ManaSnapshot(
-            five, DateTimeOffset.FromUnixTimeSeconds(rl.FiveHour.ResetsAt ?? 0),
-            seven, DateTimeOffset.FromUnixTimeSeconds(rl.SevenDay.ResetsAt ?? 0), stale);
+        return new ManaSnapshot(fiveUsed, DateTimeOffset.FromUnixTimeSeconds(rl.FiveHour!.ResetsAt ?? 0), seven, sevenReset, stale);
     }
 }
 

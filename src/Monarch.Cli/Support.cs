@@ -203,7 +203,7 @@ internal static class XpCalculator
     }
 }
 
-/// <summary>Mana limits (plan default or adaptive) and snapshot events.</summary>
+/// <summary>Mana limits (the set value) and snapshot events.</summary>
 internal static class ManaSupport
 {
     /// <summary>Default next step in the 5h window.</summary>
@@ -214,76 +214,33 @@ internal static class ManaSupport
 
     /// <summary>Resolved limits.</summary>
     /// <param name="Limits">Limits per window.</param>
-    /// <param name="Source">"plan default" or "adaptive".</param>
-    /// <param name="Recaps">Number of measured recaps.</param>
-    /// <param name="Recap7d">EWMA of recap costs in the 7d window.</param>
-    public sealed record Resolved(ManaLimits Limits, string Source, int Recaps, double Recap7d);
+    /// <param name="Source">Always "plan default" (the set value, also when it comes from the file).</param>
+    public sealed record Resolved(ManaLimits Limits, string Source);
 
     /// <summary>
-    /// The limit in force per window (ADR-0012, Q-0142): with <c>w</c> = work_until_pct and <c>min</c> = lower clamp value (else <c>w</c>), fewer than
-    /// three recaps or an unreadable ledger give <c>max(w, min)</c>; otherwise the adaptive value clamped to [min, max(w, min)].
+    /// The limit in force per window (ADR-0012 Nachtrag Q-0189): the entry for the model, else <c>work_until_pct</c>, else the table for plan and
+    /// model class. Without a measurement the set value always applies; the ledger is not read.
     /// </summary>
-    public static Resolved Resolve(string root, SystemConfig config)
+    public static Resolved Resolve(SystemConfig config, ModelClass model) => new(config.LimitsFor(model), "plan default");
+
+    /// <summary>
+    /// Model class for the limits (ADR-0012 Nachtrag Q-0189): the model of the session (<paramref name="sessionId"/>, else <c>CLAUDE_CODE_SESSION_ID</c>);
+    /// <c>Known</c> is false when no entry gives a known family, and the Opus limit applies.
+    /// </summary>
+    public static (ModelClass Class, bool Known) LimitClass(CliEnv env, ManaFile? mana, string? sessionId = null)
     {
-        List<LedgerRow> rows;
-        try
-        {
-            rows = LedgerScan.All(root);
-        }
-        catch (Exception e) when (e is JsonException or InvalidOperationException)
-        {
-            rows = []; // a corrupt or non-object line is a finding of 'ledger verify', not a reason to abort
-        }
-
-        var start = config.Limits;
-        var min = config.ClampMin ?? start;
-        var top = new ManaLimits(Math.Max(start.FiveHourPct, min.FiveHourPct), Math.Max(start.SevenDayPct, min.SevenDayPct));
-        var recaps = rows.Where(r => r.Type == "RecapWritten").ToList();
-        var r5 = recaps.Select(r => r.Num("cost5h") ?? 0).ToList();
-        var r7 = recaps.Select(r => r.Num("cost7d") ?? 0).ToList();
-        if (recaps.Count < AdaptiveLimit.MinRecaps)
-        {
-            return new Resolved(top, "plan default", recaps.Count, AdaptiveLimit.Ewma(r7));
-        }
-
-        var snaps = rows.Where(r => r.Type == "ManaSnapshotTaken" && r.Num("fiveHourUsedPct") is not null).ToList();
-        var s5 = Steps(snaps, "fiveHourUsedPct", "fiveHourResetsAt");
-        var s7 = Steps(snaps, "sevenDayUsedPct", "sevenDayResetsAt");
-        var limits = new ManaLimits(
-            AdaptiveLimit.Compute(r5, s5, top.FiveHourPct, min.FiveHourPct, top.FiveHourPct),
-            AdaptiveLimit.Compute(r7, s7, top.SevenDayPct, min.SevenDayPct, top.SevenDayPct));
-        return new Resolved(limits, "adaptive", recaps.Count, AdaptiveLimit.Ewma(r7));
+        var family = ModelEffort.Normalize(ManaStore.SessionModel(mana, sessionId ?? env.GetVar("CLAUDE_CODE_SESSION_ID")), null).Model;
+        return (ModelClasses.Of(family), family != "unknown");
     }
 
     /// <summary>Formats a limit or usage value the same way everywhere (<c>0.#</c>, invariant).</summary>
     public static string Num(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
 
-    private static List<double> Steps(List<LedgerRow> snaps, string used, string reset)
-    {
-        var steps = new List<double>();
-        for (var i = 1; i < snaps.Count; i++)
-        {
-            var (prev, cur) = (snaps[i - 1], snaps[i]);
-            if (cur.Str("reason") == "recap-after" || prev.Num(reset) != cur.Num(reset))
-            {
-                continue;
-            }
-
-            var delta = (cur.Num(used) ?? 0) - (prev.Num(used) ?? 0);
-            if (delta > 0)
-            {
-                steps.Add(delta);
-            }
-        }
-
-        return steps;
-    }
-
     /// <summary>Appends a <c>ManaSnapshotTaken</c> event; without measurements only the reason is recorded.</summary>
     public static void Snapshot(ProjectLedger ledger, string session, ManaSnapshot? s, string reason) =>
         ledger.Append(session, "cli", "ManaSnapshotTaken",
             ("reason", reason), ("known", s is not null),
-            ("fiveHourUsedPct", s?.Effective5h), ("fiveHourResetsAt", s?.FiveHourResetsAt.ToUnixTimeSeconds()),
+            ("fiveHourUsedPct", s is { HasFiveHour: true } ? s.Effective5h : null), ("fiveHourResetsAt", s is { HasFiveHour: true } ? s.FiveHourResetsAt.ToUnixTimeSeconds() : null),
             ("sevenDayUsedPct", s?.Effective7d), ("sevenDayResetsAt", s?.SevenDayResetsAt.ToUnixTimeSeconds()), ("stale", s?.IsStale));
 
     /// <summary>ISO 8601 UTC with seconds.</summary>

@@ -135,12 +135,7 @@ internal static class ManaCalibration
     public static (ModelEffort Pair, string ModelSource, string EffortSource, string SessionId) CurrentPair(CliEnv env, ManaFile? mana)
     {
         var sid = env.GetVar("CLAUDE_CODE_SESSION_ID") ?? string.Empty;
-        string? model = null;
-        if (sid.Length > 0 && mana?.Sessions is { } s && s.TryGetValue(sid, out var e))
-        {
-            model = e.Model;
-        }
-
+        var model = ManaStore.SessionModel(mana, sid);
         var pair = ModelEffort.Normalize(model, env.GetVar("CLAUDE_EFFORT"));
         return (pair, pair.Model == "unknown" ? "unknown" : "mana.json:sessions", pair.Effort == "unknown" ? "unknown" : "CLAUDE_EFFORT", sid);
     }
@@ -156,9 +151,9 @@ internal static class ManaCalibration
     public static void Begin(CliEnv env, ProjectPaths paths, string questId, double estimate5h)
     {
         var mana = ManaStore.Read(env.Home);
-        var snap = ManaStore.ToSnapshot(mana, env.Clock.UtcNow);
+        var snap = ManaStore.ToSnapshot(mana, env.Clock.UtcNow, SystemConfigReader.Load(paths.Root).Plan);
         var data = CalibrationStore.Read(paths);
-        if (snap is null || mana?.RateLimits is not { } rl)
+        if (snap is not { HasFiveHour: true } || mana?.RateLimits is not { FiveHour: { } fh, SevenDay: { } sd })
         {
             data.Pending.Remove(questId);
         }
@@ -166,8 +161,8 @@ internal static class ManaCalibration
         {
             var (pair, _, _, sid) = CurrentPair(env, mana);
             data.Pending[questId] = new PendingStep(
-                pair.Model, pair.Effort, estimate5h, rl.FiveHour!.UsedPercentage!.Value, rl.SevenDay!.UsedPercentage!.Value,
-                rl.FiveHour.ResetsAt ?? 0, rl.SevenDay.ResetsAt ?? 0, mana.RateLimitsAt ?? mana.WrittenAt ?? string.Empty,
+                pair.Model, pair.Effort, estimate5h, fh.UsedPercentage!.Value, sd.UsedPercentage!.Value,
+                fh.ResetsAt ?? 0, sd.ResetsAt ?? 0, mana.RateLimitsAt ?? mana.WrittenAt ?? string.Empty,
                 snap.IsStale, ManaStore.Stamp(env.Clock.UtcNow), sid);
         }
 
@@ -178,7 +173,7 @@ internal static class ManaCalibration
     public static void Finish(CliEnv env, ProjectPaths paths, ProjectLedger ledger, string questId)
     {
         var mana = ManaStore.Read(env.Home);
-        var snap = ManaStore.ToSnapshot(mana, env.Clock.UtcNow);
+        var snap = ManaStore.ToSnapshot(mana, env.Clock.UtcNow, SystemConfigReader.Load(paths.Root).Plan);
         var data = CalibrationStore.Read(paths);
         var (nowPair, modelSource, effortSource, _) = CurrentPair(env, mana);
         var hasPending = data.Pending.Remove(questId, out var p);
@@ -190,19 +185,23 @@ internal static class ManaCalibration
         double? actual5h = null;
         double? actual7d = null;
         var factor = data.FactorOf(pair);
-        if (!hasPending)
+        if (snap is { HasFiveHour: false })
+        {
+            reason = "no-5h-window"; // Ultra: the 5h calibration does not apply (ADR-0012 Nachtrag Q-0189)
+        }
+        else if (!hasPending)
         {
             reason = "no-accept-snapshot";
         }
-        else if (snap is null || mana?.RateLimits is not { } rl)
+        else if (snap is null || mana?.RateLimits is not { FiveHour: { } fh, SevenDay: { } sd })
         {
             reason = "no-snapshot";
         }
         else
         {
-            actual5h = rl.FiveHour!.UsedPercentage!.Value - p!.Five;
-            actual7d = rl.SevenDay!.UsedPercentage!.Value - p.Seven;
-            var reset = (rl.FiveHour.ResetsAt ?? 0) != p.FiveReset || (rl.SevenDay.ResetsAt ?? 0) != p.SevenReset
+            actual5h = fh.UsedPercentage!.Value - p!.Five;
+            actual7d = sd.UsedPercentage!.Value - p.Seven;
+            var reset = (fh.ResetsAt ?? 0) != p.FiveReset || (sd.ResetsAt ?? 0) != p.SevenReset
                 || env.Clock.UtcNow.ToUnixTimeSeconds() >= p.FiveReset || actual5h < 0;
             var acceptedAt = ManaStore.ParseStamp(p.AcceptedAt);
             var overlap = mana.Sessions?.Any(kv => kv.Key != p.SessionId && ManaStore.ParseStamp(kv.Value.WrittenAt) is { } w && acceptedAt is { } a && w >= a) == true;

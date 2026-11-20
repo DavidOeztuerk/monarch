@@ -16,9 +16,9 @@ internal static class AwakenCommand
     {
         var root = Path.GetFullPath(env.Cwd);
         var paths = new ProjectPaths(root);
-        if (plan is not null && plan.ToLowerInvariant() is not ("pro" or "max5" or "max20" or "api-key"))
+        if (plan is not null && plan.ToLowerInvariant() is not ("pro" or "max" or "ultra" or "max5" or "max20" or "api-key"))
         {
-            env.Err.WriteLine($"Unknown plan '{plan}'. Use pro, max5, max20 or api-key.");
+            env.Err.WriteLine($"Unknown plan '{plan}'. Use pro, max, ultra or api-key (max5 and max20 still work as aliases).");
             return 2;
         }
 
@@ -43,7 +43,7 @@ internal static class AwakenCommand
         }
 
         var mergeChoice = MergeMethodResolver.Derive(root, SystemConfig.Default.IntegrationBranch);
-        Files.WriteAtomic(paths.SystemYaml, Render(Path.GetFileName(root), planKind, plan ?? "pro", tags, mergeChoice.Method, mergeChoice.Fallback));
+        Files.WriteAtomic(paths.SystemYaml, Render(Path.GetFileName(root), planKind, tags, mergeChoice.Method, mergeChoice.Fallback));
         var ignored = EnsureGitignore(root);
 
         var top = Git.Run(root, "rev-parse", "--show-toplevel");
@@ -51,7 +51,7 @@ internal static class AwakenCommand
         var head = top is null ? null : Git.Run(root, "rev-parse", "--short", "HEAD");
         var dirty = top is null ? null : (Git.Run(root, "status", "--porcelain") is { Length: > 0 } ? "yes" : "no");
         env.Out.WriteLine($"Awakened: {root}");
-        env.Out.WriteLine($"  created .monarch/ ({string.Join(", ", Dirs)}), system.yaml (plan {plan ?? "pro"}){(ignored ? ", .gitignore updated" : "")}");
+        env.Out.WriteLine($"  created .monarch/ ({string.Join(", ", Dirs)}), system.yaml (plan {PlanName(planKind)}){(ignored ? ", .gitignore updated" : "")}");
         if (top is null)
         {
             env.Out.WriteLine("  WARNING: not inside a git repository (or git unavailable); repo identity could not be verified.");
@@ -69,7 +69,7 @@ internal static class AwakenCommand
         env.Out.WriteLine($"  git.merge_method: {mergeChoice.Method}, {mergeChoice.Source}; bitte vom Owner bestätigen (system.yaml).");
         env.Out.WriteLine($"  Secret-Scan-Hook: {SecretScanHook.Detect(root).Text}");
         var ledger = new ProjectLedger(paths, env.Clock);
-        ledger.Append(ledger.SessionId(), "cli", "Awakened", ("plan", plan ?? "pro"), ("root", root), ("git_top_level", top), ("origin", origin), ("head", head), ("dirty", dirty));
+        ledger.Append(ledger.SessionId(), "cli", "Awakened", ("plan", PlanName(planKind)), ("root", root), ("git_top_level", top), ("origin", origin), ("head", head), ("dirty", dirty));
         return 0;
     }
 
@@ -115,9 +115,16 @@ internal static class AwakenCommand
 
     private static string List(IEnumerable<string> items) => "[" + string.Join(", ", items.Select(Q)) + "]";
 
-    private static string Render(string name, PlanKind plan, string planName, IReadOnlyList<RiskTagRule> tags, string mergeMethod, bool mergeFallback)
+    private static string PlanName(PlanKind plan) => plan switch
     {
-        var limits = ManaLimits.ForPlan(plan);
+        PlanKind.Max => "max",
+        PlanKind.Ultra => "ultra",
+        PlanKind.ApiKey => "api-key",
+        _ => "pro",
+    };
+
+    private static string Render(string name, PlanKind plan, IReadOnlyList<RiskTagRule> tags, string mergeMethod, bool mergeFallback)
+    {
         var p = new PolicyOptions();
         var sb = new StringBuilder();
         sb.AppendLine("version: 1");
@@ -125,10 +132,7 @@ internal static class AwakenCommand
         sb.AppendLine("project:");
         sb.AppendLine($"  name: {Q(name)}");
         sb.AppendLine("mana:");
-        sb.AppendLine($"  plan: {planName.ToLowerInvariant()}                         # pro | max5 | max20 | api-key");
-        sb.AppendLine("  limits:");
-        sb.AppendLine(FormattableString.Invariant($"    five_hour: {{ work_until_pct: {limits.FiveHourPct:0}, clamp: [{limits.FiveHourPct:0}, 97] }}"));
-        sb.AppendLine(FormattableString.Invariant($"    seven_day: {{ work_until_pct: {limits.SevenDayPct:0}, clamp: [{limits.SevenDayPct:0}, 99] }}"));
+        sb.AppendLine($"  plan: {PlanName(plan)}                         # pro | max | ultra | api-key");
         sb.AppendLine("  skip_recap_if_reset_within_min: 10");
         sb.AppendLine("  pacing_tolerance_pts: 15");
         sb.AppendLine("policy:");
