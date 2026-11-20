@@ -1,7 +1,7 @@
 #!/bin/sh
 # Monarch wrapper: resolves the versioned binary, verifies SHA-256 once per
 # version (stamp file), then execs. Runs on every tool call: keep it cheap.
-MONARCH_VERSION=0.1.1
+MONARCH_VERSION=0.1.2
 mode=${1:-}
 
 # Is a directory (or a parent) an awakened project? Pure shell loop, no fork.

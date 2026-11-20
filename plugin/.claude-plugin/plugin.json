@@ -1,6 +1,6 @@
 {
   "name": "umbrarch",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Umbrarch: leveling system for agentic software development: gates, quests, shadows, mana.",
   "author": { "name": "David Oeztuerk", "email": "davidoeztuerk1990@gmail.com" },
   "license": "Apache-2.0",

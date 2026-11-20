@@ -151,13 +151,12 @@ public class CalibrationTests
         }
 
         var config = SystemConfigReader.Load(p.Root);
-        var without = ManaSupport.Resolve(p.Root, config);
+        var without = ManaSupport.Resolve(config, Monarch.Domain.ModelClass.Opus);
         Cycle(p, "s", "claude-opus-4-7", "xhigh", delta: 40); // factor moves to 1.9 (n=1) and a calibration file exists
         File.WriteAllText(p.LocalPath("mana-calibration.json"), """{"schema":1,"pairs":{"opus|xhigh":{"factor":4,"n":9}},"pending":{}}""");
-        var with = ManaSupport.Resolve(p.Root, config);
+        var with = ManaSupport.Resolve(config, Monarch.Domain.ModelClass.Opus);
         Assert.Equal(without.Limits, with.Limits);
         Assert.Equal(without.Source, with.Source);
-        Assert.Equal(without.Recaps, with.Recaps);
     }
 
     [Fact]

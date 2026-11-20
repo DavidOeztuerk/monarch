@@ -17,8 +17,9 @@ public class AwakenTests
         }
 
         var yaml = File.ReadAllText(Path.Combine(p.Root, ".monarch", "system.yaml"));
-        Assert.Equal(Monarch.Domain.PlanKind.Max5, SystemConfigReader.Parse(yaml).Plan);
-        Assert.Equal(new Monarch.Domain.ManaLimits(94, 97), SystemConfigReader.Parse(yaml).Limits);
+        Assert.Equal(Monarch.Domain.PlanKind.Max, SystemConfigReader.Parse(yaml).Plan);
+        Assert.Equal(new Monarch.Domain.ManaLimits(94, 98), SystemConfigReader.Parse(yaml).Limits);
+        Assert.DoesNotContain("limits", yaml, StringComparison.Ordinal);
         Assert.Contains(".monarch/local/", File.ReadAllLines(Path.Combine(p.Root, ".gitignore")));
         Assert.Single(p.Events(), e => e.Type == "Awakened");
 
@@ -41,7 +42,7 @@ public class AwakenTests
         var lines = File.ReadAllLines(Path.Combine(p.Root, ".gitignore"));
         Assert.Equal(1, lines.Count(l => l == ".monarch/local/"));
         Assert.Contains("bin/", lines);
-        Assert.Equal(Monarch.Domain.PlanKind.Max20, SystemConfigReader.Load(p.Root).Plan);
+        Assert.Equal(Monarch.Domain.PlanKind.Ultra, SystemConfigReader.Load(p.Root).Plan);
     }
 
     [Fact]

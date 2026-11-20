@@ -18,8 +18,19 @@ internal sealed record SystemConfig(
     /// <summary><c>git.merge_method</c> (<c>squash</c> or <c>merge</c>, ADR-0007 Nachtrag Q-0140); <see langword="null"/> when the key is missing: <c>gate merge</c> then derives it from the history.</summary>
     public string? MergeMethod { get; init; }
 
-    /// <summary>Lower <c>clamp</c> bound per window (ADR-0012, Q-0142); <see langword="null"/> means the limit never moves down (floor = <see cref="Limits"/>).</summary>
-    public ManaLimits? ClampMin { get; init; }
+    /// <summary><c>work_until_pct</c> per window (valid values only); it replaces the table for all models (ADR-0012 Nachtrag Q-0189).</summary>
+    public LimitOverrides WorkUntil { get; init; } = new(null, null);
+
+    /// <summary>Entries per model (<c>limits.five_hour.opus</c> and so on); they go before <see cref="WorkUntil"/>.</summary>
+    public IReadOnlyDictionary<ModelClass, LimitOverrides> PerModel { get; init; } = new Dictionary<ModelClass, LimitOverrides>();
+
+    /// <summary>The set limits for a model class: entry per model, else <c>work_until_pct</c>, else the table for plan and model.</summary>
+    public ManaLimits LimitsFor(ModelClass model)
+    {
+        var table = ManaLimits.For(Plan, model);
+        var entry = PerModel.TryGetValue(model, out var e) ? e : new LimitOverrides(null, null);
+        return new ManaLimits(entry.FiveHour ?? WorkUntil.FiveHour ?? table.FiveHourPct, entry.SevenDay ?? WorkUntil.SevenDay ?? table.SevenDayPct);
+    }
 
     /// <summary>Built-in risk tags (from the concept).</summary>
     public static IReadOnlyList<RiskTagRule> DefaultRiskTags { get; } =
@@ -59,6 +70,11 @@ internal sealed record SystemConfig(
     }
 }
 
+/// <summary>Optional set limits per window (<see langword="null"/> = not set or invalid).</summary>
+/// <param name="FiveHour">5h limit.</param>
+/// <param name="SevenDay">7d limit.</param>
+internal sealed record LimitOverrides(double? FiveHour, double? SevenDay);
+
 /// <summary>Reads <see cref="SystemConfig"/> from YAML.</summary>
 internal static class SystemConfigReader
 {
@@ -81,13 +97,23 @@ internal static class SystemConfigReader
         var limits = mana?.Get("limits") as YamlMap;
         var fiveMap = limits?.Get("five_hour") as YamlMap;
         var sevenMap = limits?.Get("seven_day") as YamlMap;
-        var five = Num(fiveMap?.GetString("work_until_pct")) ?? d.Limits.FiveHourPct;
-        var seven = Num(sevenMap?.GetString("work_until_pct")) ?? d.Limits.SevenDayPct;
+        var workUntil = new LimitOverrides(Num(fiveMap?.GetString("work_until_pct")), Num(sevenMap?.GetString("work_until_pct")));
+        var perModel = new Dictionary<ModelClass, LimitOverrides>();
+        foreach (var (name, cls) in new[] { ("opus", ModelClass.Opus), ("sonnet", ModelClass.Sonnet), ("haiku", ModelClass.Haiku) })
+        {
+            var entry = new LimitOverrides(Num(fiveMap?.GetString(name)), Num(sevenMap?.GetString(name)));
+            if (entry.FiveHour is not null || entry.SevenDay is not null)
+            {
+                perModel[cls] = entry;
+            }
+        }
+
         var config = d with
         {
             Theme = root.GetString("theme") is { Length: > 0 } t ? t : d.Theme,
-            Limits = new ManaLimits(five, seven),
-            ClampMin = new ManaLimits(ClampMinimum(fiveMap) ?? five, ClampMinimum(sevenMap) ?? seven),
+            Limits = new ManaLimits(workUntil.FiveHour ?? d.Limits.FiveHourPct, workUntil.SevenDay ?? d.Limits.SevenDayPct),
+            WorkUntil = workUntil,
+            PerModel = perModel,
             Wake = ParseWake(mana?.GetString("wake")),
             PenaltyZone = string.Equals(policy?.GetString("penalty_zone"), "warn", StringComparison.OrdinalIgnoreCase) ? PenaltyMode.Warn : PenaltyMode.Block,
             ScopeLock = Bool(policy?.GetString("scope_lock"), d.ScopeLock),
@@ -139,8 +165,8 @@ internal static class SystemConfigReader
     /// <summary>Parses a plan name as written in the config and on the command line.</summary>
     public static PlanKind ParsePlan(string? text) => text?.ToLowerInvariant() switch
     {
-        "max5" => PlanKind.Max5,
-        "max20" => PlanKind.Max20,
+        "max" or "max5" => PlanKind.Max,
+        "ultra" or "max20" => PlanKind.Ultra,
         "api-key" or "apikey" => PlanKind.ApiKey,
         _ => PlanKind.Pro,
     };
@@ -153,20 +179,9 @@ internal static class SystemConfigReader
         _ => "off",
     };
 
-    private static double? Num(string? t) => double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && double.IsFinite(v) ? v : null;
-
-    /// <summary>The lower <c>clamp</c> value of a window; valid only with exactly two finite entries and 0 &lt;= min &lt;= max &lt;= 100.</summary>
-    private static double? ClampMinimum(YamlMap? window)
-    {
-        if (window?.Get("clamp") is not YamlList { Items.Count: 2 } list
-            || list.Items[0] is not YamlScalar a || list.Items[1] is not YamlScalar b
-            || Num(a.Text) is not { } min || Num(b.Text) is not { } max)
-        {
-            return null;
-        }
-
-        return min >= 0 && min <= max && max <= 100 ? min : null;
-    }
+    /// <summary>A limit counts only when it is finite and 0 &lt;= value &lt;= 100 (ADR-0012 Nachtrag Q-0189); otherwise it counts as missing.</summary>
+    private static double? Num(string? t) =>
+        double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && double.IsFinite(v) && v >= 0 && v <= 100 ? v : null;
 
     private static bool Bool(string? t, bool fallback) => bool.TryParse(t, out var b) ? b : fallback;
 

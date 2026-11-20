@@ -14,7 +14,7 @@ namespace Monarch.Cli;
 /// <summary><c>monarch mcp</c>: the stdio MCP server with exactly six phase-0 tools. There is deliberately no verify, clear, promote or permit tool.</summary>
 internal static class McpTools
 {
-    private const string ServerVersion = "0.1.1";
+    private const string ServerVersion = "0.1.2";
     private const int MaxKnowledgeBytes = 1_000_000;
 
     /// <summary>Serves MCP on the environment's streams.</summary>
@@ -50,7 +50,7 @@ internal static class McpTools
         new("evidence_sync", "Pull checks and merge state of linked pull requests from GitHub and verify/clear quests accordingly. Only forge data counts.",
             Schema("""{"type":"object","properties":{"quest":{"type":"string","description":"Quest id; omit for all linked quests."}}}"""), false,
             (a, c) => InProject(env, c, "evidence_sync", false, true, a, (e, _, _) => Capture(e, x => EvidenceCommands.Sync(x, Opt(a, "quest"))))),
-        new("mana_forecast", "Ask the Mana-Guard whether estimated steps fit: decision, remaining headroom per window and the limit source (plan default or adaptive). Works without a project (uncalibrated, plan defaults).",
+        new("mana_forecast", "Ask the Mana-Guard whether estimated steps fit: decision, remaining headroom per window and the limit source (plan default). Works without a project (uncalibrated, plan defaults).",
             Schema("""{"type":"object","required":["estimates"],"properties":{"estimates":{"type":"array","minItems":1,"items":{"type":"object","required":["session_pct","weekly_pct"],"properties":{"session_pct":{"type":"number"},"weekly_pct":{"type":"number"}}}}}}"""), true,
             (a, c) => InProject(env, c, "mana_forecast", true, false, a, (e, p, _) => Forecast(e, a, p))),
         new("knowledge_write", "Write a file below .monarch/knowledge/ (relative path only; no '..', absolute paths or symlink escapes) and log KnowledgeWritten.",

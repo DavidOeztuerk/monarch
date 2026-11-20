@@ -37,12 +37,12 @@ public class VisibleLayerNameTests
     }
 
     [Fact]
-    public void Plugin_version_matches_the_wrapper_and_is_0_1_1()
+    public void Plugin_version_matches_the_wrapper_and_is_0_1_2()
     {
         var version = Json("plugin/.claude-plugin/plugin.json").GetProperty("version").GetString();
         var wrapper = File.ReadAllLines(Path.Combine(Root(), "plugin", "scripts", "monarch")).First(l => l.StartsWith("MONARCH_VERSION=", StringComparison.Ordinal));
         Assert.Equal("MONARCH_VERSION=" + version, wrapper);
-        Assert.Equal("0.1.1", version);
+        Assert.Equal("0.1.2", version);
     }
 
     [Fact]

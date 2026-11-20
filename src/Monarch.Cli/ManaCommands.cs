@@ -72,14 +72,14 @@ internal static class ManaCommands
         var config = SystemConfigReader.Load(paths.Root);
         var ledger = new ProjectLedger(paths, env.Clock);
         var session = ledger.SessionId();
-        var before = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
+        var before = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow, config.Plan);
         ManaSupport.Snapshot(ledger, session, before, "recap-before");
 
         var (prevNext, prevDecisions) = ReadPrevious(paths.RecapFile);
         var text = Render(env, paths, config, before, next ?? prevNext, decisions.Count > 0 ? decisions : prevDecisions);
         Files.WriteAtomic(paths.RecapFile, text);
 
-        var after = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
+        var after = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow, config.Plan);
         ManaSupport.Snapshot(ledger, session, after, "recap-after");
         var cost5 = before is null || after is null ? 0 : Math.Max(0, after.Effective5h - before.Effective5h);
         var cost7 = before is null || after is null ? 0 : Math.Max(0, after.Effective7d - before.Effective7d);
@@ -126,7 +126,7 @@ internal static class ManaCommands
             rows = []; // a corrupt or non-object line is a finding of 'ledger verify', not a reason to abort the recap
         }
 
-        var limits = ManaSupport.Resolve(paths.Root, config);
+        var limits = ManaSupport.Resolve(config, ManaSupport.LimitClass(env, ManaStore.Read(env.Home)).Class);
         var forge = Forge.Resolve(paths);
         ActiveFile? active = null;
         try
@@ -148,11 +148,15 @@ internal static class ManaCommands
         }
         else
         {
-            sb.AppendLine($"- Mana 5h: {Pct(snap.Effective5h)} (Limit {Pct(limits.Limits.FiveHourPct)}, Reset {ManaSupport.Iso(snap.FiveHourResetsAt)})");
+            sb.AppendLine(snap.HasFiveHour
+                ? $"- Mana 5h: {Pct(snap.Effective5h)} (Limit {Pct(limits.Limits.FiveHourPct)}, Reset {ManaSupport.Iso(snap.FiveHourResetsAt)})"
+                : "- Mana 5h: nicht vorhanden");
             sb.AppendLine($"- Mana 7d: {Pct(snap.Effective7d)} (Limit {Pct(limits.Limits.SevenDayPct)}, Reset {ManaSupport.Iso(snap.SevenDayResetsAt)})");
         }
 
-        sb.AppendLine($"- Limits: 5h {Pct(limits.Limits.FiveHourPct)}, 7d {Pct(limits.Limits.SevenDayPct)} ({limits.Source})").AppendLine();
+        sb.AppendLine((snap is { HasFiveHour: false }
+            ? $"- Limits: 7d {Pct(limits.Limits.SevenDayPct)} ({limits.Source})"
+            : $"- Limits: 5h {Pct(limits.Limits.FiveHourPct)}, 7d {Pct(limits.Limits.SevenDayPct)} ({limits.Source})")).AppendLine();
 
         sb.AppendLine("## Aktiv");
         sb.AppendLine(active is null ? "- keine aktive Quest" : $"- Gate {active.GateId} · Quest {active.QuestId} [{active.Rank}] · Phase {active.State ?? "active"}").AppendLine();
@@ -221,7 +225,8 @@ internal static class ManaCommands
         }
 
         var config = SystemConfigReader.Load(paths.Root);
-        var snap = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
+        var manaFile = ManaStore.Read(env.Home);
+        var snap = ManaStore.ToSnapshot(manaFile, env.Clock.UtcNow, config.Plan);
         var ledger = new ProjectLedger(paths, env.Clock);
         if (snap is null)
         {
@@ -230,16 +235,18 @@ internal static class ManaCommands
             return 0;
         }
 
-        var limits = ManaSupport.Resolve(paths.Root, config).Limits;
+        var limits = ManaSupport.Resolve(config, ManaSupport.LimitClass(env, manaFile).Class).Limits;
         var now = env.Clock.UtcNow;
-        var decision = ManaGuard.Decide(snap, ManaSupport.Step5h, ManaSupport.Step7d, QuestCommands.RecapReservePct, limits, now);
-        var blocked5 = snap.Effective5h + ManaSupport.Step5h + QuestCommands.RecapReservePct > limits.FiveHourPct;
+        var decision = ManaGuard.Decide(snap, ManaSupport.Step5h, ManaSupport.Step7d, limits, now);
+        var blocked5 = snap.HasFiveHour && snap.Effective5h + ManaSupport.Step5h > limits.FiveHourPct;
         var blocked7 = snap.Effective7d + ManaSupport.Step7d > limits.SevenDayPct;
-        var reset = blocked7 && (!blocked5 || snap.SevenDayResetsAt > snap.FiveHourResetsAt) ? snap.SevenDayResetsAt : snap.FiveHourResetsAt;
+        var reset = !snap.HasFiveHour || (blocked7 && (!blocked5 || snap.SevenDayResetsAt > snap.FiveHourResetsAt)) ? snap.SevenDayResetsAt : snap.FiveHourResetsAt;
         var zone = TimeZoneInfo.Local;
         var wake = WakePlan.WakeTime(reset, zone);
         var recap = paths.RecapFile;
-        env.Out.WriteLine($"5h window resets at {ManaSupport.Iso(snap.FiveHourResetsAt)} (used {Pct(snap.Effective5h)}, limit {Pct(limits.FiveHourPct)})");
+        env.Out.WriteLine(snap.HasFiveHour
+            ? $"5h window resets at {ManaSupport.Iso(snap.FiveHourResetsAt)} (used {Pct(snap.Effective5h)}, limit {Pct(limits.FiveHourPct)})"
+            : "5h: nicht vorhanden");
         env.Out.WriteLine($"7d window resets at {ManaSupport.Iso(snap.SevenDayResetsAt)} (used {Pct(snap.Effective7d)}, limit {Pct(limits.SevenDayPct)})");
         env.Out.WriteLine($"Mana-Guard for the next default step ({Pct(ManaSupport.Step5h)}): {decision}");
         env.Out.WriteLine($"Wake at {ManaSupport.Iso(wake)} (reset + {WakePlan.Slack.TotalMinutes:0} min, minute not :00/:30), local {TimeZoneInfo.ConvertTime(wake, zone).ToString("yyyy-MM-dd HH:mm zzz", CultureInfo.InvariantCulture)}");
@@ -266,11 +273,11 @@ internal static class ManaCommands
 
         var config = SystemConfigReader.Load(paths.Root);
         var manaFile = ManaStore.Read(env.Home);
-        var snap = ManaStore.ToSnapshot(manaFile, env.Clock.UtcNow);
-        var resolved = ManaSupport.Resolve(paths.Root, config);
+        var snap = ManaStore.ToSnapshot(manaFile, env.Clock.UtcNow, config.Plan);
+        var resolved = ManaSupport.Resolve(config, ManaSupport.LimitClass(env, manaFile).Class);
         var ledger = new ProjectLedger(paths, env.Clock);
         env.Out.WriteLine($"Plan {config.Plan}: start limits 5h {Pct(config.Limits.FiveHourPct)}, 7d {Pct(config.Limits.SevenDayPct)}");
-        env.Out.WriteLine($"Limits in use ({resolved.Source}): 5h {Pct(resolved.Limits.FiveHourPct)}, 7d {Pct(resolved.Limits.SevenDayPct)}; recaps measured {resolved.Recaps} (adaptive from {AdaptiveLimit.MinRecaps})");
+        env.Out.WriteLine($"Limits in use ({resolved.Source}): 5h {Pct(resolved.Limits.FiveHourPct)}, 7d {Pct(resolved.Limits.SevenDayPct)}");
         if (snap is null)
         {
             env.Out.WriteLine("No mana measurements yet (statusline sensor not active).");
@@ -278,8 +285,10 @@ internal static class ManaCommands
         }
 
         ManaSupport.Snapshot(ledger, ledger.SessionId(), snap, "mana");
-        env.Out.WriteLine($"5h: {Pct(snap.Effective5h)} used, resets {ManaSupport.Iso(snap.FiveHourResetsAt)}{(snap.IsStale ? " (stale)" : string.Empty)}{RawNote(manaFile?.RateLimits?.FiveHour, snap.Effective5h)}");
-        env.Out.WriteLine($"7d: {Pct(snap.Effective7d)} used, resets {ManaSupport.Iso(snap.SevenDayResetsAt)}{RawNote(manaFile?.RateLimits?.SevenDay, snap.Effective7d)}");
+        env.Out.WriteLine(snap.HasFiveHour
+            ? $"5h: {Pct(snap.Effective5h)} used, resets {ManaSupport.Iso(snap.FiveHourResetsAt)}{(snap.IsStale ? " (stale)" : string.Empty)}{RawNote(manaFile?.RateLimits?.FiveHour, snap.Effective5h)}"
+            : "5h: nicht vorhanden");
+        env.Out.WriteLine($"7d: {Pct(snap.Effective7d)} used, resets {ManaSupport.Iso(snap.SevenDayResetsAt)}{(snap is { HasFiveHour: false, IsStale: true } ? " (stale)" : string.Empty)}{RawNote(manaFile?.RateLimits?.SevenDay, snap.Effective7d)}");
         var (pair, factor) = ManaCalibration.Current(env, paths);
         var raw5 = estimate ?? ManaSupport.Step5h;
         var step5 = raw5 * factor.Factor;
@@ -290,9 +299,11 @@ internal static class ManaCommands
             env.Out.WriteLine(FormattableString.Invariant($"Estimate {Pct(raw5)} x {factor.Factor:0.00} = {Pct(step5)}"));
         }
 
-        var decision = ManaGuard.Decide(snap, step5, step7, QuestCommands.RecapReservePct, resolved.Limits, env.Clock.UtcNow);
-        var can5 = snap.Effective5h + step5 + QuestCommands.RecapReservePct <= resolved.Limits.FiveHourPct;
-        env.Out.WriteLine($"Step {Pct(step5)} (7d {Pct(step7)}) + recap {Pct(QuestCommands.RecapReservePct)}: {decision} (5h {(can5 ? "fits" : "does not fit")})");
+        var decision = ManaGuard.Decide(snap, step5, step7, resolved.Limits, env.Clock.UtcNow);
+        var can5 = snap.Effective5h + step5 <= resolved.Limits.FiveHourPct;
+        env.Out.WriteLine(snap.HasFiveHour
+            ? $"Step {Pct(step5)} (7d {Pct(step7)}): {decision} (5h {(can5 ? "fits" : "does not fit")})"
+            : $"Step {Pct(step5)} (7d {Pct(step7)}): {decision} (5h: nicht vorhanden)");
         return 0;
     }
 
@@ -414,8 +425,9 @@ internal static class ManaCommands
         var session = rawSession * factor.Factor;
         var weekly = rawWeekly * factor.Factor;
         var config = SystemConfigReader.Load(paths.Root);
-        var resolved = ManaSupport.Resolve(paths.Root, config);
-        var snap = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
+        var manaFile = ManaStore.Read(env.Home);
+        var resolved = ManaSupport.Resolve(config, ManaSupport.LimitClass(env, manaFile).Class);
+        var snap = ManaStore.ToSnapshot(manaFile, env.Clock.UtcNow, config.Plan);
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
         {
@@ -432,7 +444,6 @@ internal static class ManaCommands
             w.WriteString("status", factor.IsCalibrated ? "kalibriert" : "unkalibriert");
             w.WriteString("display", ManaCalibrator.Display(pair, factor));
             w.WriteEndObject();
-            w.WriteNumber("recapReservePct", QuestCommands.RecapReservePct);
             w.WriteStartObject("limits");
             w.WriteNumber("fiveHourPct", resolved.Limits.FiveHourPct);
             w.WriteNumber("sevenDayPct", resolved.Limits.SevenDayPct);
@@ -446,13 +457,21 @@ internal static class ManaCommands
             }
             else
             {
-                w.WriteString("decision", ManaGuard.Decide(snap, session, weekly, QuestCommands.RecapReservePct, resolved.Limits, env.Clock.UtcNow).ToString());
+                w.WriteString("decision", ManaGuard.Decide(snap, session, weekly, resolved.Limits, env.Clock.UtcNow).ToString());
                 w.WriteStartObject("headroom");
-                w.WriteNumber("fiveHourPct", resolved.Limits.FiveHourPct - snap.Effective5h - QuestCommands.RecapReservePct - session);
+                if (snap.HasFiveHour)
+                {
+                    w.WriteNumber("fiveHourPct", resolved.Limits.FiveHourPct - snap.Effective5h - session);
+                }
+
                 w.WriteNumber("sevenDayPct", resolved.Limits.SevenDayPct - snap.Effective7d - weekly);
                 w.WriteEndObject();
                 w.WriteStartObject("snapshot");
-                w.WriteNumber("fiveHourUsedPct", snap.Effective5h);
+                if (snap.HasFiveHour)
+                {
+                    w.WriteNumber("fiveHourUsedPct", snap.Effective5h);
+                }
+
                 w.WriteNumber("sevenDayUsedPct", snap.Effective7d);
                 w.WriteBoolean("stale", snap.IsStale);
                 w.WriteEndObject();

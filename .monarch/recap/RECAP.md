@@ -1,10 +1,10 @@
 # RECAP
 
 ## Stand
-- Zeitpunkt: 2026-11-19T17:42:33Z
+- Zeitpunkt: 2026-11-19T21:34:47Z
 - Plan: Pro
-- Mana 5h: 80% (Limit 90%, Reset 2026-11-19T19:40:00Z)
-- Mana 7d: 56% (Limit 96%, Reset 2026-11-25T11:00:00Z)
+- Mana 5h: 84% (Limit 90%, Reset 2026-11-20T00:40:00Z)
+- Mana 7d: 69% (Limit 96%, Reset 2026-11-25T11:00:00Z)
 - Limits: 5h 90%, 7d 96% (adaptive)
 
 ## Aktiv
@@ -33,7 +33,7 @@
 - Q-0150: Heikle Quest nach Standardregel 3: Warden-Runde über das Design vor dem Code, kein src-Code, kein anderer Test und keine andere Schwelle aufgeweicht, Schlussrunde des Wardens mit Verdict am Head-SHA
 
 ## Nächster konkreter Schritt
-G-0128 (Worktree .claude/worktrees/G-0128, Branch monarch/G-0128-umbrarch-v011-feinschliff, Q-0188 geplant, accept wegen Mana verweigert; ab 5h-Reset 2026-11-19T19:40Z). Teil 1 bestanden (Punkt 3 per Owner-Befehl, Punkt 4 per Owner-Hook-Aufruf: Deny 'Shadow scout ist read-only'). Dann: quest accept/start Q-0188; Test in VisibleLayerNameTests (plugin.json description ohne Monarch) rot, dann gruen; ADR-0019 (Status mit Freigabe woertlich, Antwort Luecke, Beleg Zeile 105 -> wrapper-test.sh:43); README.md und plugin/README.md Repo-URL + git clone; PluginNameConstantTests umbenennen/ergaenzen; Issue v0.2 Wrapper fail-open (--body-file); Issue v0.2 Fehlalarm readlink unter ~/.monarch (Deny-Text als Beleg); #155 abhaken; Kommentar #105 (Tag archiv/G-0115, Head e47fbb8, Lauf 44564909722); Kritiker; PR; Warden; gate merge; PR 152 Text ergaenzen, Titel bleibt, nicht mergen.
+G-0129 (Worktree .claude/worktrees/G-0129, PR 160, Branch monarch/G-0129-mana-grenze-arbeitsgrenze, Head 21004fe). Owner-Antworten 19.11. (verkleinerter Umfang) stehen woertlich im ADR-0012-Nachtrag; Messung als Issue 161 (v0.2); Q-0191 (ADR-0019 Zeilen 13/105/115) submitted und gepusht (Kritiker ok). Als Naechstes Q-0190 (gate_plan schon erfolgt, Scope inkl. ManaCalibrationStore.cs, McpTools.cs, plugin.json, Wrapper, wrapper-test.sh): quest accept/start, TDD gemaess ADR-0012-Nachtrag (Guard ohne Recap-Abzug in accept/mana/rest/status/MCP, Tabelle je Plan/Modell/Fenster, Plan-Aliase, Ultra ohne 5h: ToSnapshot mit Plan, last_seen, Begin/Finish, rest/Briefing ohne Epoch 0, AdaptiveLimit und Resolved.Recaps entfernt, system.yaml work_until_pct fuer alle Modelle, Eintraege je Modell, Gueltigkeit 0..100, awaken ohne work_until_pct und clamp, Version 0.1.2), alle alten Tests mit altem/neuem Wert und Grund im PR, Kritiker, Commit, PR-Text, Warden-Schlussrunde (Design und Code, Opus), gate verdict, gate merge, gate check, evidence sync je Quest (Q-0189, Q-0190, Q-0191), Aufraeumen. PR 152 nicht anfassen. Schlussbericht mit Owner-Befehlen: pull, install-local, Neustart, system.yaml Zeilen 8-9 (work_until_pct entfernen), Fable-Lesart bei Pro (Opus-Wert) als Frage.
 
 ## Offene Entscheidungen
 - Owner: historische docs (ADR-0001..0018, lessons, evidence) bleiben? Default ja (Vorschlag)

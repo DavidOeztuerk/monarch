@@ -39,9 +39,10 @@ internal static class StatusCommand
         var forge = askForge ? ForgeClearView.Derive(env, paths, quests) : ForgeClearView.Result.None;
         var xp = TotalXp(paths.Root);
         var level = 1 + (xp / 100);
-        var snapshot = ManaStore.ToSnapshot(ManaStore.Read(env.Home), env.Clock.UtcNow);
-        var limits = ManaSupport.Resolve(paths.Root, config).Limits;
-        ManaDecision? guard = snapshot is null ? null : ManaGuard.Decide(snapshot, StepEstimate5h, StepEstimate7d, QuestCommands.RecapReservePct, limits, env.Clock.UtcNow);
+        var manaFile = ManaStore.Read(env.Home);
+        var snapshot = ManaStore.ToSnapshot(manaFile, env.Clock.UtcNow, config.Plan);
+        var limits = ManaSupport.Resolve(config, ManaSupport.LimitClass(env, manaFile).Class).Limits;
+        ManaDecision? guard = snapshot is null ? null : ManaGuard.Decide(snapshot, StepEstimate5h, StepEstimate7d, limits, env.Clock.UtcNow);
         var ledger = LedgerVerifier.Verify(paths.Root, ManaCommands.TrustedBranches(config));
         var hook = SecretScanHook.Detect(env.Cwd);
 
@@ -71,7 +72,9 @@ internal static class StatusCommand
         }
         else
         {
-            sb.AppendLine(FormattableString.Invariant($"Mana 5h: {snapshot.Effective5h:0}% / limit {ManaSupport.Num(limits.FiveHourPct)}% · 7d: {snapshot.Effective7d:0}% / limit {ManaSupport.Num(limits.SevenDayPct)}%{(snapshot.IsStale ? " (stale)" : "")}"));
+            sb.AppendLine(snapshot.HasFiveHour
+                ? FormattableString.Invariant($"Mana 5h: {snapshot.Effective5h:0}% / limit {ManaSupport.Num(limits.FiveHourPct)}% · 7d: {snapshot.Effective7d:0}% / limit {ManaSupport.Num(limits.SevenDayPct)}%{(snapshot.IsStale ? " (stale)" : "")}")
+                : FormattableString.Invariant($"Mana 5h: nicht vorhanden · 7d: {snapshot.Effective7d:0}% / limit {ManaSupport.Num(limits.SevenDayPct)}%{(snapshot.IsStale ? " (stale)" : "")}"));
             sb.AppendLine(FormattableString.Invariant($"Mana-Guard for a {StepEstimate5h:0}% step: {guard}"));
         }
 
@@ -143,8 +146,17 @@ internal static class StatusCommand
             else
             {
                 w.WriteStartObject("mana");
-                w.WriteNumber("fiveHourUsedPct", s.Effective5h);
-                w.WriteNumber("fiveHourLimitPct", limits.FiveHourPct);
+                if (s.HasFiveHour)
+                {
+                    w.WriteNumber("fiveHourUsedPct", s.Effective5h);
+                    w.WriteNumber("fiveHourLimitPct", limits.FiveHourPct);
+                }
+                else
+                {
+                    w.WriteNull("fiveHourUsedPct");
+                    w.WriteNull("fiveHourLimitPct");
+                }
+
                 w.WriteNumber("sevenDayUsedPct", s.Effective7d);
                 w.WriteNumber("sevenDayLimitPct", limits.SevenDayPct);
                 w.WriteBoolean("stale", s.IsStale);
