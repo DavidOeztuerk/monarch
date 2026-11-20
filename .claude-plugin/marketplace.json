@@ -1,0 +1,12 @@
+{
+  "name": "umbrarch-local",
+  "description": "Lokaler Marketplace fuer das Umbrarch-Plugin",
+  "owner": { "name": "David Oeztuerk", "email": "davidoeztuerk1990@gmail.com" },
+  "plugins": [
+    {
+      "name": "umbrarch",
+      "source": "./plugin",
+      "description": "Leveling system for agentic software development: gates, quests, shadows, mana."
+    }
+  ]
+}

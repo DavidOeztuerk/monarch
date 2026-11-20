@@ -1,0 +1,200 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Monarch.Application.Net;
+using Monarch.Domain;
+
+namespace Monarch.Cli.Tests;
+
+public class McpServerTests
+{
+    private static List<JsonNode> Rpc(TempProject p, params string[] lines)
+    {
+        var o = new StringWriter();
+        var env = new CliEnv(p.Root, p.Home, new StringReader(string.Join("\n", lines) + "\n"), o, new StringWriter(), p.Clock, p.Http, new GitHubTokenProvider(_ => "t", () => null));
+        Assert.Equal(0, MonarchApp.Run(["mcp"], env));
+        return [.. o.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => JsonNode.Parse(l)!)];
+    }
+
+    private static string Init => """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}""";
+
+    private static string Call(int id, string tool, string args) =>
+        $$$"""{"jsonrpc":"2.0","id":{{{id}}},"method":"tools/call","params":{"name":"{{{tool}}}","arguments":{{{args}}}}}""";
+
+    /// <summary>Text without the leading project line (ADR-0013); text without it is returned as is.</summary>
+    private static string Json(string text) => text.StartsWith("project: ", StringComparison.Ordinal) ? text[(text.IndexOf('\n', StringComparison.Ordinal) + 1)..] : text;
+
+    private static (bool IsError, string Text) Result(JsonNode r) =>
+        (r["result"]!["isError"]?.GetValue<bool>() ?? false, r["result"]!["content"]![0]!["text"]!.GetValue<string>());
+
+    private const string Plan = """{"gate":{"id":"G-0007","title":"Gate seven","rank":"C","kind":"standard"},"quests":[{"id":"Q-0071","title":"Plain","kind":"main","rank":"D","scope":{"include":["src/web/**"],"exclude":[]},"estimate":{"session_pct":5,"weekly_pct":1},"dod":["a","b"],"boss":"boss one"},{"id":"Q-0072","title":"Auth thing","kind":"main","rank":"D","scope":{"include":["src/Foo/Auth/**"],"exclude":[]},"estimate":{"session_pct":4,"weekly_pct":1},"dod":["c"]}]}""";
+
+    [Fact]
+    public void Handshake_lists_exactly_six_tools_and_handles_protocol_edge_cases()
+    {
+        using var p = new TempProject();
+        var r = Rpc(p, Init, """{"jsonrpc":"2.0","method":"notifications/initialized"}""", """{"jsonrpc":"2.0","id":2,"method":"ping"}""",
+            """{"jsonrpc":"2.0","id":3,"method":"tools/list"}""", """{"jsonrpc":"2.0","id":4,"method":"nope"}""", "not json",
+            """{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"verify","arguments":{}}}""");
+        Assert.Equal(6, r.Count);
+        Assert.Equal("2025-06-18", r[0]["result"]!["protocolVersion"]!.GetValue<string>());
+        Assert.Equal("0.1.2", r[0]["result"]!["serverInfo"]!["version"]!.GetValue<string>());
+        var forecast = r[2]["result"]!["tools"]!.AsArray().Single(t => t!["name"]!.GetValue<string>() == "mana_forecast")!["description"]!.GetValue<string>();
+        Assert.DoesNotContain("adaptive", forecast, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("recap", forecast, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(r[0]["result"]!["capabilities"]!["tools"]);
+        Assert.NotNull(r[1]["result"]);
+        var names = r[2]["result"]!["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).Order().ToArray();
+        Assert.Equal(["evidence_sync", "gate_plan", "knowledge_write", "mana_forecast", "quest_transition", "system_status"], names);
+        Assert.All(r[2]["result"]!["tools"]!.AsArray(), t => Assert.Equal("object", t!["inputSchema"]!["type"]!.GetValue<string>()));
+        Assert.Equal(-32601, r[3]["error"]!["code"]!.GetValue<int>());
+        Assert.Equal(-32700, r[4]["error"]!["code"]!.GetValue<int>());
+        Assert.Equal(-32602, r[5]["error"]!["code"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void System_status_and_mana_forecast_are_read_tools()
+    {
+        using var p = new TempProject();
+        Seed.Mana(p, 40, 20);
+        var r = Rpc(p, Call(1, "system_status", "{}"), Call(2, "mana_forecast", """{"estimates":[{"session_pct":5,"weekly_pct":1},{"session_pct":60,"weekly_pct":1}]}"""),
+            Call(3, "mana_forecast", """{"estimates":[{"session_pct":5,"weekly_pct":1}]}"""), Call(4, "mana_forecast", "{}"));
+        Assert.Contains("ledgerOk", Result(r[0]).Text, StringComparison.Ordinal);
+        var big = JsonNode.Parse(Json(Result(r[1]).Text))!;
+        Assert.Equal("RecapAndStop", big["decision"]!.GetValue<string>());
+        Assert.Equal("plan default", big["limitSource"]!.GetValue<string>());
+        var small = JsonNode.Parse(Json(Result(r[2]).Text))!;
+        Assert.Equal("Proceed", small["decision"]!.GetValue<string>());
+        Assert.Equal(45, small["headroom"]!["fiveHourPct"]!.GetValue<double>(), 3); // alt 90 - 40 - 5 - 5; Q-0190: kein Recap-Abzug, 90 - 40 - 5
+        Assert.Null(small["recapReservePct"]);
+        Assert.True(Result(r[3]).IsError);
+    }
+
+    [Fact]
+    public void Gate_plan_appends_follow_up_quests_to_the_gate_list_instead_of_replacing_it()
+    {
+        // Issue 92: ein zweiter gate_plan-Aufruf mit einer Folge-Quest hängt sie an; Q-0071 und Q-0072 bleiben in der Gate-Datei.
+        using var p = new TempProject();
+        Assert.False(Result(Rpc(p, Call(1, "gate_plan", Plan))[0]).IsError);
+        const string followUp = """{"gate":{"id":"G-0007","title":"Gate seven","rank":"C","kind":"standard"},"quests":[{"id":"Q-0073","title":"Folge","kind":"side","rank":"E","scope":{"include":["src/web/**"],"exclude":[]},"estimate":{"session_pct":1,"weekly_pct":0.5},"dod":["d"]}]}""";
+        Assert.False(Result(Rpc(p, Call(1, "gate_plan", followUp))[0]).IsError);
+        // Die Gate-Datei selbst muss alle drei Quests führen (gate show liest zusätzlich die Quest-Dateien).
+        var gateFile = Assert.Single(Directory.GetFiles(Path.Combine(p.Root, ".monarch", "gates"), "G-0007*"));
+        var gateText = File.ReadAllText(gateFile);
+        Assert.Contains("Q-0071", gateText, StringComparison.Ordinal);
+        Assert.Contains("Q-0072", gateText, StringComparison.Ordinal);
+        Assert.Contains("Q-0073", gateText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Gate_plan_stores_files_events_raises_rank_by_risk_tag_and_protects_started_quests()
+    {
+        using var p = new TempProject();
+        var r = Rpc(p, Call(1, "gate_plan", Plan));
+        var (err, text) = Result(r[0]);
+        Assert.False(err, text);
+        var res = JsonNode.Parse(Json(text))!;
+        var raised = res["quests"]!.AsArray().Single(q => q!["id"]!.GetValue<string>() == "Q-0072")!;
+        Assert.Equal("A", raised["rank"]!.GetValue<string>());
+        Assert.Contains("auth", raised["reason"]!.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        var list = p.Run(["quest", "list"]).Out;
+        Assert.Contains("Q-0071  [D]", list, StringComparison.Ordinal);
+        Assert.Contains("Q-0072  [A]", list, StringComparison.Ordinal);
+        Assert.Equal(1, p.Events().Count(e => e.Type == "GateOpened"));
+        Assert.Equal(2, p.Events().Count(e => e.Type == "QuestProposed"));
+        Assert.Contains("g-0007", string.Join(",", Directory.GetFiles(Path.Combine(p.Root, ".monarch", "gates"))).ToLowerInvariant(), StringComparison.Ordinal);
+        Assert.Contains("boss one", File.ReadAllText(Directory.GetFiles(Path.Combine(p.Root, ".monarch", "quests"), "Q-0071*").Single()), StringComparison.Ordinal);
+
+        Assert.Equal(0, p.Run(["quest", "accept", "Q-0071"]).Code);
+        var before = File.ReadAllText(Directory.GetFiles(Path.Combine(p.Root, ".monarch", "quests"), "Q-0071*").Single());
+        var again = Rpc(p, Call(1, "gate_plan", Plan.Replace("Plain", "Changed", StringComparison.Ordinal)));
+        Assert.True(Result(again[0]).IsError);
+        Assert.Contains("Q-0071", Result(again[0]).Text, StringComparison.Ordinal);
+        Assert.Equal(before, File.ReadAllText(Directory.GetFiles(Path.Combine(p.Root, ".monarch", "quests"), "Q-0071*").Single()));
+        Assert.True(Result(Rpc(p, Call(1, "gate_plan", """{"gate":{"id":"bad","title":"x","rank":"C","kind":"standard"},"quests":[]}"""))[0]).IsError);
+    }
+
+    [Fact]
+    public void Gate_plan_never_lowers_an_existing_gate_rank()
+    {
+        // #145: ein Folge-Aufruf mit niedrigerem Gate-Rang darf einen Gate mit Rang S nicht auf C senken.
+        using var p = new TempProject();
+        const string strict = """{"gate":{"id":"G-0007","title":"Gate seven","rank":"S","kind":"standard"},"quests":[{"id":"Q-0071","title":"Plain","kind":"main","rank":"D","scope":{"include":["src/web/**"],"exclude":[]},"estimate":{"session_pct":5,"weekly_pct":1},"dod":["a"],"boss":"boss one"}]}""";
+        const string lower = """{"gate":{"id":"G-0007","title":"Gate seven","rank":"C","kind":"standard"},"quests":[{"id":"Q-0073","title":"Folge","kind":"side","rank":"E","scope":{"include":["src/web/**"],"exclude":[]},"estimate":{"session_pct":1,"weekly_pct":0.5},"dod":["d"]}]}""";
+        Assert.False(Result(Rpc(p, Call(1, "gate_plan", strict))[0]).IsError);
+        Assert.False(Result(Rpc(p, Call(1, "gate_plan", lower))[0]).IsError);
+        var list = p.Run(["gate", "list"]).Out;
+        Assert.Contains("G-0007  [S]", list, StringComparison.Ordinal);
+        Assert.DoesNotContain("G-0007  [C]", list, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Gate_with_a_numeric_rank_in_its_file_is_read_as_E_not_as_an_invalid_rank()
+    {
+        // #145 Härtung: Enum.TryParse nimmt "99" als Rang an. Ein ungültiger Rang fällt auf E zurück.
+        using var p = new TempProject();
+        Assert.False(Result(Rpc(p, Call(1, "gate_plan", Plan))[0]).IsError);
+        var file = Directory.GetFiles(Path.Combine(p.Root, ".monarch", "gates"), "G-0007*").Single();
+        File.WriteAllText(file, File.ReadAllText(file).Replace("rank: C", "rank: 99", StringComparison.Ordinal));
+        var list = p.Run(["gate", "list"]).Out;
+        Assert.Contains("G-0007  [E]", list, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Quest_transition_allows_only_accept_start_submit()
+    {
+        using var p = new TempProject();
+        Seed.Gate(p);
+        Seed.Quest(p, "Q-0001");
+        var r = Rpc(p, Call(1, "quest_transition", """{"id":"Q-0001","action":"accept"}"""), Call(2, "quest_transition", """{"id":"Q-0001","action":"start"}"""),
+            Call(3, "quest_transition", """{"id":"Q-0001","action":"submit"}"""), Call(4, "quest_transition", """{"id":"Q-0001","action":"verify"}"""),
+            Call(5, "quest_transition", """{"id":"Q-0001","action":"clear"}"""), Call(6, "quest_transition", """{"id":"Q-0001","action":"abandon"}"""));
+        Assert.All(r.Take(3), x => Assert.False(Result(x).IsError, Result(x).Text));
+        Assert.Equal("in_review", Seed.State(Directory.GetFiles(Path.Combine(p.Root, ".monarch", "quests")).Single()));
+        foreach (var x in r.Skip(3))
+        {
+            var (err, text) = Result(x);
+            Assert.True(err);
+            Assert.Contains("verify", text, StringComparison.Ordinal);
+            Assert.Contains("clear", text, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Evidence_sync_pulls_forge_data_only()
+    {
+        using var p = new TempProject(systemYaml: Seed.ForgeYaml);
+        var f = new FakeForge();
+        f.Pulls[7] = (FakeForge.Sha, true);
+        f.SetChecks(FakeForge.Run(1, "build", "success"));
+        p.Http = f;
+        Seed.Gate(p);
+        var quest = Seed.Quest(p, "Q-0001", "in_review", extra: "board: { provider: github, pr: 7 }\n");
+        var r = Rpc(p, Call(1, "evidence_sync", """{"quest":"Q-0001"}"""));
+        Assert.False(Result(r[0]).IsError, Result(r[0]).Text);
+        Assert.Equal("cleared", Seed.State(quest));
+    }
+
+    [Fact]
+    public void Knowledge_write_is_confined_below_knowledge_dir()
+    {
+        using var p = new TempProject();
+        var kdir = Path.Combine(p.Root, ".monarch", "knowledge");
+        Directory.CreateDirectory(kdir);
+        var outside = Path.Combine(p.Root, "outside");
+        Directory.CreateDirectory(outside);
+        Directory.CreateSymbolicLink(Path.Combine(kdir, "link"), outside);
+        var r = Rpc(p, Call(1, "knowledge_write", """{"path":"notes/a.md","content":"# hi"}"""), Call(2, "knowledge_write", """{"path":"../x.md","content":"x"}"""),
+            Call(3, "knowledge_write", """{"path":"/etc/x.md","content":"x"}"""), Call(4, "knowledge_write", """{"path":"a/../../x.md","content":"x"}"""),
+            Call(5, "knowledge_write", """{"path":"link/x.md","content":"x"}"""), Call(6, "knowledge_write", """{"path":"","content":"x"}"""));
+        Assert.False(Result(r[0]).IsError, Result(r[0]).Text);
+        Assert.Equal("# hi", File.ReadAllText(Path.Combine(kdir, "notes", "a.md")));
+        Assert.Single(p.Events(), e => e.Type == "KnowledgeWritten");
+        foreach (var x in r.Skip(1))
+        {
+            Assert.True(Result(x).IsError);
+        }
+
+        Assert.Empty(Directory.GetFiles(outside));
+        Assert.False(File.Exists(Path.Combine(p.Root, "x.md")));
+    }
+}

@@ -1,0 +1,6 @@
+{"seq":1,"type":"PolicyDecided","payload":{"rule":"protect_paths","kind":"deny","tool":"Write","reason":"'.monarch/ledger/2026-10/cli-20261027.jsonl' ist geschützt (Ledger/Shadow-Definition); nur die Engine schreibt dort."}}
+{"seq":2,"type":"PolicyDecided","payload":{"rule":"protect_paths","kind":"deny","tool":"Edit","reason":"'.monarch/ledger/2026-10/cli-20261027.jsonl' ist geschützt (Ledger/Shadow-Definition); nur die Engine schreibt dort."}}
+{"seq":3,"type":"PolicyDecided","payload":{"rule":"protect_paths","kind":"deny","tool":"Bash","reason":"Das Kommando verändert einen geschützten Pfad (Ledger/Shadow-Definition)."}}
+{"seq":4,"type":"PolicyDecided","payload":{"rule":"protect_paths","kind":"deny","tool":"Bash","reason":"Das Kommando verändert einen geschützten Pfad (Ledger/Shadow-Definition)."}}
+{"seq":5,"type":"PolicyDecided","payload":{"rule":"protect_paths","kind":"deny","tool":"Bash","reason":"Das Kommando verändert einen geschützten Pfad (Ledger/Shadow-Definition)."}}
+{"seq":6,"type":"PolicyDecided","payload":{"rule":"protect_paths","kind":"deny","tool":"Write","reason":"'.monarch/local/ledger-heads.json' ist geschützt (Ledger/Shadow-Definition); nur die Engine schreibt dort."}}

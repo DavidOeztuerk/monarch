@@ -1,0 +1,10 @@
+{"hook_event_name":"SessionStart","permission_mode":null,"agent_id":null,"agent_type":null,"tool_name":null,"tool_input":null}
+{"hook_event_name":"PreToolUse","permission_mode":"default","agent_id":null,"agent_type":null,"tool_name":"Bash","tool_input":{"command":"touch allowed-marker.txt","description":"Create allowed-marker.txt"}}
+{"hook_event_name":"PostToolUse","permission_mode":"default","agent_id":null,"agent_type":null,"tool_name":"Bash","tool_input":{"command":"touch allowed-marker.txt","description":"Create allowed-marker.txt"}}
+{"hook_event_name":"PreToolUse","permission_mode":"default","agent_id":null,"agent_type":null,"tool_name":"Bash","tool_input":{"command":"touch ask-marker.txt # MONARCH_ASK_PROBE","description":"Create ask-marker.txt"}}
+{"hook_event_name":"PreToolUse","permission_mode":"default","agent_id":null,"agent_type":null,"tool_name":"Agent","tool_input":{"description":"Ask probe agent for probe word","prompt":"What is the probe word? Answer from what you already know. Do not invoke the Skill tool.","subagent_type":"probe","run_in_background":false}}
+{"hook_event_name":"PreToolUse","permission_mode":"default","agent_id":"ac6fc4734ea3ce0fc","agent_type":"probe","tool_name":"Bash","tool_input":{"command":"echo subagent-bash-ok","description":"Print subagent-bash-ok marker"}}
+{"hook_event_name":"PostToolUse","permission_mode":"default","agent_id":"ac6fc4734ea3ce0fc","agent_type":"probe","tool_name":"Bash","tool_input":{"command":"echo subagent-bash-ok","description":"Print subagent-bash-ok marker"}}
+{"hook_event_name":"SubagentStop","permission_mode":"default","agent_id":"ac6fc4734ea3ce0fc","agent_type":"probe","tool_name":null,"tool_input":null}
+{"hook_event_name":"PostToolUse","permission_mode":"default","agent_id":null,"agent_type":null,"tool_name":"Agent","tool_input":{"description":"Ask probe agent for probe word","prompt":"What is the probe word? Answer from what you already know. Do not invoke the Skill tool.","subagent_type":"probe","run_in_background":false}}
+{"hook_event_name":"Stop","permission_mode":"default","agent_id":null,"agent_type":null,"tool_name":null,"tool_input":null}

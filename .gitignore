@@ -1,0 +1,10 @@
+bin/
+obj/
+.monarch/local/
+artifacts/
+publish/
+*.user
+.vs/
+.idea/
+TestResults/
+.DS_Store

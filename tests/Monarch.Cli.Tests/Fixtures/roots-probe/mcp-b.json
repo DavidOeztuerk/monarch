@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "monarch-probe": {
+      "type": "stdio",
+      "command": "/private/tmp/claude-501/-Users-davidozturk-Projects/da7d131d-0be1-43aa-9a10-991e823808ea/scratchpad/aot/monarch",
+      "args": ["mcp"],
+      "env": { "MONARCH_MCP_ROOTS_LOG": "/Users/davidozturk/Projects/.monarch-worktrees/monarch-G-0103/tests/Monarch.Cli.Tests/Fixtures/roots-probe/roots-b.log" }
+    }
+  }
+}

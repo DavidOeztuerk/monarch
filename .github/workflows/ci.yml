@@ -1,0 +1,164 @@
+name: ci
+
+on:
+  # Umsetzung zu ADR-0015, Nachtrag 18.11.2026 (Zusammenfassung): push nur auf develop und main; jeder PR läuft nur einmal.
+  push:
+    branches: [develop, main]
+  pull_request:
+  workflow_dispatch:
+  # Umsetzung zu ADR-0015, Nachtrag 18.11.2026 (Zusammenfassung): Nachtlauf auf develop. GitHub startet geplante Läufe erst, wenn die Datei auf main liegt.
+  schedule:
+    - cron: "17 3 * * *"
+
+# Least privilege: jobs only read the repository.
+permissions:
+  contents: read
+
+concurrency:
+  # Der Nachtlauf hat eine eigene Gruppe, sonst teilt er sie mit Pushes auf main (github.ref ist dort refs/heads/main).
+  group: ci-${{ github.event_name == 'schedule' && 'nightly' || github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  # Entscheidet, welche Matrix läuft. macOS nur bei PR nach main, workflow_dispatch und schedule (ADR-0015, Nachtrag 18.11.2026).
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      build_matrix: ${{ steps.plan.outputs.build_matrix }}
+      aot_matrix: ${{ steps.plan.outputs.aot_matrix }}
+    steps:
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$EVENT" = "schedule" ] || { [ "$EVENT" = "pull_request" ] && [ "$BASE" = "main" ]; }; then
+            echo 'build_matrix={"os":["ubuntu-latest","macos-latest"]}' >> "$GITHUB_OUTPUT"
+            echo 'aot_matrix={"include":[{"os":"macos-latest","rid":"osx-arm64"},{"os":"ubuntu-latest","rid":"linux-x64"}]}' >> "$GITHUB_OUTPUT"
+          else
+            echo 'build_matrix={"os":["ubuntu-latest"]}' >> "$GITHUB_OUTPUT"
+            echo 'aot_matrix={"include":[{"os":"ubuntu-latest","rid":"linux-x64"}]}' >> "$GITHUB_OUTPUT"
+          fi
+
+  build-test:
+    name: build-test (${{ matrix.os }})
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.build_matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - run: dotnet test -c Release --no-build
+
+  aot:
+    name: aot (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    needs: [plan, build-test]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.aot_matrix) }}
+    env:
+      # Latency gate (ADR-0015, docs/adr/0015-relatives-latenz-gate.md): the CI gates the ratio of the hook to the bare
+      # program start (`monarch --version`) on the same runner, at the median. The limits are fixed in
+      # bench/hook-latency.sh; change them only together with measured numbers and run ids in ADR-0015.
+      # LIMIT_MS stays 20: p99 <= 20 ms is the criterion on the owner's machine (MVP gate C1), and since the owner
+      # decision of 2026-11-12 it holds on a quiet machine. Under load C1 is a ratio of at most 1.70, measured on the
+      # Mac with its own bench mode (ADR-0015, addenda of 2026-11-12 and 2026-11-13). That mode is not a CI gate and refuses to run
+      # here; the steps below keep GATE_MODE relative, and bench/test-gate.sh fails if they do not. Here the
+      # absolute p50/p95/p99 are reported in the log and the job summary and do not fail the job (declared loosening,
+      # owner decision of 2026-11-11). Never set BENCH_INJECT here; it exists only to prove that the gate turns red.
+      LIMIT_MS: "20"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Install native toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      - name: Publish Native AOT
+        run: dotnet publish src/Monarch.Cli -c Release -r ${{ matrix.rid }} -o publish
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: monarch-${{ matrix.rid }}
+          path: publish/monarch
+          if-no-files-found: error
+      - name: Install hyperfine and jq (macOS)
+        if: runner.os == 'macOS'
+        run: brew install hyperfine jq
+      - name: Install hyperfine and jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y hyperfine jq
+      - name: Latency gate self-test
+        run: bench/test-gate.sh
+      # Both latency steps block on the operating system they run on. macOS runs only on PR nach main, workflow_dispatch and schedule (ADR-0015, Nachtrag 18.11.2026). Neither may carry continue-on-error.
+      - name: Hook latency, relative gate (direct)
+        env:
+          GATE_MODE: relative
+        shell: bash
+        run: |
+          set -o pipefail
+          { echo "### Hook latency, direct (${{ matrix.rid }})"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          bench/hook-latency.sh "$GITHUB_WORKSPACE/publish/monarch" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - name: Hook latency, relative gate (through plugin/scripts/monarch)
+        env:
+          GATE_MODE: relative
+        shell: bash
+        run: |
+          set -o pipefail
+          { echo "### Hook latency via wrapper (${{ matrix.rid }})"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          WRAPPER=1 bench/hook-latency.sh "$GITHUB_WORKSPACE/publish/monarch" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || '' }}
+          persist-credentials: false
+      - name: Shell syntax
+        run: |
+          set -eu
+          sh -n plugin/scripts/monarch
+          for f in bench/*.sh e2e/*.sh scripts/*.sh plugin/tests/*.sh; do
+            [ -f "$f" ] && bash -n "$f"
+          done
+      - name: Wrapper tests
+        run: |
+          set -eu
+          sh plugin/tests/wrapper-test.sh
+          dash plugin/tests/wrapper-test.sh
+      - name: JSON validity
+        run: |
+          set -eu
+          find plugin .claude-plugin -name '*.json' -print0 | xargs -0 -n1 jq empty
+      - name: Wrapper version matches plugin.json
+        run: |
+          set -eu
+          wrapper=$(sed -n 's/^MONARCH_VERSION=//p' plugin/scripts/monarch | head -n1)
+          manifest=$(jq -r .version plugin/.claude-plugin/plugin.json)
+          echo "wrapper=$wrapper plugin.json=$manifest"
+          [ -n "$wrapper" ] && [ "$wrapper" = "$manifest" ]
